@@ -487,6 +487,149 @@ async def list_jobs(
             detail=f"Failed to list jobs: {str(e)}"
         )
 
+# ── Client Profile endpoints ──────────────────────────────────────────────────
+
+@app.get("/api/clients/{client_name}/profile")
+async def get_client_profile(client_name: str):
+    """
+    Get the persistent ClientProfile for a client.
+    Used by the history dashboard.
+    """
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {client_name}")
+    return profile.to_dict()
+
+
+@app.get("/api/clients")
+async def list_clients():
+    """
+    List all clients that have profiles.
+    """
+    import sys, os, glob, json
+
+    # Try local files first
+    profile_dir = "/tmp/valinor_profiles"
+    os.makedirs(profile_dir, exist_ok=True)
+
+    clients = []
+    for path in glob.glob(os.path.join(profile_dir, "*.json")):
+        try:
+            data = json.loads(open(path).read())
+            clients.append({
+                "client_name": data.get("client_name"),
+                "run_count": data.get("run_count", 0),
+                "last_run_date": data.get("last_run_date"),
+                "known_findings_count": len(data.get("known_findings", {})),
+            })
+        except Exception:
+            pass
+
+    return {"clients": clients}
+
+
+@app.put("/api/clients/{client_name}/profile/false-positive")
+async def mark_false_positive(client_name: str, finding_id: str):
+    """
+    Mark a finding as a false positive for this client.
+    It will be suppressed in future runs.
+    """
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load_or_create(client_name)
+
+    if finding_id not in profile.false_positives:
+        profile.false_positives.append(finding_id)
+
+    # Also add to suppress list in refinement
+    if profile.refinement is None:
+        profile.refinement = {}
+    suppress = profile.refinement.get("suppress_ids", [])
+    if finding_id not in suppress:
+        suppress.append(finding_id)
+    profile.refinement["suppress_ids"] = suppress
+
+    await store.save(profile)
+    return {"status": "ok", "finding_id": finding_id, "client": client_name}
+
+
+@app.delete("/api/clients/{client_name}/profile")
+async def reset_client_profile(client_name: str):
+    """
+    Reset (delete) a client's profile.
+    Useful when the client's database schema changes significantly.
+    """
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+    from shared.memory.client_profile import ClientProfile
+
+    store = get_profile_store()
+    # Create a blank profile (reset)
+    blank = ClientProfile.new(client_name)
+    await store.save(blank)
+    return {"status": "reset", "client": client_name}
+
+
+@app.get("/api/clients/{client_name}/stats")
+async def get_client_stats(client_name: str):
+    """
+    Get summary statistics for a client.
+    """
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for: {client_name}")
+
+    # Compute trend for findings count
+    run_history = profile.run_history[-10:]
+    findings_trend = [r.get("findings_count", 0) for r in run_history]
+    trend_direction = "stable"
+    if len(findings_trend) >= 2:
+        if findings_trend[-1] > findings_trend[0]:
+            trend_direction = "increasing"
+        elif findings_trend[-1] < findings_trend[0]:
+            trend_direction = "decreasing"
+
+    # Average resolution time
+    resolved = list(profile.resolved_findings.values())
+
+    return {
+        "client_name": client_name,
+        "run_count": profile.run_count,
+        "last_run_date": profile.last_run_date,
+        "industry": profile.industry_inferred,
+        "currency": profile.currency_detected,
+        "active_findings": len(profile.known_findings),
+        "resolved_findings": len(profile.resolved_findings),
+        "critical_active": sum(
+            1 for r in profile.known_findings.values()
+            if r.get("severity", "") == "CRITICAL"
+        ),
+        "avg_runs_open": round(
+            sum(r.get("runs_open", 1) for r in profile.known_findings.values()) /
+            max(len(profile.known_findings), 1), 1
+        ),
+        "findings_trend": trend_direction,
+        "kpi_count": len(profile.baseline_history),
+        "focus_tables": profile.focus_tables[:5],
+        "refinement_ready": profile.refinement is not None,
+        "entity_cache_fresh": profile.is_entity_map_fresh(),
+    }
+
+
 # ═══ BACKGROUND TASKS ═══
 
 async def progress_callback(job_id: str, stage: str, progress: int, message: str):
@@ -563,6 +706,10 @@ async def run_analysis_task(job_id: str, request_data: Dict[str, Any]):
             period=request_data.get("period") or default_period
         )
         
+        # Ensure run_delta is present at the top level of results
+        if "run_delta" not in results and isinstance(results.get("stages"), dict):
+            results["run_delta"] = results["stages"].get("run_delta")
+
         # Store results in Redis
         await redis_client.set(
             f"job:{job_id}:results",

@@ -38,6 +38,12 @@ from valinor.gates import gate_cartographer, gate_analysis
 
 from shared.ssh_tunnel import create_ssh_tunnel, ZeroTrustValidator
 from shared.storage import MetadataStorage
+from shared.memory.profile_store import get_profile_store
+from shared.memory.profile_extractor import get_profile_extractor
+from api.refinement.prompt_tuner import PromptTuner
+from api.refinement.focus_ranker import FocusRanker
+from api.refinement.refinement_agent import RefinementAgent
+from shared.memory.industry_detector import IndustryDetector
 
 logger = structlog.get_logger()
 
@@ -58,7 +64,12 @@ class ValinorAdapter:
         self.progress_callback = progress_callback
         self.metadata_storage = MetadataStorage()
         self.zero_trust = ZeroTrustValidator()
-        
+        self.profile_store = get_profile_store()
+        self.profile_extractor = get_profile_extractor()
+        self.prompt_tuner = PromptTuner()
+        self.focus_ranker = FocusRanker()
+        self.industry_detector = IndustryDetector()
+
     async def run_analysis(
         self,
         job_id: str,
@@ -161,6 +172,7 @@ class ValinorAdapter:
             results["stages"] = pipeline_results["stages"]
             results["findings"] = pipeline_results.get("findings", {})
             results["reports"] = pipeline_results.get("reports", {})
+            results["run_delta"] = pipeline_results.get("run_delta", {})
                 
             # Calculate execution time
             execution_time = (datetime.utcnow() - start_time).total_seconds()
@@ -375,55 +387,109 @@ RETURN ONLY THE JSON OBJECT."""
         Wraps the v0 pipeline without modifying it.
         """
         results = {"stages": {}}
+        client_name = config.get("name", "unknown")
 
         try:
             # Parse period
             period_config = parse_period(period)
 
-            # ═══ STAGE 1: CARTOGRAPHER ═══
-            await self._progress("cartographer", 15, "Discovering database schema...")
+            # ── Load ClientProfile ────────────────────────────────────────────────
+            profile = await self.profile_store.load_or_create(client_name)
+            logger.info("ClientProfile loaded", client=client_name, run_count=profile.run_count,
+                        has_cache=profile.is_entity_map_fresh())
 
-            entity_map = await self._run_direct_cartographer(config)
-            results["stages"]["cartographer"] = {
-                "entities_found": len(entity_map.get("entities", {})),
-                "success": True
-            }
-            
+            # ═══ STAGE 1: CARTOGRAPHER ═══
+            if profile.is_entity_map_fresh():
+                # Use cached entity_map — skip expensive LLM cartographer call
+                entity_map = profile.entity_map_cache
+                await self._progress("cartographer", 25,
+                    f"Usando mapa de entidades en caché ({len(entity_map.get('entities', {}))} entidades)")
+                results["stages"]["cartographer"] = {
+                    "entities_found": len(entity_map.get("entities", {})),
+                    "success": True,
+                    "cache_hit": True
+                }
+            else:
+                await self._progress("cartographer", 15, "Discovering database schema...")
+                entity_map = await self._run_direct_cartographer(config)
+                results["stages"]["cartographer"] = {
+                    "entities_found": len(entity_map.get("entities", {})),
+                    "success": True,
+                    "cache_hit": False
+                }
+                # Update entity_map cache in profile
+                profile.entity_map_cache = entity_map
+                profile.entity_map_updated_at = datetime.utcnow().isoformat()
+                # Auto-detect industry and currency from schema
+                self.industry_detector.update_profile(profile, entity_map, config)
+                await self._progress("cartographer", 25, f"Found {len(entity_map['entities'])} entities")
+
             # Gate check
             if not gate_cartographer(entity_map):
                 raise ValueError("Insufficient entity mapping - need at least customers + invoices")
-            
-            await self._progress("cartographer", 25, f"Found {len(entity_map['entities'])} entities")
-            
+
+            # Rerank entity map based on historical table weights
+            entity_map = self.focus_ranker.rerank_entity_map(entity_map, profile)
+
             # ═══ STAGE 2: QUERY BUILDER ═══
             await self._progress("query_builder", 30, "Building analysis queries...")
-            
-            query_pack = build_queries(entity_map, period_config)
+
+            # Forward query hints from profile refinement to query builder context
+            refinement = profile.get_refinement()
+            if refinement.query_hints:
+                # Inject hints into period_config as additional context (non-breaking)
+                period_config_with_hints = {
+                    **period_config,
+                    "query_hints": refinement.query_hints,
+                    "focus_tables": profile.focus_tables[:5],
+                }
+                query_pack = build_queries(entity_map, period_config_with_hints)
+            else:
+                query_pack = build_queries(entity_map, period_config)
             results["stages"]["query_builder"] = {
                 "queries_built": len(query_pack.get("queries", [])),
                 "queries_skipped": len(query_pack.get("skipped", [])),
                 "success": True
             }
-            
+
             await self._progress("query_builder", 35, f"Built {len(query_pack['queries'])} queries")
-            
+
             # ═══ STAGE 2.5: EXECUTE QUERIES ═══
             await self._progress("query_execution", 40, "Executing database queries...")
-            
+
             query_results = await execute_queries(query_pack, config)
             results["stages"]["query_execution"] = {
                 "executed": len(query_results.get("results", [])),
                 "failed": len(query_results.get("errors", [])),
                 "success": True
             }
-            
+
             await self._progress("query_execution", 50, f"Executed {len(query_results['results'])} queries")
-            
+
             # ═══ STAGE 3: ANALYSIS AGENTS (PARALLEL) ═══
             await self._progress("analysis_agents", 55, "Running AI analysis agents...")
-            
-            # Get memory if exists
-            memory = await self.metadata_storage.get_client_memory(config.get("name", "unknown"))
+
+            # Get old-style memory for backward compatibility
+            memory = await self.metadata_storage.get_client_memory(client_name)
+
+            # Inject adaptive context from profile into memory
+            memory = self.prompt_tuner.inject_into_memory(memory or {}, profile)
+
+            # Inject historical context for narrator
+            if profile.run_count > 0 and profile.run_history:
+                last_run = profile.run_history[-1] if profile.run_history else {}
+                memory["run_history_summary"] = {
+                    "previous_run_date": profile.last_run_date,
+                    "run_number": profile.run_count + 1,
+                    "previously_resolved": len(profile.resolved_findings),
+                    "persistent_findings": [
+                        {"id": fid, "title": rec.get("title", ""), "runs_open": rec.get("runs_open", 1)}
+                        for fid, rec in profile.known_findings.items()
+                        if rec.get("runs_open", 0) >= 3
+                    ][:5],
+                    "industry": profile.industry_inferred,
+                    "currency": profile.currency_detected,
+                }
 
             # Compute baseline (frozen brief with provenance-tagged numbers)
             baseline = compute_baseline(query_results)
@@ -434,14 +500,13 @@ RETURN ONLY THE JSON OBJECT."""
                 "success": gate_analysis(findings)
             }
             results["findings"] = findings
-            
+
             await self._progress("analysis_agents", 75, f"Completed {len(findings)} agent analyses")
-            
+
             # ═══ STAGE 4: NARRATORS ═══
             await self._progress("narrators", 80, "Generating executive reports...")
-            
+
             report_text = await narrate_executive(findings, entity_map, memory, config, baseline)
-            # narrate_executive returns a str; wrap in dict for deliver_reports
             reports = {"executive": report_text} if isinstance(report_text, str) else report_text
             results["stages"]["narrators"] = {
                 "reports_generated": len(reports),
@@ -454,7 +519,6 @@ RETURN ONLY THE JSON OBJECT."""
             # ═══ STAGE 5: DELIVER ═══
             await self._progress("delivery", 98, "Finalizing results...")
 
-            # Store in temporary location for this job
             output_dir = Path(f"/tmp/valinor_output/{job_id}")
             output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -463,17 +527,25 @@ RETURN ONLY THE JSON OBJECT."""
                 "output_path": str(output_dir),
                 "success": True
             }
-            
-            # Update memory for next run
-            new_memory = self._build_memory(entity_map, findings, results, memory)
-            await self.metadata_storage.store_client_memory(
-                config.get("name", "unknown"),
-                period,
-                new_memory
+
+            # ── Update ClientProfile ──────────────────────────────────────────────
+            run_delta = self.profile_extractor.update_from_run(
+                profile, findings, entity_map, reports, period, run_success=True
             )
-            
+            results["run_delta"] = run_delta
+            await self.profile_store.save(profile)
+
+            # ── Fire RefinementAgent in background ───────────────────────────────
+            asyncio.create_task(self._run_refinement_background(
+                profile, findings, entity_map, reports, period, run_delta
+            ))
+
+            # Update legacy memory for backward compatibility
+            new_memory = self._build_memory(entity_map, findings, results, memory)
+            await self.metadata_storage.store_client_memory(client_name, period, new_memory)
+
             return results
-            
+
         except Exception as e:
             logger.error(
                 "Pipeline stage failed",
@@ -482,6 +554,34 @@ RETURN ONLY THE JSON OBJECT."""
                 error=str(e)
             )
             raise
+
+    async def _run_refinement_background(
+        self,
+        profile,
+        findings: Dict,
+        entity_map: Dict,
+        reports: Dict,
+        period: str,
+        run_delta: Dict,
+    ):
+        """Background task: run RefinementAgent and update profile with results."""
+        try:
+            refinement_agent = RefinementAgent()
+            refinement = await refinement_agent.analyze_run(
+                profile, findings, entity_map, reports, period, run_delta
+            )
+            profile.refinement = {
+                "table_weights": refinement.table_weights,
+                "query_hints": refinement.query_hints,
+                "focus_areas": refinement.focus_areas,
+                "suppress_ids": refinement.suppress_ids,
+                "context_block": refinement.context_block,
+                "generated_at": refinement.generated_at,
+            }
+            await self.profile_store.save(profile)
+            logger.info("RefinementAgent completed", client=profile.client_name)
+        except Exception as e:
+            logger.error("RefinementAgent background task failed", error=str(e))
     
     def _create_temp_config(
         self,

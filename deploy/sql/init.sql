@@ -50,3 +50,17 @@ CREATE INDEX idx_analyses_client_id ON analyses(client_id);
 CREATE INDEX idx_analyses_status ON analyses(status);
 CREATE INDEX idx_reports_analysis_id ON reports(analysis_id);
 CREATE INDEX idx_audit_log_client_id ON audit_log(client_id);
+
+-- Client profiles table (Client Memory Layer)
+CREATE TABLE IF NOT EXISTS client_profiles (
+    client_name TEXT PRIMARY KEY,
+    profile     JSONB NOT NULL DEFAULT '{}',
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_client_profiles_name ON client_profiles(client_name);
+
+-- Extended analysis_jobs table with run_delta and profile snapshot
+ALTER TABLE analyses ADD COLUMN IF NOT EXISTS run_delta JSONB;
+ALTER TABLE analyses ADD COLUMN IF NOT EXISTS client_profile_snapshot JSONB;

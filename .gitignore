@@ -93,4 +93,5 @@ Pulumi.*.yaml
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
+*.sw?__pycache__/
+*.pyc

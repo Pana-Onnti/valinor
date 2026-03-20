@@ -6,13 +6,14 @@ import axios from 'axios'
 import {
   RefreshCw, FileText, AlertOctagon, AlertTriangle,
   Info, CheckCircle2, TrendingUp, Clock, Database,
-  ChevronDown, ChevronUp, Copy, Check, Zap, HelpCircle,
+  ChevronDown, ChevronUp, Copy, Check, Zap, HelpCircle, XCircle,
 } from 'lucide-react'
 import {
   parseReport,
   type ParsedReport, type Finding, type KPI,
   type ContradictionRow, type ActionRow,
 } from '@/lib/reportParser'
+import { DeltaPanel } from '@/components/DeltaPanel'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -139,7 +140,11 @@ function BodyText({ text }: { text: string }) {
   )
 }
 
-function FindingCard({ finding, i }: { finding: Finding; i: number }) {
+function FindingCard({ finding, i, onFalsePositive }: {
+  finding: Finding;
+  i: number;
+  onFalsePositive?: (id: string) => void
+}) {
   const [open, setOpen] = useState(i === 0)
   const s = SEV[finding.severity]
 
@@ -190,6 +195,17 @@ function FindingCard({ finding, i }: { finding: Finding; i: number }) {
                 <BodyText text={finding.body} />
               ) : null}
               {finding.sql && <SqlBlock sql={finding.sql} />}
+              {onFalsePositive && (
+                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onFalsePositive(finding.id) }}
+                    className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1.5 transition-colors"
+                  >
+                    <XCircle className="h-3.5 w-3.5" />
+                    Marcar como falso positivo
+                  </button>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
@@ -275,6 +291,9 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
   const [reports, setReports] = useState<Report[]>([])
   const [activeTab, setActiveTab] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [runDelta, setRunDelta] = useState<any>(null)
+  const [knownFindings, setKnownFindings] = useState<any>(null)
+  const [markedFP, setMarkedFP] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     axios.get(`${API_URL}/api/jobs/${analysisId}/results`).then(res => {
@@ -287,6 +306,8 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
             content: typeof content === 'string' ? content : JSON.stringify(content, null, 2),
           }))
       setReports(arr)
+      setRunDelta(res.data.run_delta || null)
+      setKnownFindings(res.data.known_findings || null)
     }).catch(() => {}).finally(() => setLoading(false))
   }, [analysisId])
 
@@ -313,8 +334,20 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
   const active = reports[activeTab]
   const parsed: ParsedReport = parseReport(active.content)
 
-  const criticalCount = parsed.findings.filter(f => f.severity === 'CRITICAL').length
-  const highCount     = parsed.findings.filter(f => f.severity === 'HIGH').length
+  const handleFalsePositive = async (findingId: string) => {
+    if (!parsed.clientName) return
+    try {
+      await axios.put(`${API_URL}/api/clients/${encodeURIComponent(parsed.clientName)}/profile/false-positive?finding_id=${encodeURIComponent(findingId)}`)
+      setMarkedFP(prev => new Set([...prev, findingId]))
+    } catch (e) {
+      console.error('Failed to mark false positive', e)
+    }
+  }
+
+  const visibleFindings = parsed.findings.filter(f => !markedFP.has(f.id))
+
+  const criticalCount = visibleFindings.filter(f => f.severity === 'CRITICAL').length
+  const highCount     = visibleFindings.filter(f => f.severity === 'HIGH').length
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-5xl mx-auto space-y-8 pb-20">
@@ -348,12 +381,22 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
             ].filter(Boolean).join(' · ')}
           </p>
         </div>
-        <button
-          onClick={onNewAnalysis}
-          className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-violet-400 dark:hover:border-violet-500 text-gray-700 dark:text-gray-300 rounded-xl transition-all text-sm font-medium shadow-sm"
-        >
-          <RefreshCw className="h-4 w-4" />Nuevo análisis
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onNewAnalysis}
+            className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-violet-400 dark:hover:border-violet-500 text-gray-700 dark:text-gray-300 rounded-xl transition-all text-sm font-medium shadow-sm"
+          >
+            <RefreshCw className="h-4 w-4" />Nuevo análisis
+          </button>
+          {parsed.clientName && (
+            <a
+              href={`/clients/${encodeURIComponent(parsed.clientName)}/history`}
+              className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl transition-all text-sm font-medium shadow-sm"
+            >
+              <TrendingUp className="h-4 w-4" />Ver historial
+            </a>
+          )}
+        </div>
       </div>
 
       {/* ── Report tabs (if multiple) ── */}
@@ -379,6 +422,14 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
         </motion.div>
       )}
 
+      {/* ── Delta panel ── */}
+      {runDelta && (
+        <DeltaPanel
+          runDelta={runDelta}
+          knownFindings={knownFindings}
+        />
+      )}
+
       {/* ── KPI grid ── */}
       {parsed.kpis.length > 0 && (
         <div>
@@ -390,7 +441,7 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
       )}
 
       {/* ── Findings ── */}
-      {parsed.findings.length > 0 && (
+      {visibleFindings.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <SectionLabel>Hallazgos — Ranking por Impacto × Urgencia</SectionLabel>
@@ -405,11 +456,11 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
                   <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" />{highCount} alto{highCount > 1 ? 's' : ''}
                 </span>
               )}
-              <span className="text-gray-400">{parsed.findings.length} total</span>
+              <span className="text-gray-400">{visibleFindings.length} total</span>
             </div>
           </div>
           <div className="space-y-3">
-            {parsed.findings.map((f, i) => <FindingCard key={f.id} finding={f} i={i} />)}
+            {visibleFindings.map((f, i) => <FindingCard key={f.id} finding={f} i={i} onFalsePositive={handleFalsePositive} />)}
           </div>
         </div>
       )}

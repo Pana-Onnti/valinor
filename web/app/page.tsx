@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Database, Zap, Shield, Clock, ArrowRight, Play, CheckCircle } from 'lucide-react'
 import { AnalysisForm } from '@/components/AnalysisForm'
@@ -10,6 +10,20 @@ import { ResultsDisplay } from '@/components/ResultsDisplay'
 export default function HomePage() {
   const [stage, setStage] = useState<'setup' | 'running' | 'complete'>('setup')
   const [analysisId, setAnalysisId] = useState<string | null>(null)
+  const [recentClients, setRecentClients] = useState<Array<{
+    client_name: string
+    run_count: number
+    last_run_date: string | null
+    known_findings_count: number
+  }>>([])
+
+  useEffect(() => {
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+    fetch(`${API_URL}/api/clients`)
+      .then(r => r.json())
+      .then(data => setRecentClients(data.clients || []))
+      .catch(() => {})
+  }, [])
 
   const handleStartAnalysis = (id: string) => {
     setAnalysisId(id)
@@ -113,6 +127,47 @@ export default function HomePage() {
                 </motion.div>
               ))}
             </div>
+
+            {/* Recent Clients */}
+            {recentClients.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 0.5 }}
+                className="mb-8"
+              >
+                <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-3">
+                  Clientes con Historial
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {recentClients.slice(0, 8).map(client => (
+                    <a
+                      key={client.client_name}
+                      href={`/clients/${encodeURIComponent(client.client_name)}/history`}
+                      className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all group"
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <Database className="h-4 w-4 text-indigo-500 group-hover:text-indigo-600" />
+                        <span className="text-xs text-gray-400 font-mono">{client.run_count} runs</span>
+                      </div>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                        {client.client_name}
+                      </p>
+                      {client.known_findings_count > 0 && (
+                        <p className="text-xs text-orange-500 mt-1">
+                          {client.known_findings_count} hallazgo{client.known_findings_count > 1 ? 's' : ''} activo{client.known_findings_count > 1 ? 's' : ''}
+                        </p>
+                      )}
+                      {client.last_run_date && (
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {new Date(client.last_run_date).toLocaleDateString('es', { day: 'numeric', month: 'short' })}
+                        </p>
+                      )}
+                    </a>
+                  ))}
+                </div>
+              </motion.div>
+            )}
 
             {/* Analysis Form */}
             <motion.div
