@@ -6,7 +6,7 @@ import axios from 'axios'
 import {
   RefreshCw, FileText, AlertOctagon, AlertTriangle,
   Info, CheckCircle2, TrendingUp, Clock, Database,
-  ChevronDown, ChevronUp, Copy, Check, Zap, HelpCircle, XCircle,
+  ChevronDown, ChevronUp, Copy, Check, Zap, HelpCircle, XCircle, Share2,
 } from 'lucide-react'
 import {
   parseReport,
@@ -146,6 +146,9 @@ function FindingCard({ finding, i, onFalsePositive }: {
   onFalsePositive?: (id: string) => void
 }) {
   const [open, setOpen] = useState(i === 0)
+  const [note, setNote] = useState('')
+  const [savedNote, setSavedNote] = useState('')
+  const [showNoteInput, setShowNoteInput] = useState(false)
   const s = SEV[finding.severity]
 
   return (
@@ -206,6 +209,34 @@ function FindingCard({ finding, i, onFalsePositive }: {
                   </button>
                 </div>
               )}
+              {/* Annotation */}
+              <div className="mt-2">
+                {savedNote ? (
+                  <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2">
+                    <span className="text-xs text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5">📝</span>
+                    <p className="text-xs text-amber-800 dark:text-amber-200 flex-1">{savedNote}</p>
+                    <button onClick={() => { setSavedNote(''); setNote('') }} className="text-amber-400 hover:text-amber-600 text-xs flex-shrink-0">×</button>
+                  </div>
+                ) : showNoteInput ? (
+                  <div className="flex gap-2">
+                    <input
+                      autoFocus
+                      value={note}
+                      onChange={e => setNote(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && note.trim()) { setSavedNote(note.trim()); setShowNoteInput(false) } if (e.key === 'Escape') setShowNoteInput(false) }}
+                      placeholder="Ej: llamé al cliente, promete pagar el 25..."
+                      className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-violet-400"
+                    />
+                    <button onClick={() => { if (note.trim()) { setSavedNote(note.trim()); setShowNoteInput(false) } }} className="text-xs px-3 py-1.5 bg-violet-600 text-white rounded-lg hover:bg-violet-700 flex-shrink-0">
+                      Guardar
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setShowNoteInput(true)} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1 transition-colors">
+                    <span className="text-base leading-none">+</span> Agregar nota interna
+                  </button>
+                )}
+              </div>
             </div>
           </motion.div>
         )}
@@ -285,6 +316,123 @@ function LimitationsSection({ sections }: { sections: { title: string; body: str
   )
 }
 
+// ── OutputKO Hero ─────────────────────────────────────────────────────────────
+
+function OutputKOHero({ findings, runDelta }: {
+  findings: Finding[]
+  runDelta?: { new?: string[]; resolved?: string[]; worsened?: string[] } | null
+}) {
+  const topFinding = findings.find(f => f.severity === 'CRITICAL')
+    || findings.find(f => f.severity === 'HIGH')
+    || findings[0]
+
+  if (!findings.length || !topFinding) return null
+
+  const isCritical = topFinding.severity === 'CRITICAL'
+  const isNew = runDelta?.new?.includes(topFinding.id)
+  const resolvedCount = runDelta?.resolved?.length || 0
+  const newCount = runDelta?.new?.length || 0
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      className={`relative rounded-3xl overflow-hidden ${
+        isCritical
+          ? 'bg-gradient-to-br from-red-950 via-red-900 to-red-800 border border-red-700'
+          : 'bg-gradient-to-br from-orange-950 via-orange-900 to-amber-900 border border-orange-700'
+      }`}
+    >
+      {/* Subtle noise texture */}
+      <div className="absolute inset-0 opacity-5"
+        style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 256 256\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noise)\'/%3E%3C/svg%3E")' }}
+      />
+
+      <div className="relative px-7 py-6">
+        {/* Eyebrow */}
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <span className="flex items-center gap-1.5 text-xs font-mono tracking-widest uppercase text-red-300/80">
+            <span className={`w-1.5 h-1.5 rounded-full ${isCritical ? 'bg-red-400 animate-pulse' : 'bg-orange-400'}`} />
+            Acción prioritaria · {topFinding.id}
+          </span>
+          {isNew && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-500/30 text-red-200 border border-red-500/40">
+              Nuevo este período
+            </span>
+          )}
+        </div>
+
+        {/* Main message */}
+        <h2 className="text-2xl sm:text-3xl font-bold text-white leading-tight mb-3 max-w-3xl">
+          {topFinding.title}
+        </h2>
+
+        {/* Top bullet if available */}
+        {topFinding.bullets[0] && (
+          <p className="text-base text-red-100/80 leading-relaxed mb-5 max-w-2xl">
+            {topFinding.bullets[0]}
+          </p>
+        )}
+
+        {/* Progress bar — resolved vs total */}
+        {(resolvedCount > 0 || newCount > 0) && (
+          <div className="flex items-center gap-4 pt-4 border-t border-white/10">
+            {resolvedCount > 0 && (
+              <span className="flex items-center gap-1.5 text-sm text-emerald-300 font-medium">
+                <CheckCircle2 className="h-4 w-4" />
+                {resolvedCount} resuelto{resolvedCount > 1 ? 's' : ''} vs período anterior
+              </span>
+            )}
+            {newCount > 0 && (
+              <span className="flex items-center gap-1.5 text-sm text-red-300 font-medium">
+                <AlertOctagon className="h-4 w-4" />
+                {newCount} nuevo{newCount > 1 ? 's' : ''} este período
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
+// ── Improvement Banner ────────────────────────────────────────────────────────
+
+function ImprovementBanner({ runDelta, runCount }: {
+  runDelta: any;
+  runCount?: number
+}) {
+  const resolved = runDelta?.resolved?.length || 0
+  const improved = runDelta?.improved?.length || 0
+  const total = resolved + improved
+
+  if (total === 0 || !runCount || runCount <= 1) return null
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      className="flex items-center gap-3 px-5 py-3.5 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-2xl"
+    >
+      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
+        <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+          El sistema aprendió — {total} issue{total > 1 ? 's' : ''} mejor{total > 1 ? 'es' : ''} que el período anterior
+        </p>
+        <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5">
+          {resolved > 0 && `${resolved} resuelto${resolved > 1 ? 's' : ''}`}
+          {resolved > 0 && improved > 0 && ' · '}
+          {improved > 0 && `${improved} con severidad reducida`}
+          {runCount > 1 && ` · Run #${runCount}`}
+        </p>
+      </div>
+    </motion.div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProps) {
@@ -294,6 +442,7 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
   const [runDelta, setRunDelta] = useState<any>(null)
   const [knownFindings, setKnownFindings] = useState<any>(null)
   const [markedFP, setMarkedFP] = useState<Set<string>>(new Set())
+  const [copiedLink, setCopiedLink] = useState(false)
 
   useEffect(() => {
     axios.get(`${API_URL}/api/jobs/${analysisId}/results`).then(res => {
@@ -352,6 +501,9 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-5xl mx-auto space-y-8 pb-20">
 
+      {/* ── OutputKO Hero ── */}
+      <OutputKOHero findings={visibleFindings} runDelta={runDelta} />
+
       {/* ── Top bar ── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
@@ -388,6 +540,21 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
           >
             <RefreshCw className="h-4 w-4" />Nuevo análisis
           </button>
+          <button
+            onClick={() => {
+              const url = `${window.location.origin}?report=${analysisId}`
+              navigator.clipboard.writeText(url).then(() => {
+                setCopiedLink(true)
+                setTimeout(() => setCopiedLink(false), 2500)
+              })
+            }}
+            className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-violet-400 dark:hover:border-violet-500 text-gray-700 dark:text-gray-300 rounded-xl transition-all text-sm font-medium shadow-sm"
+          >
+            {copiedLink
+              ? <><Check className="h-4 w-4 text-emerald-500" />Copiado!</>
+              : <><Share2 className="h-4 w-4" />Compartir</>
+            }
+          </button>
           {parsed.clientName && (
             <a
               href={`/clients/${encodeURIComponent(parsed.clientName)}/history`}
@@ -398,6 +565,9 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
           )}
         </div>
       </div>
+
+      {/* ── Improvement Banner ── */}
+      <ImprovementBanner runDelta={runDelta} runCount={undefined} />
 
       {/* ── Report tabs (if multiple) ── */}
       {reports.length > 1 && (
