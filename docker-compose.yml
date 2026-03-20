@@ -1,0 +1,161 @@
+version: '3.8'
+
+services:
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # PostgreSQL for Supabase (metadata storage)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: valinor
+      POSTGRES_PASSWORD: valinor_secret
+      POSTGRES_DB: valinor_metadata
+    ports:
+      - "5450:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U valinor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      # Database
+      DATABASE_URL: postgresql://valinor:valinor_secret@postgres:5432/valinor_metadata
+      REDIS_URL: redis://redis:6379
+      
+      # LLM Provider Configuration
+      # console_cli = usa el CLI local (Plan Max, sin API key)
+      # anthropic_api = usa ANTHROPIC_API_KEY
+      LLM_PROVIDER: ${LLM_PROVIDER:-console_cli}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CLI_PATH: /usr/local/bin/claude
+
+      # Feature Flags
+      LLM_ENABLE_FALLBACK: "true"
+      LLM_FALLBACK_PROVIDER: mock
+      LLM_ENABLE_MONITORING: "true"
+      LLM_ENABLE_COST_TRACKING: "true"
+
+      # API Configuration
+      CORS_ORIGINS: "*"
+      LOG_LEVEL: INFO
+      WORKERS: 4
+    volumes:
+      - ./core:/app/core
+      - ./api:/app/api
+      - ./shared:/app/shared
+      - ./ssh_keys:/app/ssh_keys:ro
+      # Monta el CLI de claude, node y su config del host
+      - ${HOME}/.nvm/versions/node/v20.20.1/bin/claude:/usr/local/bin/claude:ro
+      - ${HOME}/.nvm/versions/node/v20.20.1/bin/node:/usr/local/bin/node:ro
+      - ${HOME}/.claude:/root/.claude:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Worker for background tasks
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      DATABASE_URL: postgresql://valinor:valinor_secret@postgres:5432/valinor_metadata
+      REDIS_URL: redis://redis:6379
+      LLM_PROVIDER: ${LLM_PROVIDER:-console_cli}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CLI_PATH: /usr/local/bin/claude
+    volumes:
+      - ${HOME}/.nvm/versions/node/v20.20.1/bin/claude:/usr/local/bin/claude:ro
+      - ${HOME}/.nvm/versions/node/v20.20.1/bin/node:/usr/local/bin/node:ro
+      - ${HOME}/.claude:/root/.claude:ro
+      - ./core:/app/core
+      - ./worker:/app/worker
+      - ./shared:/app/shared
+      - ./ssh_keys:/app/ssh_keys:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: celery -A worker.tasks worker --loglevel=info
+
+  # Next.js Frontend (Development)
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NODE_ENV: development
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - api
+    command: npm run dev
+
+  # Nginx (Production-like)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+      - web
+    profiles:
+      - production
+
+  # Adminer for database management (dev only)
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+    profiles:
+      - dev
+
+volumes:
+  redis_data:
+  postgres_data:
+
+networks:
+  default:
+    name: valinor-network
+    driver: bridge

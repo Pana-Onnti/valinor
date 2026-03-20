@@ -1,0 +1,24 @@
+FROM python:3.11-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy simplified requirements
+COPY requirements_simple.txt .
+RUN pip install -r requirements_simple.txt
+
+# Copy application code
+COPY . .
+
+# Create directories
+RUN mkdir -p /tmp/valinor_jobs
+
+# Expose port
+EXPOSE 8000
+
+# Run simplified API
+CMD ["python", "simple_api.py"]

@@ -1,0 +1,236 @@
+# VALINOR SAAS v2 - AGENT HARNESS
+
+## 🎯 WHAT IS VALINOR SAAS?
+
+Valinor SaaS es una plataforma de Business Intelligence 100% agéntica que analiza cualquier base de datos empresarial y genera reportes ejecutivos en 15 minutos, sin configuración ni almacenamiento de datos del cliente.
+
+## 🏗️ ARQUITECTURA ACTUAL
+
+```
+Cliente → SSH Tunnel → DB Cliente → Agentes Claude → Reportes
+         ↓
+    (Zero Data Storage)
+```
+
+- **NO almacenamos datos de clientes**, solo metadata y resultados
+- **Conexiones efímeras** via SSH tunneling (máximo 1 hora)
+- **Multi-agent pipeline**: Cartographer → Query Builder → [Analyst, Sentinel, Hunter] → Narrators
+- **Costo operativo**: ~$8 por análisis (Claude API)
+- **Deployment zero-cost**: Cloudflare Workers + GitHub Actions + Supabase free
+
+## 📁 ESTRUCTURA DEL PROYECTO
+
+```
+valinor-saas/
+├── core/           # Código migrado de Valinor v0 (preserved)
+│   ├── valinor/    # Pipeline actual sin modificar
+│   └── .claude/    # Skills de agentes
+├── api/            # FastAPI endpoints
+├── web/            # Next.js frontend
+├── worker/         # Background processing (Celery/GitHub Actions)
+├── shared/         # Types, utils, SSH tunnel manager
+├── deploy/         # Cloudflare Workers, GitHub workflows
+└── docs/           # Documentación técnica
+```
+
+## 🔑 REGLAS CRÍTICAS
+
+### SEGURIDAD Y COMPLIANCE
+1. **NUNCA almacenar datos de clientes** - solo metadata y resultados agregados
+2. **Conexiones SSH temporales** - máximo 1 hora, cleanup automático
+3. **Credenciales encriptadas** - usar AWS Secrets Manager o Redis con TTL
+4. **Audit logging completo** - todas las conexiones y accesos
+5. **Zero-trust architecture** - validar cada request
+
+### ARQUITECTURA Y CÓDIGO
+1. **Preservar código Valinor v0** - wrapper instead of rewrite
+2. **SSH tunneling obligatorio** - no conexiones directas a DBs
+3. **Queues para análisis largos** - GitHub Actions como worker gratuito
+4. **Streaming de resultados** - WebSockets o SSE para progreso
+5. **Fallback mechanisms** - si falla un agente, continuar con el resto
+
+### DESARROLLO
+1. **Development local primero** - Docker Compose para todo
+2. **Testing incremental** - cada agente por separado
+3. **Rollback checkpoints** - poder volver a CLI si falla
+4. **API versioning** - `/api/v1/` desde el inicio
+5. **Type safety** - TypeScript frontend, Pydantic backend
+
+## 💰 ECONOMÍA Y COSTOS
+
+### Free Tier Strategy (0-10 clientes)
+- **Cloudflare Workers**: 100k requests/día gratis
+- **GitHub Actions**: Unlimited en repos públicos
+- **Supabase**: 500MB database free
+- **Vercel**: 100GB bandwidth free
+- **Total**: $0/mes infraestructura
+
+### Pricing Model
+- Cliente paga: $200/mes (25 análisis incluidos)
+- Costo Claude: ~$8 por análisis
+- Margen bruto: 92% inicial
+
+## 🚀 DEPLOYMENT STRATEGY
+
+### Fase 0: Local Development
+```bash
+docker-compose up  # Everything local
+```
+
+### Fase 1: Zero-Cost Deployment
+- API: Cloudflare Workers (100k req/day free)
+- Queue: GitHub Actions (unlimited public repo)
+- DB: Supabase free tier
+- Frontend: Vercel hobby
+
+### Fase 2: Scale (50+ clientes)
+- Upgrade a paid tiers según necesidad
+- Usar startup credits (AWS $100k, Azure $150k)
+
+## 🛠️ HERRAMIENTAS Y SERVICIOS
+
+### Core Services
+- **Claude Agent SDK**: Orquestación de agentes
+- **FastAPI**: API backend
+- **Next.js**: Frontend
+- **Celery**: Queue system (dev) / GitHub Actions (prod)
+- **Paramiko**: SSH tunneling
+- **Supabase**: Metadata storage
+
+### Development Tools
+- **Docker Compose**: Local environment
+- **Pytest**: Testing
+- **Turborepo**: Monorepo management
+- **TypeScript**: Type safety
+- **Tailwind CSS**: Styling
+
+## 📋 CURRENT TASK FOCUS
+
+### MIGRATION PHASES
+
+#### Phase 1: Core Preservation ✅
+- [x] Preserve all v0 code
+- [x] Create adapter layer
+- [x] SSH tunneling implementation
+
+#### Phase 2: API Layer ✅
+- [x] FastAPI endpoints (POST /api/analyze, GET /api/jobs/{id}/status, GET /api/jobs/{id}/results)
+- [x] Queue system (Celery + Redis)
+- [x] Metadata storage (PostgreSQL en Docker, puerto 5450)
+
+#### Phase 3: Agent Migration ✅ (parcial)
+- [x] Adapter pattern conectando API con agentes v0
+- [ ] Test each agent individually
+- [ ] Implement fallback mechanisms
+- [ ] Progress streaming (polling implementado, SSE pendiente)
+
+#### Phase 4: Frontend ✅
+- [x] Next.js dashboard con Tailwind CSS
+- [x] AnalysisForm — formulario de conexión DB + SSH
+- [x] AnalysisProgress — polling de estado del job
+- [x] ResultsDisplay — visualización de reportes
+- [ ] Real-time updates via WebSocket/SSE
+- [x] Secure credential upload (form con campos password)
+
+#### Phase 5: Deployment 📅
+- [ ] Cloudflare Workers
+- [ ] GitHub Actions workflows
+- [ ] Monitoring setup
+
+## 🔧 COMMON COMMANDS
+
+```bash
+# Development
+docker compose up -d        # Start all services (detached)
+docker compose ps           # Ver estado de containers
+docker compose logs -f api  # Ver logs de la API
+docker compose down         # Detener servicios
+docker compose down -v      # Reset completo (borra volúmenes)
+
+# Rebuild tras cambios en requirements o Dockerfiles
+docker compose build api worker
+docker compose up -d --no-deps api worker
+
+# Testing
+pytest tests/               # Run tests
+source venv/bin/activate && python -m valinor.adapter  # Test adapter
+
+# Deployment
+wrangler deploy            # Deploy to Cloudflare
+vercel --prod             # Deploy frontend
+gh workflow run analyze   # Trigger analysis
+
+# SSH Tunnel Testing
+python shared/ssh_tunnel.py test --host client.com --key ~/.ssh/id_rsa
+
+# Verificar salud del sistema
+curl http://localhost:8000/health
+```
+
+## 🔌 PUERTOS EN USO (DOCKER)
+
+Los puertos del host fueron ajustados porque 5432 y 6379 están ocupados por servicios locales:
+
+| Servicio   | Puerto Host | Puerto Container |
+|------------|-------------|-----------------|
+| API        | 8000        | 8000            |
+| Frontend   | 3000        | 3000            |
+| PostgreSQL | **5450**    | 5432            |
+| Redis      | **6380**    | 6379            |
+
+## 📦 DEPENDENCIAS CLAVE (ESTADO ACTUAL)
+
+Versiones relajadas en requirements.txt para compatibilidad con claude-agent-sdk y mcp:
+
+- `hiredis>=2.3.2` (2.3.0 no existe en PyPI)
+- `oracledb>=2.0.0` (reemplaza cx-Oracle obsoleto)
+- `claude-agent-sdk` (sin pin, última versión)
+- `mcp>=1.8.0` (ToolAnnotations disponible desde 1.8)
+- `anthropic>=0.19.0` (sin pin por compatibilidad)
+- `pydantic>=2.5.0` + `pydantic-settings>=2.5.2`
+- `python-multipart>=0.0.9`
+- `cachetools>=5.5.0`
+- `supabase>=2.0.0`
+
+## ⚠️ KNOWN ISSUES & SOLUTIONS
+
+### Issue: Supabase auto-pause after 7 days
+**Solution**: Upgrade to Pro ($25/mes) when annoying
+
+### Issue: GitHub Actions timeout (6 hours max)
+**Solution**: Split large analyses into chunks
+
+### Issue: Cloudflare Workers 10ms CPU limit
+**Solution**: Use queues, don't process inline
+
+### Issue: SSH key management security
+**Solution**: Encrypted storage with TTL, never persist
+
+## 📊 SUCCESS METRICS
+
+- **API Response Time**: < 200ms
+- **Analysis Completion**: < 15 minutes
+- **Success Rate**: > 95%
+- **Cost per Analysis**: < $10
+- **Customer Onboarding**: < 30 minutes
+
+## 🎯 NEXT ACTIONS
+
+1. **Immediate**: Setup Docker environment
+2. **This Week**: Migrate core to adapter pattern
+3. **Next Week**: API endpoints + queue system
+4. **Month 1**: MVP with 3 test clients
+5. **Month 2**: Production deployment
+
+## 📚 KEY DOCUMENTS
+
+- `docs/ARCHITECTURE.md`: Technical architecture
+- `docs/SSH_TUNNELING.md`: Security implementation
+- `docs/MIGRATION_PLAN.md`: Step-by-step migration
+- `docs/API_REFERENCE.md`: Endpoint documentation
+- `scripts/dev.sh`: Development setup script
+
+---
+
+*Valinor SaaS v2 - From CLI to scalable SaaS with zero data storage*
+*March 2026 - Delta 4C*

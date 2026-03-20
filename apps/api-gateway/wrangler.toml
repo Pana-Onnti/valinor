@@ -1,0 +1,87 @@
+name = "valinor-api"
+compatibility_date = "2023-12-01"
+main = "src/index.ts"
+
+# Development configuration
+[env.development]
+name = "valinor-api-dev"
+vars = { ENVIRONMENT = "development" }
+
+# Staging configuration
+[env.staging]
+name = "valinor-api-staging"
+vars = { ENVIRONMENT = "staging" }
+
+# Production configuration
+[env.production]
+name = "valinor-api-production"
+vars = { ENVIRONMENT = "production" }
+
+# KV Namespaces for caching
+[[kv_namespaces]]
+binding = "CACHE"
+preview_id = "cache-preview-id"
+id = "cache-production-id"
+
+[[env.staging.kv_namespaces]]
+binding = "CACHE"
+id = "cache-staging-id"
+
+[[env.production.kv_namespaces]]
+binding = "CACHE" 
+id = "cache-production-id"
+
+# R2 Buckets for file storage
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "valinor-reports-dev"
+
+[[env.staging.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "valinor-reports-staging"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "valinor-reports-production"
+
+# Queues for background jobs
+[[queues]]
+binding = "ANALYSIS_QUEUE"
+queue = "analysis-dev"
+
+[[env.staging.queues]]
+binding = "ANALYSIS_QUEUE"
+queue = "analysis-staging"
+
+[[env.production.queues]]
+binding = "ANALYSIS_QUEUE"
+queue = "analysis-production"
+
+# D1 Database bindings (if using Cloudflare D1)
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "valinor-dev"
+# database_id = "xxx"
+
+# Build configuration
+[build]
+command = "npm run build"
+
+# Miniflare configuration for local development
+[miniflare]
+kv_persist = true
+r2_persist = true
+d1_persist = true
+
+# Limits configuration
+[limits]
+cpu_ms = 10000  # 10 seconds for analysis jobs
+
+# Analytics
+[analytics_engine_datasets]
+
+# Custom domains (when ready)
+# [env.production]
+# routes = [
+#   { pattern = "api.valinor.com/*", zone_name = "valinor.com" }
+# ]

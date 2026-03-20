@@ -1,0 +1,58 @@
+{
+  "name": "valinor-saas",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Valinor v2 SaaS - Modular database analysis platform",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tools/*"
+  ],
+  "packageManager": "npm@10.2.0",
+  "engines": {
+    "node": ">=18.17.0",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "test:integration": "turbo run test:integration",
+    "test:e2e": "turbo run test:e2e",
+    "lint": "turbo run lint",
+    "format": "turbo run format",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean && rm -rf node_modules/.cache",
+    "setup": "npm install && npm run build",
+    "deploy:staging": "turbo run deploy:staging",
+    "deploy:production": "turbo run deploy:production",
+    "db:migrate": "turbo run db:migrate",
+    "db:seed": "turbo run db:seed",
+    "postinstall": "turbo run postinstall"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.0",
+    "prettier": "^3.1.0",
+    "turbo": "^1.11.0",
+    "typescript": "^5.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/valinor/valinor-saas"
+  },
+  "keywords": [
+    "saas",
+    "database-analysis",
+    "claude-ai",
+    "cloudflare-workers",
+    "next.js",
+    "monorepo"
+  ],
+  "author": "Valinor Team",
+  "license": "MIT"
+}

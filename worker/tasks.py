@@ -1,0 +1,380 @@
+"""
+Celery Worker Tasks for Valinor SaaS.
+Handles background processing of analysis jobs.
+"""
+
+import os
+import sys
+import json
+import asyncio
+from pathlib import Path
+from typing import Dict, Any, Optional
+from datetime import datetime
+
+import structlog
+from celery import Celery
+import redis
+
+# Add shared modules to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from api.adapters.valinor_adapter import ValinorAdapter, PipelineExecutor
+from shared.storage import MetadataStorage
+
+logger = structlog.get_logger()
+
+# Initialize Celery
+celery_app = Celery(
+    "valinor_worker",
+    broker=os.getenv("CELERY_BROKER", "redis://localhost:6379/0"),
+    backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0"),
+)
+
+# Configure Celery
+celery_app.conf.update(
+    task_serializer='json',
+    accept_content=['json'],
+    result_serializer='json',
+    timezone='UTC',
+    enable_utc=True,
+    task_track_started=True,
+    task_time_limit=3600,  # 1 hour timeout
+    task_soft_time_limit=3300,  # 55 minute soft timeout
+    worker_max_tasks_per_child=10,
+    worker_prefetch_multiplier=1,
+    task_routes={
+        'worker.tasks.run_analysis': {'queue': 'analysis'},
+        'worker.tasks.cleanup_job': {'queue': 'cleanup'},
+    }
+)
+
+# Global components
+redis_client = None
+metadata_storage = MetadataStorage()
+
+def get_redis_client():
+    """Get Redis client for progress updates."""
+    global redis_client
+    if redis_client is None:
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        redis_client = redis.from_url(redis_url, decode_responses=True)
+    return redis_client
+
+class ProgressUpdater:
+    """Helper class to update job progress in Redis."""
+    
+    def __init__(self, job_id: str):
+        self.job_id = job_id
+        self.redis_client = get_redis_client()
+        
+    async def update_progress(self, stage: str, progress: int, message: str):
+        """Update job progress in Redis."""
+        try:
+            self.redis_client.hset(f"job:{self.job_id}", mapping={
+                "status": "running",
+                "stage": stage,
+                "progress": progress,
+                "message": message,
+                "updated_at": datetime.utcnow().isoformat()
+            })
+            
+            logger.info(
+                "Progress updated",
+                job_id=self.job_id,
+                stage=stage,
+                progress=progress,
+                message=message
+            )
+            
+        except Exception as e:
+            logger.warning(
+                "Failed to update progress",
+                job_id=self.job_id,
+                error=str(e)
+            )
+
+@celery_app.task(bind=True, name='worker.tasks.run_analysis')
+def run_analysis(self, job_id: str, request_data: Dict[str, Any]):
+    """
+    Celery task to run Valinor analysis.
+    
+    Args:
+        job_id: Unique job identifier
+        request_data: Analysis request data including connection config
+    """
+    logger.info(
+        "Starting analysis task",
+        job_id=job_id,
+        client=request_data.get("client_name"),
+        task_id=self.request.id
+    )
+    
+    redis_client = get_redis_client()
+    
+    try:
+        # Update task status
+        redis_client.hset(f"job:{job_id}", mapping={
+            "status": "running",
+            "started_at": datetime.utcnow().isoformat(),
+            "task_id": self.request.id
+        })
+        
+        # Run analysis using asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            results = loop.run_until_complete(
+                _run_analysis_async(job_id, request_data)
+            )
+        finally:
+            loop.close()
+        
+        # Store results in Redis
+        redis_client.set(
+            f"job:{job_id}:results",
+            json.dumps(results, default=str),
+            ex=86400  # 24 hours
+        )
+        
+        # Update final status
+        redis_client.hset(f"job:{job_id}", mapping={
+            "status": "completed",
+            "completed_at": datetime.utcnow().isoformat(),
+            "message": "Analysis completed successfully"
+        })
+        
+        logger.info(
+            "Analysis task completed",
+            job_id=job_id,
+            client=request_data.get("client_name"),
+            execution_time=results.get("execution_time_seconds")
+        )
+        
+        # Schedule cleanup
+        cleanup_job.apply_async(
+            args=[job_id],
+            countdown=86400  # Cleanup after 24 hours
+        )
+        
+        return {
+            "job_id": job_id,
+            "status": "completed",
+            "findings_count": len(results.get("findings", {})),
+            "execution_time": results.get("execution_time_seconds")
+        }
+        
+    except Exception as e:
+        logger.error(
+            "Analysis task failed",
+            job_id=job_id,
+            client=request_data.get("client_name"),
+            error=str(e),
+            exc_info=True
+        )
+        
+        # Update failure status
+        try:
+            redis_client.hset(f"job:{job_id}", mapping={
+                "status": "failed",
+                "error": str(e),
+                "failed_at": datetime.utcnow().isoformat()
+            })
+        except:
+            pass  # Don't fail on status update error
+        
+        # Re-raise for Celery
+        raise
+
+async def _run_analysis_async(job_id: str, request_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Async wrapper for running analysis with proper progress tracking.
+    """
+    progress_updater = ProgressUpdater(job_id)
+    
+    # Create adapter with progress callback
+    adapter = ValinorAdapter(
+        progress_callback=progress_updater.update_progress
+    )
+    
+    # Create executor for enhanced error handling
+    executor = PipelineExecutor(adapter)
+    
+    # Prepare connection config
+    connection_config = {
+        "ssh_config": request_data["ssh_config"],
+        "db_config": request_data["db_config"],
+        "sector": request_data.get("sector"),
+        "country": request_data.get("country", "US"),
+        "currency": request_data.get("currency", "USD"),
+        "language": request_data.get("language", "en"),
+        "erp": request_data.get("erp"),
+        "fiscal_context": request_data.get("fiscal_context", "generic"),
+        "overrides": request_data.get("overrides", {}),
+        "client_name": request_data["client_name"]
+    }
+    
+    # Determine execution strategy
+    retry_enabled = request_data.get("options", {}).get("retry", True)
+    fallback_enabled = request_data.get("options", {}).get("fallback", True)
+    
+    if retry_enabled:
+        # Use retry executor for transient failures
+        results = await executor.run_with_retry(
+            job_id=job_id,
+            config=connection_config,
+            period=request_data["period"],
+            max_retries=request_data.get("options", {}).get("max_retries", 2)
+        )
+    elif fallback_enabled:
+        # Use fallback executor for partial success
+        results = await executor.run_with_fallback(
+            job_id=job_id,
+            config=connection_config,
+            period=request_data["period"]
+        )
+    else:
+        # Standard execution
+        results = await adapter.run_analysis(
+            job_id=job_id,
+            client_name=request_data["client_name"],
+            connection_config=connection_config,
+            period=request_data["period"]
+        )
+    
+    return results
+
+@celery_app.task(name='worker.tasks.cleanup_job')
+def cleanup_job(job_id: str):
+    """
+    Clean up temporary files and data for completed job.
+    
+    Args:
+        job_id: Job to clean up
+    """
+    logger.info("Starting job cleanup", job_id=job_id)
+    
+    try:
+        # Remove temporary output files
+        output_dir = Path(f"/tmp/valinor_output/{job_id}")
+        if output_dir.exists():
+            import shutil
+            shutil.rmtree(output_dir, ignore_errors=True)
+            logger.info("Removed output directory", job_id=job_id, path=str(output_dir))
+        
+        # Remove Redis data
+        redis_client = get_redis_client()
+        
+        # Remove job data (keep for audit trail - just expire sooner)
+        redis_client.expire(f"job:{job_id}", 604800)  # 7 days
+        redis_client.expire(f"job:{job_id}:results", 604800)  # 7 days
+        
+        logger.info("Job cleanup completed", job_id=job_id)
+        
+    except Exception as e:
+        logger.error(
+            "Job cleanup failed",
+            job_id=job_id,
+            error=str(e)
+        )
+        # Don't raise - cleanup failures shouldn't fail the task
+
+@celery_app.task(name='worker.tasks.health_check')
+def health_check():
+    """
+    Worker health check task.
+    """
+    try:
+        # Check Redis connectivity
+        redis_client = get_redis_client()
+        redis_client.ping()
+        
+        # Check metadata storage
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            loop.run_until_complete(metadata_storage.health_check())
+        finally:
+            loop.close()
+        
+        return {
+            "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat(),
+            "worker_id": os.getpid()
+        }
+        
+    except Exception as e:
+        logger.error("Health check failed", error=str(e))
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat(),
+            "worker_id": os.getpid()
+        }
+
+@celery_app.task(name='worker.tasks.monitor_jobs')
+def monitor_jobs():
+    """
+    Periodic task to monitor job status and handle stale jobs.
+    """
+    logger.info("Running job monitor")
+    
+    try:
+        redis_client = get_redis_client()
+        
+        # Find running jobs that might be stale
+        job_keys = redis_client.keys("job:*")
+        job_keys = [key for key in job_keys if not key.endswith(":results")]
+        
+        stale_cutoff = datetime.utcnow().timestamp() - 7200  # 2 hours
+        stale_jobs = []
+        
+        for key in job_keys:
+            job_data = redis_client.hgetall(key)
+            
+            if job_data.get("status") == "running":
+                updated_at = job_data.get("updated_at")
+                if updated_at:
+                    try:
+                        updated_timestamp = datetime.fromisoformat(updated_at).timestamp()
+                        if updated_timestamp < stale_cutoff:
+                            stale_jobs.append(job_data.get("job_id"))
+                    except:
+                        continue
+        
+        # Mark stale jobs as failed
+        for job_id in stale_jobs:
+            redis_client.hset(f"job:{job_id}", mapping={
+                "status": "failed",
+                "error": "Job timeout - marked as stale",
+                "failed_at": datetime.utcnow().isoformat()
+            })
+            
+            logger.warning("Marked stale job as failed", job_id=job_id)
+        
+        return {
+            "checked_jobs": len(job_keys),
+            "stale_jobs_found": len(stale_jobs),
+            "stale_jobs": stale_jobs
+        }
+        
+    except Exception as e:
+        logger.error("Job monitoring failed", error=str(e))
+        return {"error": str(e)}
+
+# Periodic tasks configuration
+celery_app.conf.beat_schedule = {
+    'health-check': {
+        'task': 'worker.tasks.health_check',
+        'schedule': 300.0,  # Every 5 minutes
+    },
+    'monitor-jobs': {
+        'task': 'worker.tasks.monitor_jobs',
+        'schedule': 600.0,  # Every 10 minutes
+    },
+}
+
+if __name__ == "__main__":
+    # For debugging - run worker programmatically
+    celery_app.start()

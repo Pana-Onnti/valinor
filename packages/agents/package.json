@@ -1,0 +1,62 @@
+{
+  "name": "@valinor/agents",
+  "version": "2.0.0",
+  "description": "Claude AI agents for database analysis and reporting",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write src/**/*.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@valinor/core": "workspace:*",
+    "@valinor/shared": "workspace:*",
+    "@anthropic-ai/sdk": "^0.20.0",
+    "claude-agent-sdk": "^1.0.0",
+    "openai": "^4.20.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0",
+    "eslint": "^8.56.0",
+    "prettier": "^3.1.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./cartographer": {
+      "types": "./dist/cartographer/index.d.ts",
+      "default": "./dist/cartographer/index.js"
+    },
+    "./analyst": {
+      "types": "./dist/analyst/index.d.ts",
+      "default": "./dist/analyst/index.js"
+    },
+    "./sentinel": {
+      "types": "./dist/sentinel/index.d.ts",
+      "default": "./dist/sentinel/index.js"
+    },
+    "./hunter": {
+      "types": "./dist/hunter/index.d.ts",
+      "default": "./dist/hunter/index.js"
+    },
+    "./narrator": {
+      "types": "./dist/narrator/index.d.ts",
+      "default": "./dist/narrator/index.js"
+    },
+    "./orchestrator": {
+      "types": "./dist/orchestrator/index.d.ts",
+      "default": "./dist/orchestrator/index.js"
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    
+    // Path mapping for monorepo
+    "baseUrl": ".",
+    "paths": {
+      "@valinor/shared": ["./packages/shared/src"],
+      "@valinor/shared/*": ["./packages/shared/src/*"],
+      "@valinor/core": ["./packages/core/src"],
+      "@valinor/core/*": ["./packages/core/src/*"],
+      "@valinor/agents": ["./packages/agents/src"],
+      "@valinor/agents/*": ["./packages/agents/src/*"],
+      "@valinor/api": ["./packages/api/src"],
+      "@valinor/api/*": ["./packages/api/src/*"],
+      "@valinor/workers": ["./packages/workers/src"],
+      "@valinor/workers/*": ["./packages/workers/src/*"]
+    },
+    
+    // Additional options for better DX
+    "forceConsistentCasingInFileNames": true,
+    "allowSyntheticDefaultImports": true,
+    "verbatimModuleSyntax": false,
+    
+    // Plugin support
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.js",
+    "**/*.jsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    ".next",
+    ".wrangler",
+    "coverage"
+  ],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/core" },
+    { "path": "./packages/agents" },
+    { "path": "./packages/api" },
+    { "path": "./packages/workers" },
+    { "path": "./packages/web" },
+    { "path": "./packages/infra" },
+    { "path": "./apps/api-gateway" },
+    { "path": "./apps/worker-runner" },
+    { "path": "./apps/dashboard" }
+  ]
+}

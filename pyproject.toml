@@ -1,0 +1,99 @@
+[project]
+name = "valinor-saas"
+version = "2.0.0"
+description = "Business Intelligence Pipeline SaaS with Claude Agents"
+requires-python = ">=3.11"
+readme = "README.md"
+
+dependencies = [
+    # Core - Preserved from v0
+    "claude-agent-sdk>=0.1.48",
+    "anthropic>=0.45.0",
+    "sqlalchemy>=2.0",
+    "openpyxl>=3.1",
+    "pandas>=2.2",
+    "jinja2>=3.1",
+    "python-dotenv>=1.0",
+    "rich>=13.0",
+    
+    # New SaaS Dependencies
+    "fastapi>=0.104",
+    "uvicorn[standard]>=0.24",
+    "celery[redis]>=5.3",
+    "redis>=5.0",
+    "paramiko>=3.3",  # SSH tunneling
+    "asyncssh>=2.14",  # Async SSH alternative
+    "supabase>=2.0",  # Metadata storage
+    "pydantic>=2.5",
+    "httpx>=0.25",
+    "websockets>=12.0",
+    "cryptography>=41.0",
+    "python-multipart>=0.0.6",  # File uploads
+    
+    # Monitoring & Logging
+    "sentry-sdk[fastapi]>=1.39",
+    "structlog>=23.2",
+    "prometheus-client>=0.19",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.21",
+    "pytest-cov>=4.1",
+    "black>=23.12",
+    "ruff>=0.1",
+    "mypy>=1.7",
+    "ipython>=8.18",
+    "httpx>=0.25",  # For testing
+    "faker>=20.1",  # Test data generation
+]
+
+mysql = ["pymysql>=1.1"]
+postgres = ["psycopg2-binary>=2.9"]
+mssql = ["pyodbc>=5.0"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["valinor_saas*", "core*", "api*", "worker*", "shared*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_any_generics = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-v --tb=short --strict-markers"
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["valinor_saas", "api", "worker", "shared"]
+omit = ["*/tests/*", "*/test_*.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

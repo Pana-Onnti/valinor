@@ -1,0 +1,34 @@
+version: '3.8'
+
+# Simplified MVP Docker Compose - Only essentials
+
+services:
+  # Simple API - Everything in one service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.simple
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+      - ~/.ssh:/keys:ro  # SSH keys read-only
+      - /tmp/valinor_jobs:/tmp/valinor_jobs  # Job storage
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - PYTHONPATH=/app
+    command: python simple_api.py
+
+  # Optional: Demo database for testing
+  demo-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: demo_company
+      POSTGRES_USER: readonly
+      POSTGRES_PASSWORD: demo_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./demo/demo_data.sql:/docker-entrypoint-initdb.d/demo_data.sql
+    profiles:
+      - demo
