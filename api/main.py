@@ -984,6 +984,7 @@ async def list_jobs(
     page: int = 1,
     page_size: int = 20,
     status_filter: Optional[str] = None,
+    client_name: Optional[str] = None,
     sort_by: str = "created_at",
     sort_order: str = "desc",
 ):
@@ -993,6 +994,7 @@ async def list_jobs(
     - **page**: 1-based page number (default 1)
     - **page_size**: items per page, max 100 (default 20)
     - **status_filter**: filter by status — completed|failed|pending|running|cancelled
+    - **client_name**: filter to jobs belonging to a specific client
     - **sort_by**: field to sort by — created_at|status|client_name (default created_at)
     - **sort_order**: asc or desc (default desc)
     """
@@ -1025,6 +1027,9 @@ async def list_jobs(
         job_id_val = key.replace("job:", "")
         job_status = job_data.get("status", "unknown")
         if status_filter and job_status != status_filter:
+            continue
+        job_client = job_data.get("client_name", "")
+        if client_name and job_client != client_name:
             continue
         jobs.append({
             "job_id": job_id_val,
