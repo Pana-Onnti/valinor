@@ -929,6 +929,58 @@ async def import_client_profile(client_name: str, body: dict):
     return {"status": "imported", "client": client_name}
 
 
+@app.get("/api/clients/{client_name}/refinement", tags=["Clients"])
+async def get_client_refinement(client_name: str):
+    """
+    Return the current refinement settings stored in the ClientProfile.
+    The refinement dict captures analysis preferences (depth, focus areas,
+    excluded tables, language, etc.) produced by the Auto-Refinement Engine.
+    """
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {client_name}")
+
+    return {
+        "client_name": client_name,
+        "refinement": profile.refinement or {},
+    }
+
+
+@app.patch("/api/clients/{client_name}/refinement", tags=["Clients"])
+async def patch_client_refinement(client_name: str, body: dict):
+    """
+    Merge a partial refinement dict into the existing refinement settings and
+    persist the updated ClientProfile.  Keys present in the body overwrite the
+    corresponding keys in the stored refinement; all other keys are preserved.
+    """
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {client_name}")
+
+    current = profile.refinement or {}
+    current.update(body)
+    profile.refinement = current
+
+    from datetime import datetime
+    profile.updated_at = datetime.utcnow().isoformat()
+
+    await store.save(profile)
+    return {
+        "client_name": client_name,
+        "refinement": profile.refinement,
+    }
+
+
 @app.get("/api/clients", tags=["Clients"])
 async def list_clients():
     """
@@ -1457,6 +1509,86 @@ async def get_client_stats(client_name: str):
         "focus_tables": profile.focus_tables[:5],
         "refinement_ready": profile.refinement is not None,
         "entity_cache_fresh": profile.is_entity_map_fresh(),
+    }
+
+
+@app.get("/api/clients/{client_name}/analytics", tags=["Clients"])
+async def get_client_analytics(client_name: str):
+    """
+    Return deeper run analytics derived from the client's run_history.
+
+    Includes total runs, success rate, average findings per run,
+    monthly run distribution, finding velocity trend, and a summary
+    of the last 5 runs.
+    """
+    import sys, os
+    from collections import defaultdict
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for: {client_name}")
+
+    run_history = profile.run_history or []
+    total_runs = len(run_history)
+
+    # Success rate
+    successful = sum(1 for r in run_history if r.get("success", True))
+    success_rate = round(successful / total_runs * 100, 1) if total_runs else 0.0
+
+    # Average findings / new findings / resolved per run
+    avg_findings = round(
+        sum(r.get("findings_count", 0) for r in run_history) / max(total_runs, 1), 1
+    )
+    avg_new = round(
+        sum(r.get("new", 0) for r in run_history) / max(total_runs, 1), 1
+    )
+    avg_resolved = round(
+        sum(r.get("resolved", 0) for r in run_history) / max(total_runs, 1), 1
+    )
+
+    # Runs grouped by month (YYYY-MM)
+    runs_by_month: dict = defaultdict(int)
+    for r in run_history:
+        date_str = r.get("run_date", "")
+        if date_str and len(date_str) >= 7:
+            month_key = date_str[:7]  # "YYYY-MM"
+            runs_by_month[month_key] += 1
+
+    # Finding velocity — trend over last 5 runs
+    last_5 = run_history[-5:]
+    velocity_counts = [r.get("findings_count", 0) for r in last_5]
+    finding_velocity = "stable"
+    if len(velocity_counts) >= 2:
+        if velocity_counts[-1] > velocity_counts[0]:
+            finding_velocity = "increasing"
+        elif velocity_counts[-1] < velocity_counts[0]:
+            finding_velocity = "decreasing"
+
+    # Last 5 run summaries
+    last_5_runs = [
+        {
+            "run_date": r.get("run_date"),
+            "findings_count": r.get("findings_count", 0),
+            "new": r.get("new", 0),
+            "resolved": r.get("resolved", 0),
+            "success": r.get("success", True),
+        }
+        for r in last_5
+    ]
+
+    return {
+        "client_name": client_name,
+        "total_runs": total_runs,
+        "success_rate": success_rate,
+        "avg_findings_per_run": avg_findings,
+        "avg_new_findings_per_run": avg_new,
+        "avg_resolved_per_run": avg_resolved,
+        "runs_by_month": dict(sorted(runs_by_month.items())),
+        "finding_velocity": finding_velocity,
+        "last_5_runs": last_5_runs,
     }
 
 

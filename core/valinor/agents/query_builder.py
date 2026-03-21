@@ -476,19 +476,29 @@ def _find_relationship_column(entity_map: dict, from_entity: str, to_entity: str
     return None
 
 
-def build_queries(entity_map: dict, period: dict) -> dict:
+def build_queries(entity_map: dict, period: dict, profile: dict | None = None) -> dict:
     """
-    Takes entity_map + period config.
-    Returns executable query_pack with SQL ready to run.
+    Takes entity_map + period config (+ optional profile) and returns an
+    executable query_pack with SQL ready to run.
 
     Args:
         entity_map: Dict with 'entities' key mapping entity names to their config.
-        period: Dict with 'start', 'end', 'label' keys.
+        period:     Dict with 'start', 'end', 'label' keys.
+        profile:    Optional dict controlling prioritisation:
+                      - table_weights: {table_name: float}  (0.1–1.0)
+                      - focus_tables:  list[str]
+                    When supplied, entities are scored, sorted, and capped at
+                    MAX_ENTITIES (20) before query generation.
 
     Returns:
         Dict with 'queries' (list of ready queries) and 'skipped' (list of skipped templates).
     """
     query_pack: dict[str, list] = {"queries": [], "skipped": []}
+
+    # Prioritise and cap entities when a profile is provided
+    if profile is not None:
+        entity_map = prioritize_entities(entity_map, profile)
+
     entities = entity_map.get("entities", {})
 
     for query_id, template_config in QUERY_TEMPLATES.items():
