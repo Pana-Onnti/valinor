@@ -594,6 +594,9 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
                 errors={errors}
                 watch={watch}
                 dbType={selectedErp}
+                testResult={testResult}
+                testingConnection={testingConnection}
+                onTestConnection={handleTestConnection}
               />
             )}
             {step === 2 && (

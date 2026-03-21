@@ -999,6 +999,56 @@ async def get_job_quality_report(job_id: str):
     }
 
 
+@app.post("/api/clients/{client_name}/webhooks")
+async def register_webhook(client_name: str, body: dict):
+    """Register a webhook URL for a client."""
+    from shared.memory.profile_store import get_profile_store
+    webhook_url = body.get("url")
+    if not webhook_url or not webhook_url.startswith("http"):
+        raise HTTPException(status_code=400, detail="Valid webhook URL required")
+
+    store = get_profile_store()
+    profile = await store.load_or_create(client_name)
+
+    if not hasattr(profile, '__dict__'):
+        raise HTTPException(status_code=500, detail="Profile error")
+
+    # Store webhook in profile (as extra field)
+    webhooks = profile.__dict__.get('_webhooks', [])
+    existing = [w for w in webhooks if w.get("url") != webhook_url]
+    existing.append({"url": webhook_url, "registered_at": datetime.utcnow().isoformat(), "active": True})
+    profile.__dict__['_webhooks'] = existing[-5:]  # max 5 webhooks
+
+    await store.save(profile)
+    return {"status": "registered", "url": webhook_url, "client": client_name}
+
+
+@app.get("/api/clients/{client_name}/webhooks")
+async def list_webhooks(client_name: str):
+    """List registered webhooks for a client."""
+    from shared.memory.profile_store import get_profile_store
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Client not found")
+    webhooks = profile.__dict__.get('_webhooks', [])
+    return {"client": client_name, "webhooks": webhooks}
+
+
+@app.delete("/api/clients/{client_name}/webhooks")
+async def delete_webhook(client_name: str, url: str):
+    """Remove a webhook."""
+    from shared.memory.profile_store import get_profile_store
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Client not found")
+    webhooks = [w for w in profile.__dict__.get('_webhooks', []) if w.get("url") != url]
+    profile.__dict__['_webhooks'] = webhooks
+    await store.save(profile)
+    return {"status": "removed", "remaining": len(webhooks)}
+
+
 @app.get("/api/clients/{client_name}/segmentation")
 async def get_client_segmentation(client_name: str):
     """Get latest customer segmentation for a client."""
@@ -1195,20 +1245,39 @@ async def run_analysis_task(job_id: str, request_data: Dict[str, Any]):
             "completed_at": datetime.utcnow().isoformat(),
             "message": "Analysis completed successfully"
         })
-        
+
         logger.info(
             "Analysis completed successfully",
             job_id=job_id,
             client=request_data["client_name"]
         )
-        
+
+        # Fire webhooks if registered
+        try:
+            from api.webhooks import fire_job_completion_webhook, build_job_summary
+            from shared.memory.profile_store import get_profile_store
+
+            client_name = request_data.get("client_name", "unknown")
+            store = get_profile_store()
+            profile = await store.load(client_name)
+            if profile:
+                webhooks = profile.__dict__.get('_webhooks', [])
+                for webhook in webhooks:
+                    if webhook.get("active") and webhook.get("url"):
+                        summary = build_job_summary(results)
+                        asyncio.create_task(fire_job_completion_webhook(
+                            webhook["url"], job_id, client_name, "completed", summary
+                        ))
+        except Exception as _wh_err:
+            logger.warning("Webhook setup failed", error=str(_wh_err))
+
     except Exception as e:
         logger.error(
             "Analysis failed",
             job_id=job_id,
             error=str(e)
         )
-        
+
         if redis_client:
             try:
                 await redis_client.hset(f"job:{job_id}", mapping={
@@ -1218,6 +1287,24 @@ async def run_analysis_task(job_id: str, request_data: Dict[str, Any]):
                 })
             except:
                 pass  # Don't fail on status update error
+
+        # Fire failure webhooks if registered
+        try:
+            from api.webhooks import fire_job_completion_webhook
+            from shared.memory.profile_store import get_profile_store
+
+            client_name = request_data.get("client_name", "unknown")
+            store = get_profile_store()
+            profile = await store.load(client_name)
+            if profile:
+                webhooks = profile.__dict__.get('_webhooks', [])
+                for webhook in webhooks:
+                    if webhook.get("active") and webhook.get("url"):
+                        asyncio.create_task(fire_job_completion_webhook(
+                            webhook["url"], job_id, client_name, "failed", {}
+                        ))
+        except Exception as _wh_err:
+            logger.warning("Webhook setup failed (failure path)", error=str(_wh_err))
 
 # ═══ MAIN ═══
 
