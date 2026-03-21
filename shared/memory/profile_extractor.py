@@ -222,14 +222,34 @@ class ProfileExtractor:
         for m in pattern.finditer(report_text):
             label = m.group(1).strip()
             value = m.group(2).strip()
-            # Try to extract a numeric value
-            nums = re.findall(r'[\d.,]+', value.replace(',', ''))
+            # Try to extract a numeric value — handle both English (1,234.56)
+            # and European (1.234,56) formatting, and shorthand (12.3M, 4.5K)
             numeric_value = None
-            if nums:
+            # Shorthand suffixes: M=million, K=thousand, B=billion
+            _shorthand = re.search(r'([\d.,]+)\s*([MKBmkb])\b', value)
+            if _shorthand:
                 try:
-                    numeric_value = float(nums[0].replace(',', ''))
+                    _base = float(_shorthand.group(1).replace(',', '').replace('.', '')) \
+                        if _shorthand.group(1).count('.') > 1 or _shorthand.group(1).count(',') > 1 \
+                        else float(_shorthand.group(1).replace(',', ''))
+                    _mult = {'m': 1e6, 'k': 1e3, 'b': 1e9}.get(_shorthand.group(2).lower(), 1)
+                    numeric_value = _base * _mult
                 except ValueError:
                     pass
+            if numeric_value is None:
+                # Fall back to first plain number in the value string
+                _nums = re.findall(r'[\d]+(?:[.,][\d]+)*', value)
+                if _nums:
+                    try:
+                        # Normalize: if last separator is ',', it's European decimal
+                        _n = _nums[0]
+                        if ',' in _n and _n.rindex(',') > (_n.rindex('.') if '.' in _n else -1):
+                            _n = _n.replace('.', '').replace(',', '.')
+                        else:
+                            _n = _n.replace(',', '')
+                        numeric_value = float(_n)
+                    except ValueError:
+                        pass
             kpis.append({"label": label, "value": value, "numeric_value": numeric_value})
         return kpis[:20]  # cap at 20 KPIs
 
