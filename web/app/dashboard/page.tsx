@@ -251,11 +251,46 @@ export default function DashboardPage() {
   );
 }
 
+function DQSparkline({ trend }: { trend?: string }) {
+  if (trend === 'improving') {
+    return (
+      <div className="flex items-end gap-px justify-center mt-1">
+        <div className="w-1.5 h-1 bg-green-400 rounded-sm" />
+        <div className="w-1.5 h-2 bg-green-400 rounded-sm" />
+        <div className="w-1.5 h-3 bg-green-400 rounded-sm" />
+      </div>
+    );
+  }
+  if (trend === 'declining') {
+    return (
+      <div className="flex items-end gap-px justify-center mt-1">
+        <div className="w-1.5 h-3 bg-red-400 rounded-sm" />
+        <div className="w-1.5 h-2 bg-red-400 rounded-sm" />
+        <div className="w-1.5 h-1 bg-red-400 rounded-sm" />
+      </div>
+    );
+  }
+  // stable or unknown
+  return (
+    <div className="flex items-end gap-px justify-center mt-1">
+      <div className="w-1.5 h-2 bg-yellow-400 rounded-sm" />
+      <div className="w-1.5 h-2 bg-yellow-400 rounded-sm" />
+      <div className="w-1.5 h-2 bg-yellow-400 rounded-sm" />
+    </div>
+  );
+}
+
 function ClientCard({ client }: { client: ClientSummary }) {
   const criticalCount = client.critical_active || 0;
   const dqScore = client.avg_dq_score;
-  const dqColor = !dqScore ? 'gray' : dqScore >= 85 ? 'green' : dqScore >= 65 ? 'amber' : 'orange';
-  const trendIcon = client.dq_trend === 'improving' ? '\u2191' : client.dq_trend === 'declining' ? '\u2193' : '\u2192';
+  const dqScoreColor =
+    !dqScore
+      ? 'text-gray-400'
+      : dqScore >= 85
+      ? 'text-green-600'
+      : dqScore >= 65
+      ? 'text-amber-500'
+      : 'text-red-600';
 
   return (
     <Link href={`/clients/${client.client_name}/history`}>
@@ -284,10 +319,11 @@ function ClientCard({ client }: { client: ClientSummary }) {
             <p className="text-xs text-gray-400">activos</p>
           </div>
           <div className="text-center">
-            <p className={`text-lg font-bold text-${dqColor}-600`}>
+            <p className={`text-lg font-bold ${dqScoreColor}`}>
               {dqScore ? `${dqScore}` : '\u2014'}
             </p>
-            <p className="text-xs text-gray-400">DQ {trendIcon}</p>
+            <DQSparkline trend={client.dq_trend} />
+            <p className="text-xs text-gray-400">DQ</p>
           </div>
         </div>
 
