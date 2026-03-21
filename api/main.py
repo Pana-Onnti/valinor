@@ -62,6 +62,7 @@ def _validate_period(period: str) -> str:
 # Global components (declared before lifespan so lifespan can reference them)
 redis_client = None
 metadata_storage = MetadataStorage()
+_app_start_time: float = time.time()
 
 
 @asynccontextmanager
@@ -345,6 +346,7 @@ async def health_check():
         storage_status == "healthy"
     ]) else "unhealthy"
     
+    uptime_seconds = time.time() - _app_start_time
     return {
         "status": overall_status,
         "timestamp": datetime.utcnow().isoformat(),
@@ -352,8 +354,22 @@ async def health_check():
             "redis": redis_status,
             "storage": storage_status
         },
-        "version": "2.0.0"
+        "version": "2.0.0",
+        "uptime_seconds": round(uptime_seconds, 1),
+        "environment": os.getenv("ENVIRONMENT", "development"),
     }
+
+@app.get("/api/version", summary="API version info", tags=["System"])
+async def get_version():
+    """Return API version and build info."""
+    return {
+        "version": "2.0.0",
+        "api_prefix": "/api/v1",
+        "supported_db_types": ["postgres", "mysql", "sqlserver", "oracle"],
+        "max_analysis_duration_minutes": 15,
+        "cost_per_analysis_usd": 8.0,
+    }
+
 
 @app.post("/api/analyze", response_model=Dict[str, str], summary="Start analysis", tags=["Analysis"])
 @limiter.limit("10/minute")
