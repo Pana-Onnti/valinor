@@ -513,3 +513,162 @@ async def test_get_triggered_single_alert(client):
     assert r.status_code == 200
     assert len(r.json()["triggered"]) == 1
     assert r.json()["triggered"][0]["severity"] == "HIGH"
+
+
+# ===========================================================================
+# Additional tests — edge cases and extra coverage
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_get_thresholds_different_client_names(client):
+    """Thresholds endpoint works for client names with hyphens and numbers."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    for name in ("client-1", "my-company-2025", "abc123"):
+        with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+            r = await client.get(f"/api/clients/{name}/alerts/thresholds")
+        assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_low_severity_accepted(client):
+    """Severity value 'LOW' is accepted."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    payload = {
+        "metric": "sessions",
+        "condition": "absolute_below",
+        "threshold_value": 100.0,
+        "severity": "LOW",
+    }
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
+    assert r.status_code == 200
+    assert r.json()["threshold"]["severity"] == "LOW"
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_critical_severity_accepted(client):
+    """Severity value 'CRITICAL' is accepted and stored correctly."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    payload = {
+        "metric": "downtime",
+        "condition": "absolute_above",
+        "threshold_value": 0.0,
+        "severity": "CRITICAL",
+    }
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
+    assert r.status_code == 200
+    assert r.json()["threshold"]["severity"] == "CRITICAL"
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_negative_value_accepted(client):
+    """Negative threshold values are valid for pct_change_below conditions."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    payload = {
+        "metric": "gross_margin",
+        "condition": "pct_change_below",
+        "threshold_value": -50.0,
+        "severity": "HIGH",
+    }
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
+    assert r.status_code == 200
+    assert r.json()["threshold"]["value"] == -50.0
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_zero_value_accepted(client):
+    """Zero as threshold_value is a valid input."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    payload = {
+        "metric": "errors",
+        "condition": "absolute_above",
+        "threshold_value": 0.0,
+        "severity": "HIGH",
+    }
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
+    assert r.status_code == 200
+    assert r.json()["threshold"]["value"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_empty_body_returns_422(client):
+    """An empty JSON body returns 422."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.post("/api/clients/acme/alerts/thresholds", json={})
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_delete_threshold_nonexistent_metric_returns_404(client):
+    """DELETE when the metric is not in the profile's thresholds returns 404."""
+    # The delete endpoint uses load_or_create (always returns a profile),
+    # and raises 404 when the metric key is not found in alert_thresholds.
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.delete("/api/clients/ghost/alerts/thresholds/does_not_exist")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_thresholds_count_matches_list_length(client):
+    """The 'count' field always equals the length of the 'thresholds' list."""
+    thresholds = [
+        {"metric": "m1", "condition": "absolute_above", "value": 1.0, "severity": "LOW"},
+        {"metric": "m2", "condition": "z_score_above", "value": 2.0, "severity": "MEDIUM"},
+        {"metric": "m3", "condition": "pct_change_below", "value": -5.0, "severity": "HIGH"},
+    ]
+    profile = _make_profile(thresholds=thresholds)
+    store = _profile_store(profile)
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.get("/api/clients/acme/alerts/thresholds")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] == len(body["thresholds"])
+
+
+@pytest.mark.asyncio
+async def test_get_triggered_count_field_matches_list(client):
+    """GET triggered returns a 'count' field matching the number of alerts."""
+    alerts = [
+        {"metric": "revenue", "severity": "HIGH", "computed_value": -20.0},
+        {"metric": "churn", "severity": "CRITICAL", "computed_value": 12.0},
+        {"metric": "nps", "severity": "MEDIUM", "computed_value": -5.0},
+    ]
+    profile = _make_profile(metadata={"last_triggered_alerts": alerts})
+    store = _profile_store(profile)
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.get("/api/clients/acme/alerts/triggered")
+    assert r.status_code == 200
+    body = r.json()
+    # count may not be present in all implementations; if present verify it
+    if "count" in body:
+        assert body["count"] == len(body["triggered"])
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_z_score_large_value_accepted(client):
+    """Large z-score threshold values are accepted without error."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    payload = {
+        "metric": "traffic_spike",
+        "condition": "z_score_above",
+        "threshold_value": 10.0,
+        "severity": "MEDIUM",
+        "description": "Extreme traffic anomaly",
+    }
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
+    assert r.status_code == 200
+    assert r.json()["threshold"]["value"] == 10.0

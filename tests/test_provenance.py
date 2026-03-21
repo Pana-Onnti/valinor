@@ -292,3 +292,120 @@ def test_analysis_timestamp_is_set():
     assert fp.analysis_timestamp
     # Basic ISO format sanity: contains 'T' separator
     assert "T" in fp.analysis_timestamp
+
+
+# ---------------------------------------------------------------------------
+# Additional tests
+# ---------------------------------------------------------------------------
+
+class TestProvenanceRegistryExtended:
+    """Extended coverage for ProvenanceRegistry."""
+
+    def test_registry_to_dict_contains_required_keys(self):
+        """to_dict() must contain job_id, client_name, period, findings."""
+        reg = make_registry()
+        d = reg.to_dict()
+        for key in ("job_id", "client_name", "period", "findings"):
+            assert key in d, f"Expected '{key}' in to_dict()"
+
+    def test_registry_to_dict_job_id_correct(self):
+        """to_dict()['job_id'] must match the job_id passed at construction."""
+        reg = make_registry()
+        assert reg.to_dict()["job_id"] == "job-001"
+
+    def test_registry_to_dict_findings_is_dict(self):
+        """to_dict()['findings'] must be a dict."""
+        reg = make_registry()
+        reg.register("f1", "revenue")
+        d = reg.to_dict()
+        assert isinstance(d["findings"], dict)
+
+    def test_multiple_register_calls_accumulate(self):
+        """Registering N findings results in len(findings) == N."""
+        reg = make_registry()
+        for i in range(5):
+            reg.register(f"finding_{i}", f"metric_{i}")
+        assert len(reg.findings) == 5
+
+    def test_summary_contains_dq_score(self):
+        """summary_for_report() must contain the DQ score value."""
+        reg = make_registry(dq_score=82.5, tag="PROVISIONAL")
+        summary = reg.summary_for_report()
+        assert "82" in summary or "82.5" in summary
+
+    def test_summary_contains_tag(self):
+        """summary_for_report() must contain the DQ tag."""
+        reg = make_registry(dq_score=100.0, tag="CERTIFIED")
+        summary = reg.summary_for_report()
+        assert "CERTIFIED" in summary
+
+    def test_finding_dq_tag_matches_registry_tag(self):
+        """Registered finding's data_quality_tag matches the registry tag."""
+        reg = make_registry(dq_score=95.0, tag="VALIDATED")
+        fp = reg.register("f1", "revenue")
+        assert fp.data_quality_tag == "VALIDATED"
+
+    def test_finding_dq_score_matches_registry_score(self):
+        """Registered finding's dq_score matches the registry's report score."""
+        reg = make_registry(dq_score=75.0, tag="WARNING")
+        fp = reg.register("f1", "churn")
+        assert fp.dq_score == pytest.approx(75.0)
+
+    def test_empty_registry_summary_no_crash(self):
+        """summary_for_report() with no findings must not raise."""
+        reg = make_registry()
+        try:
+            summary = reg.summary_for_report()
+        except Exception as exc:
+            pytest.fail(f"summary_for_report() raised {exc!r}")
+        assert isinstance(summary, str)
+
+    def test_dq_score_zero_handled(self):
+        """A DQ score of 0 is a valid (extreme) value and must not crash."""
+        reg = make_registry(dq_score=0.0, tag="FAILED")
+        reg.register("f1", "revenue")
+        summary = reg.summary_for_report()
+        assert isinstance(summary, str)
+
+    def test_registry_period_preserved(self):
+        """to_dict()['period'] must match the period passed at construction."""
+        reg = make_registry()
+        assert reg.to_dict()["period"] == "2026-Q1"
+
+    def test_registry_client_name_preserved(self):
+        """to_dict()['client_name'] must match the client_name at construction."""
+        reg = make_registry()
+        assert reg.to_dict()["client_name"] == "Acme Corp"
+
+
+class TestFindingProvenanceExtended:
+    """Extended FindingProvenance tests."""
+
+    def test_to_display_badge_returns_string(self):
+        """to_display_badge() must return a non-empty string."""
+        fp = FindingProvenance(finding_id="f1", metric_name="revenue")
+        badge = fp.to_display_badge()
+        assert isinstance(badge, str)
+        assert len(badge) > 0
+
+    def test_to_dict_returns_dict(self):
+        """to_dict() must return a dict."""
+        fp = FindingProvenance(finding_id="f2", metric_name="margin")
+        d = fp.to_dict()
+        assert isinstance(d, dict)
+
+    def test_to_dict_contains_finding_id(self):
+        """to_dict()['finding_id'] must match the finding_id."""
+        fp = FindingProvenance(finding_id="f3", metric_name="churn")
+        assert fp.to_dict()["finding_id"] == "f3"
+
+    def test_confidence_label_is_string(self):
+        """confidence_label must be a non-empty string."""
+        fp = FindingProvenance(finding_id="f1", metric_name="revenue")
+        assert isinstance(fp.confidence_label, str)
+        assert len(fp.confidence_label) > 0
+
+    def test_reconciliation_discrepancy_default_zero(self):
+        """reconciliation_discrepancy_pct defaults to 0.0."""
+        fp = FindingProvenance(finding_id="f1", metric_name="revenue")
+        assert fp.reconciliation_discrepancy_pct == pytest.approx(0.0)

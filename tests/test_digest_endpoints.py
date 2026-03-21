@@ -480,3 +480,125 @@ async def test_quality_job_id_echoed_in_response(client):
         r = await client.get(f"/api/jobs/{job_id}/quality")
     assert r.status_code == 200
     assert r.json()["job_id"] == job_id
+
+
+# ===========================================================================
+# Additional tests — edge cases and extra coverage
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_digest_html_empty_findings(client):
+    """Digest renders without error when findings dict is empty."""
+    raw = _minimal_results(findings={})
+    with patch("api.main.redis_client") as rm:
+        rm.get = AsyncMock(return_value=raw)
+        r = await client.get("/api/jobs/job-empty-findings/digest")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+
+
+@pytest.mark.asyncio
+async def test_digest_html_no_triggered_alerts(client):
+    """Digest renders without error when triggered_alerts is None."""
+    raw = _minimal_results(triggered_alerts=None)
+    with patch("api.main.redis_client") as rm:
+        rm.get = AsyncMock(return_value=raw)
+        r = await client.get("/api/jobs/job-no-alerts/digest")
+    assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_digest_html_empty_triggered_alerts_list(client):
+    """Digest renders correctly when triggered_alerts is an empty list."""
+    raw = _minimal_results(triggered_alerts=[])
+    with patch("api.main.redis_client") as rm:
+        rm.get = AsyncMock(return_value=raw)
+        r = await client.get("/api/jobs/job-empty-alerts/digest")
+    assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_send_digest_missing_email_with_job_that_exists_returns_422(client):
+    """When job exists but to_email param is missing, the response is 422."""
+    raw = _minimal_results()
+    with patch("api.main.redis_client") as rm:
+        rm.get = AsyncMock(return_value=raw)
+        r = await client.post("/api/jobs/job-123/send-digest")
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_quality_gate_decision_absent_defaults_gracefully(client):
+    """DQ report missing 'gate_decision' key is still returned without 500."""
+    dq = {"score": 65, "decision": "PROCEED_WITH_WARNINGS", "checks": []}
+    raw = _results_with_dq(**dq)
+    with patch("api.main.redis_client") as rm:
+        rm.get = AsyncMock(return_value=raw)
+        r = await client.get("/api/jobs/job-no-gate/quality")
+    assert r.status_code == 200
+    assert r.json()["data_quality"] is not None
+
+
+@pytest.mark.asyncio
+async def test_quality_with_failed_checks(client):
+    """DQ report containing failed checks is returned without 500."""
+    checks = [
+        {"name": "null_ratio", "passed": False, "severity": "CRITICAL", "detail": "30% nulls"},
+        {"name": "pk_uniqueness", "passed": True, "severity": "HIGH", "detail": "ok"},
+    ]
+    raw = _results_with_dq(score=40, checks=checks)
+    with patch("api.main.redis_client") as rm:
+        rm.get = AsyncMock(return_value=raw)
+        r = await client.get("/api/jobs/job-failed-checks/quality")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["data_quality"]["score"] == 40
+
+
+@pytest.mark.asyncio
+async def test_digest_html_with_empty_currency_warnings(client):
+    """Digest renders without error when currency_warnings is an empty dict."""
+    raw = _minimal_results(currency_warnings={})
+    with patch("api.main.redis_client") as rm:
+        rm.get = AsyncMock(return_value=raw)
+        r = await client.get("/api/jobs/job-no-currency/digest")
+    assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_quality_currency_warnings_empty_dict(client):
+    """Quality endpoint returns empty dict for currency_warnings when none exist."""
+    raw = _minimal_results(
+        data_quality={"score": 95, "decision": "PROCEED"},
+        currency_warnings={},
+    )
+    with patch("api.main.redis_client") as rm:
+        rm.get = AsyncMock(return_value=raw)
+        r = await client.get("/api/jobs/job-no-cw/quality")
+    assert r.status_code == 200
+    assert r.json()["currency_warnings"] == {}
+
+
+@pytest.mark.asyncio
+async def test_quality_score_zero_is_valid(client):
+    """A DQ score of 0 is a valid response (worst quality gate result)."""
+    raw = _results_with_dq(score=0, decision="ABORT")
+    with patch("api.main.redis_client") as rm:
+        rm.get = AsyncMock(return_value=raw)
+        r = await client.get("/api/jobs/job-zero-score/quality")
+    assert r.status_code == 200
+    assert r.json()["data_quality"]["score"] == 0
+
+
+@pytest.mark.asyncio
+async def test_send_digest_with_empty_findings(client):
+    """Sending a digest for a job with empty findings completes without error."""
+    raw = _minimal_results(findings={}, triggered_alerts=[])
+    with (
+        patch("api.main.redis_client") as rm,
+        patch("api.email_digest.send_digest", new=AsyncMock(return_value=False)),
+    ):
+        rm.get = AsyncMock(return_value=raw)
+        r = await client.post("/api/jobs/job-empty/send-digest?to_email=ops@example.com")
+    assert r.status_code == 200
+    assert r.json()["to"] == "ops@example.com"

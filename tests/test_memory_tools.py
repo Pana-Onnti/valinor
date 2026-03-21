@@ -399,3 +399,143 @@ class TestReadMemory:
         payload = json.loads(result["content"][0]["text"])
         assert payload["memory"]["company"] == "社会"
         assert payload["memory"]["note"] == "résumé café"
+
+
+# ===========================================================================
+# Additional tests — cross-tool and edge cases
+# ===========================================================================
+
+class TestWriteArtifactAdditional:
+    """Additional write_artifact edge cases."""
+
+    def test_multiple_files_same_client_period(self, patched_dirs):
+        """Multiple artifacts for the same client/period are all stored independently."""
+        _, out = patched_dirs
+        base = {"client_name": "Multi", "period": "Q1-2025"}
+        for name in ("report.txt", "findings.json", "summary.txt"):
+            _run(memory_tools.write_artifact({**base, "filename": name, "content": name}))
+        for name in ("report.txt", "findings.json", "summary.txt"):
+            assert (out / "Multi" / "Q1-2025" / name).exists()
+
+    def test_large_content_written_correctly(self, patched_dirs):
+        """A 10 KB content block is written and read back without truncation."""
+        _, out = patched_dirs
+        content = "X" * 10_240
+        _run(memory_tools.write_artifact({
+            "client_name": "Large",
+            "period": "Q1-2025",
+            "filename": "big.txt",
+            "content": content,
+        }))
+        written = (out / "Large" / "Q1-2025" / "big.txt").read_text(encoding="utf-8")
+        assert len(written) == 10_240
+
+    def test_return_dict_has_content_key(self, patched_dirs):
+        """Return value from write_artifact is a dict with 'content' key."""
+        _, out = patched_dirs
+        result = _run(memory_tools.write_artifact({
+            "client_name": "Ret",
+            "period": "Q1-2025",
+            "filename": "x.txt",
+            "content": "hello",
+        }))
+        assert isinstance(result, dict)
+        assert "content" in result
+
+    def test_period_with_year_only(self, patched_dirs):
+        """Period values like '2025' (year-only) are stored correctly."""
+        _, out = patched_dirs
+        _run(memory_tools.write_artifact({
+            "client_name": "Yr",
+            "period": "2025",
+            "filename": "annual.txt",
+            "content": "annual data",
+        }))
+        assert (out / "Yr" / "2025" / "annual.txt").exists()
+
+    def test_multiline_content(self, patched_dirs):
+        """Multi-line content with newlines is preserved exactly."""
+        _, out = patched_dirs
+        content = "line1\nline2\nline3\n"
+        _run(memory_tools.write_artifact({
+            "client_name": "NL",
+            "period": "Q2-2025",
+            "filename": "multi.txt",
+            "content": content,
+        }))
+        written = (out / "NL" / "Q2-2025" / "multi.txt").read_text(encoding="utf-8")
+        assert written == content
+
+
+class TestWriteMemoryAdditional:
+    """Additional write_memory edge cases."""
+
+    def test_metadata_written_at_is_string(self, patched_dirs):
+        """_metadata.written_at must be a non-empty string (ISO timestamp)."""
+        mem, _ = patched_dirs
+        _run(memory_tools.write_memory({
+            "client_name": "TS",
+            "period": "Q1-2025",
+            "memory_data": json.dumps({}),
+        }))
+        data = json.loads((mem / "TS" / "swarm_memory_Q1-2025.json").read_text("utf-8"))
+        assert isinstance(data["_metadata"]["written_at"], str)
+        assert len(data["_metadata"]["written_at"]) > 0
+
+    def test_large_memory_data_preserved(self, patched_dirs):
+        """A large memory payload survives write → read round-trip."""
+        mem, _ = patched_dirs
+        large = {f"key_{i}": f"value_{i}" * 100 for i in range(50)}
+        _run(memory_tools.write_memory({
+            "client_name": "BigMem",
+            "period": "Q1-2025",
+            "memory_data": json.dumps(large),
+        }))
+        data = json.loads((mem / "BigMem" / "swarm_memory_Q1-2025.json").read_text("utf-8"))
+        assert data["key_0"] == "value_0" * 100
+
+    def test_return_includes_path(self, patched_dirs):
+        """write_memory return payload includes a 'path' field."""
+        _, _ = patched_dirs
+        result = _run(memory_tools.write_memory({
+            "client_name": "PathTest",
+            "period": "Q3-2025",
+            "memory_data": json.dumps({"a": 1}),
+        }))
+        payload = json.loads(result["content"][0]["text"])
+        assert "path" in payload
+
+    def test_overwrite_previous_period(self, patched_dirs):
+        """Writing the same period twice overwrites the prior file."""
+        mem, _ = patched_dirs
+        for v in (1, 2):
+            _run(memory_tools.write_memory({
+                "client_name": "Ow",
+                "period": "Q1-2025",
+                "memory_data": json.dumps({"version": v}),
+            }))
+        data = json.loads((mem / "Ow" / "swarm_memory_Q1-2025.json").read_text("utf-8"))
+        assert data["version"] == 2
+
+
+class TestReadMemoryAdditional:
+    """Additional read_memory edge cases."""
+
+    def test_read_returns_dict(self, patched_dirs):
+        """read_memory always returns a dict with a 'content' key."""
+        result = _run(memory_tools.read_memory({
+            "client_name": "Ghost2",
+            "period": None,
+        }))
+        assert isinstance(result, dict)
+        assert "content" in result
+
+    def test_read_status_is_string(self, patched_dirs):
+        """The 'status' field in the payload is always a non-empty string."""
+        result = _run(memory_tools.read_memory({
+            "client_name": "Ghost3",
+            "period": None,
+        }))
+        payload = json.loads(result["content"][0]["text"])
+        assert isinstance(payload["status"], str)
+        assert len(payload["status"]) > 0

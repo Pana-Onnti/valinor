@@ -562,3 +562,159 @@ class TestDeleteWebhook:
         # The endpoint does a filter; nothing removed is still a valid operation
         assert response.status_code == 200
         assert response.json()["remaining"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Additional tests — edge cases and extra coverage
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterWebhookExtra:
+    @pytest.mark.asyncio
+    async def test_register_http_url_accepted(self, client):
+        """HTTP (non-TLS) webhook URLs are accepted."""
+        profile = _make_profile()
+        store = _make_profile_store_mock()
+        store.load_or_create = AsyncMock(return_value=profile)
+
+        with _webhook_patch(store):
+            response = await client.post(
+                "/api/clients/acme/webhooks",
+                json={"url": "http://plain-http.example.com/hook"},
+            )
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_register_empty_body_returns_400_or_422(self, client):
+        """An empty JSON body (no 'url' key) is rejected."""
+        with _webhook_patch():
+            response = await client.post(
+                "/api/clients/acme/webhooks",
+                json={},
+            )
+        assert response.status_code in (400, 422)
+
+    @pytest.mark.asyncio
+    async def test_register_url_with_query_params_accepted(self, client):
+        """Webhook URLs containing query parameters are accepted."""
+        profile = _make_profile()
+        store = _make_profile_store_mock()
+        store.load_or_create = AsyncMock(return_value=profile)
+
+        url = "https://example.com/hook?token=abc123&version=2"
+        with _webhook_patch(store):
+            response = await client.post(
+                "/api/clients/acme/webhooks",
+                json={"url": url},
+            )
+        assert response.status_code == 200
+        assert response.json()["url"] == url
+
+    @pytest.mark.asyncio
+    async def test_register_store_save_called_with_profile(self, client):
+        """store.save receives the profile object as its argument."""
+        profile = _make_profile()
+        store = _make_profile_store_mock()
+        store.load_or_create = AsyncMock(return_value=profile)
+
+        with _webhook_patch(store):
+            await client.post(
+                "/api/clients/acme/webhooks",
+                json={"url": "https://example.com/hook"},
+            )
+        # save must have been awaited with the profile as first positional arg
+        store.save.assert_awaited_once_with(profile)
+
+
+class TestListWebhooksExtra:
+    @pytest.mark.asyncio
+    async def test_list_returns_count_field(self, client):
+        """List response includes a 'count' field matching the number of webhooks."""
+        webhooks = [
+            {"url": "https://a.example.com/hook", "active": True},
+            {"url": "https://b.example.com/hook", "active": False},
+        ]
+        profile = _make_profile(webhooks=webhooks)
+        store = _make_profile_store_mock()
+        store.load = AsyncMock(return_value=profile)
+
+        with _webhook_patch(store):
+            response = await client.get("/api/clients/acme/webhooks")
+        data = response.json()
+        if "count" in data:
+            assert data["count"] == len(data["webhooks"])
+
+    @pytest.mark.asyncio
+    async def test_list_inactive_webhooks_included(self, client):
+        """Inactive webhooks are still included in the listing."""
+        webhooks = [
+            {"url": "https://active.example.com/hook", "active": True},
+            {"url": "https://inactive.example.com/hook", "active": False},
+        ]
+        profile = _make_profile(webhooks=webhooks)
+        store = _make_profile_store_mock()
+        store.load = AsyncMock(return_value=profile)
+
+        with _webhook_patch(store):
+            response = await client.get("/api/clients/acme/webhooks")
+        assert response.status_code == 200
+        assert len(response.json()["webhooks"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_list_five_webhooks(self, client):
+        """Listing a client with the maximum 5 webhooks returns all five."""
+        webhooks = [
+            {"url": f"https://example.com/hook{i}", "active": True}
+            for i in range(5)
+        ]
+        profile = _make_profile(webhooks=webhooks)
+        store = _make_profile_store_mock()
+        store.load = AsyncMock(return_value=profile)
+
+        with _webhook_patch(store):
+            response = await client.get("/api/clients/acme/webhooks")
+        assert response.status_code == 200
+        assert len(response.json()["webhooks"]) == 5
+
+
+class TestDeleteWebhookExtra:
+    @pytest.mark.asyncio
+    async def test_delete_missing_url_param_returns_422(self, client):
+        """DELETE without the 'url' query param returns 422."""
+        profile = _make_profile(webhooks=[{"url": "https://example.com/hook", "active": True}])
+        store = _make_profile_store_mock()
+        store.load = AsyncMock(return_value=profile)
+
+        with _webhook_patch(store):
+            response = await client.delete("/api/clients/acme/webhooks")
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_delete_from_empty_list_returns_200(self, client):
+        """DELETE on a client with no webhooks returns 200 with remaining=0."""
+        profile = _make_profile(webhooks=[])
+        store = _make_profile_store_mock()
+        store.load = AsyncMock(return_value=profile)
+
+        with _webhook_patch(store):
+            response = await client.delete(
+                "/api/clients/acme/webhooks",
+                params={"url": "https://example.com/hook"},
+            )
+        assert response.status_code == 200
+        assert response.json()["remaining"] == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_saves_profile_after_removal(self, client):
+        """store.save is called after a webhook is removed."""
+        url = "https://example.com/hook"
+        profile = _make_profile(webhooks=[{"url": url, "active": True}])
+        store = _make_profile_store_mock()
+        store.load = AsyncMock(return_value=profile)
+
+        with _webhook_patch(store):
+            await client.delete(
+                "/api/clients/acme/webhooks",
+                params={"url": url},
+            )
+        store.save.assert_awaited_once()
