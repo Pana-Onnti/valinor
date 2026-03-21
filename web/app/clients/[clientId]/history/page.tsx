@@ -203,12 +203,13 @@ export default function ClientHistoryPage() {
         <div className="max-w-6xl mx-auto px-6">
           <nav className="flex gap-1 -mb-px">
             {[
-              { label: 'Historial', href: `/clients/${clientId}/history` },
-              { label: 'Hallazgos', href: `/clients/${clientId}/findings` },
-              { label: 'Alertas',   href: `/clients/${clientId}/alerts` },
-              { label: 'Costos',    href: `/clients/${clientId}/costs` },
-              { label: 'KPIs',         href: `/clients/${clientId}/kpis` },
-              { label: 'Segmentación', href: `/clients/${clientId}/segmentation` },
+              { label: 'Historial',     href: `/clients/${clientId}/history` },
+              { label: 'Hallazgos',     href: `/clients/${clientId}/findings` },
+              { label: 'Alertas',       href: `/clients/${clientId}/alerts` },
+              { label: 'Costos',        href: `/clients/${clientId}/costs` },
+              { label: 'KPIs',          href: `/clients/${clientId}/kpis` },
+              { label: 'Segmentación',  href: `/clients/${clientId}/segmentation` },
+              { label: 'Configuración', href: `/clients/${clientId}/settings` },
             ].map(tab => {
               const isActive = pathname === tab.href
               return (

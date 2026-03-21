@@ -57,9 +57,16 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
   useEffect(() => {
     if (!analysisId) return
 
+    let ws: WebSocket | null = null
     let eventSource: EventSource | null = null
     let pollInterval: ReturnType<typeof setInterval> | null = null
     let completed = false
+
+    const cleanup = () => {
+      ws?.close()
+      eventSource?.close()
+      if (pollInterval) clearInterval(pollInterval)
+    }
 
     const applyUpdate = (data: ProgressUpdate) => {
       if (data.error || data.done) return
@@ -93,11 +100,11 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
           setSteps((prev) => prev.map((s) => ({ ...s, status: 'done' })))
           setTimeout(() => onCompleteRef.current(), 1500)
         }
-        eventSource?.close()
-        if (pollInterval) clearInterval(pollInterval)
+        cleanup()
       }
     }
 
+    // Tier 3: HTTP polling fallback
     const startPolling = () => {
       const poll = async () => {
         if (completed) return
@@ -118,6 +125,7 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
       pollInterval = setInterval(poll, 3000)
     }
 
+    // Tier 2: SSE fallback
     const trySSE = () => {
       try {
         eventSource = new EventSource(
@@ -144,12 +152,56 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
       }
     }
 
-    trySSE()
+    // Tier 1: WebSocket (preferred)
+    const tryWebSocket = () => {
+      try {
+        const wsUrl = API_URL.replace(/^http/, 'ws')
+        ws = new WebSocket(`${wsUrl}/api/jobs/${analysisId}/ws`)
 
-    return () => {
-      eventSource?.close()
-      if (pollInterval) clearInterval(pollInterval)
+        // Give WS 3 s to connect; if it doesn't, fall back to SSE
+        const wsConnectTimeout = setTimeout(() => {
+          if (ws && ws.readyState !== WebSocket.OPEN) {
+            ws.close()
+            ws = null
+            if (!completed) trySSE()
+          }
+        }, 3000)
+
+        ws.onopen = () => {
+          clearTimeout(wsConnectTimeout)
+        }
+
+        ws.onmessage = (event) => {
+          try {
+            const data: ProgressUpdate = JSON.parse(event.data)
+            applyUpdate(data)
+          } catch {
+            // ignore parse errors
+          }
+        }
+
+        ws.onerror = () => {
+          clearTimeout(wsConnectTimeout)
+          ws?.close()
+          ws = null
+          if (!completed) trySSE()
+        }
+
+        ws.onclose = (event) => {
+          clearTimeout(wsConnectTimeout)
+          // Abnormal closure before completion → fall back to SSE
+          if (!completed && event.code !== 1000) {
+            trySSE()
+          }
+        }
+      } catch {
+        trySSE()
+      }
     }
+
+    tryWebSocket()
+
+    return cleanup
   }, [analysisId])
 
   return (
