@@ -23,6 +23,41 @@ from shared.storage import MetadataStorage
 
 logger = structlog.get_logger()
 
+def _fire_webhooks_sync(job_id: str, client_name: str, status: str, results: dict):
+    """Fire registered webhooks for a client synchronously (called from Celery task)."""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(_fire_webhooks_async(job_id, client_name, status, results))
+        finally:
+            loop.close()
+    except Exception as e:
+        logger.warning("Webhook firing failed", job_id=job_id, error=str(e))
+
+
+async def _fire_webhooks_async(job_id: str, client_name: str, status: str, results: dict):
+    """Load client profile and fire all registered webhooks."""
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from shared.memory.profile_store import get_profile_store
+    from api.webhooks import fire_job_completion_webhook, build_job_summary
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        return
+
+    webhooks = getattr(profile, "webhooks", []) or []
+    if not webhooks:
+        return
+
+    summary = build_job_summary(results)
+    for wh in webhooks:
+        url = wh.get("url") if isinstance(wh, dict) else str(wh)
+        if url:
+            await fire_job_completion_webhook(url, job_id, client_name, status, summary)
+
+
 # Initialize Celery
 celery_app = Celery(
     "valinor_worker",
@@ -151,6 +186,9 @@ def run_analysis(self, job_id: str, request_data: Dict[str, Any]):
             execution_time=results.get("execution_time_seconds")
         )
         
+        # Fire webhooks for registered clients
+        _fire_webhooks_sync(job_id, request_data.get("client_name", ""), "completed", results)
+
         # Schedule cleanup
         cleanup_job.apply_async(
             args=[job_id],
@@ -183,6 +221,9 @@ def run_analysis(self, job_id: str, request_data: Dict[str, Any]):
         except:
             pass  # Don't fail on status update error
         
+        # Fire failure webhook
+        _fire_webhooks_sync(job_id, request_data.get("client_name", ""), "failed", {})
+
         # Re-raise for Celery
         raise
 
