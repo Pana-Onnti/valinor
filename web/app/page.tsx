@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Database, Zap, Shield, Clock, ArrowRight, Play, CheckCircle, CheckCircle2 } from 'lucide-react'
+import Link from 'next/link'
 import { AnalysisForm } from '@/components/AnalysisForm'
 import { AnalysisProgress } from '@/components/AnalysisProgress'
 import { ResultsDisplay } from '@/components/ResultsDisplay'
@@ -58,6 +59,12 @@ export default function HomePage() {
               <span className="text-sm text-gray-600 dark:text-gray-400">
                 Provider: {process.env.NEXT_PUBLIC_LLM_PROVIDER || 'Anthropic API'}
               </span>
+              <Link
+                href="/dashboard"
+                className="text-sm text-gray-500 hover:text-violet-600 dark:text-gray-400 dark:hover:text-violet-400 transition-colors"
+              >
+                Dashboard operador &rarr;
+              </Link>
               <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
                 Settings
               </button>

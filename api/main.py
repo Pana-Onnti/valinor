@@ -305,7 +305,7 @@ async def health_check():
             "redis": redis_status,
             "storage": storage_status
         },
-        "version": "1.0.0"
+        "version": "2.0.0"
     }
 
 @app.post("/api/analyze", response_model=Dict[str, str], summary="Start analysis", tags=["Analysis"])
@@ -398,7 +398,7 @@ async def start_analysis(
             detail=f"Failed to queue analysis: {str(e)}"
         )
 
-@app.get("/api/jobs/{job_id}/status", response_model=JobStatus, summary="Get job status")
+@app.get("/api/jobs/{job_id}/status", response_model=JobStatus, summary="Get job status", tags=["Jobs"])
 async def get_job_status(
     job_id: str,
     redis_client: redis.Redis = Depends(get_redis)
@@ -529,7 +529,7 @@ async def stream_job_progress(job_id: str):
     )
 
 
-@app.get("/api/jobs/{job_id}/results", summary="Get job results")
+@app.get("/api/jobs/{job_id}/results", summary="Get job results", tags=["Jobs"])
 async def get_job_results(
     job_id: str,
     redis_client: redis.Redis = Depends(get_redis)
@@ -703,7 +703,7 @@ async def list_jobs(
 
 # ── Client Profile endpoints ──────────────────────────────────────────────────
 
-@app.get("/api/clients/{client_name}/profile")
+@app.get("/api/clients/{client_name}/profile", tags=["Clients"])
 async def get_client_profile(client_name: str):
     """
     Get the persistent ClientProfile for a client.
@@ -720,7 +720,7 @@ async def get_client_profile(client_name: str):
     return profile.to_dict()
 
 
-@app.get("/api/clients")
+@app.get("/api/clients", tags=["Clients"])
 async def list_clients():
     """
     List all clients that have profiles.
@@ -745,6 +745,51 @@ async def list_clients():
             pass
 
     return {"clients": clients}
+
+
+@app.get("/api/clients/summary", tags=["Clients"])
+async def get_clients_summary():
+    """Aggregated summary of all clients for operator dashboard."""
+    import sys, os, glob as _glob, json as _json
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+    profile_dir = "/tmp/valinor_profiles"
+    os.makedirs(profile_dir, exist_ok=True)
+
+    all_profiles_data = []
+    for path in _glob.glob(os.path.join(profile_dir, "*.json")):
+        try:
+            data = _json.loads(open(path).read())
+            all_profiles_data.append(data)
+        except Exception:
+            pass
+
+    total_critical = sum(
+        sum(1 for f in p.get("known_findings", {}).values() if isinstance(f, dict) and f.get("severity") == "CRITICAL")
+        for p in all_profiles_data
+    )
+
+    dq_scores = [
+        e["score"]
+        for p in all_profiles_data
+        for e in (p.get("dq_history") or [])
+        if isinstance(e, dict) and "score" in e
+    ]
+    avg_dq = round(sum(dq_scores) / len(dq_scores), 1) if dq_scores else None
+
+    return {
+        "total_clients": len(all_profiles_data),
+        "total_critical_findings": total_critical,
+        "avg_dq_score": avg_dq,
+        "total_runs": sum(p.get("run_count", 0) for p in all_profiles_data),
+        "clients_with_criticals": sum(
+            1 for p in all_profiles_data
+            if any(
+                isinstance(f, dict) and f.get("severity") == "CRITICAL"
+                for f in p.get("known_findings", {}).values()
+            )
+        ),
+    }
 
 
 @app.put("/api/clients/{client_name}/profile/false-positive")
@@ -793,7 +838,7 @@ async def reset_client_profile(client_name: str):
     return {"status": "reset", "client": client_name}
 
 
-@app.get("/api/clients/{client_name}/dq-history")
+@app.get("/api/clients/{client_name}/dq-history", tags=["Quality"])
 async def get_client_dq_history(client_name: str):
     """Get historical DQ scores for a client."""
     import sys, os
@@ -829,7 +874,7 @@ async def get_client_dq_history(client_name: str):
     }
 
 
-@app.get("/api/clients/{client_name}/stats")
+@app.get("/api/clients/{client_name}/stats", tags=["Clients"])
 async def get_client_stats(client_name: str):
     """
     Get summary statistics for a client.
@@ -882,7 +927,7 @@ async def get_client_stats(client_name: str):
 
 # ── PDF Export ───────────────────────────────────────────────────────────────
 
-@app.get("/api/jobs/{job_id}/pdf")
+@app.get("/api/jobs/{job_id}/pdf", tags=["Reports"])
 @limiter.limit("30/minute")
 async def download_report_pdf(request: Request, job_id: str):
     """
@@ -954,7 +999,7 @@ async def download_report_pdf(request: Request, job_id: str):
 
 # ── Alert Thresholds ──────────────────────────────────────────────────────────
 
-@app.get("/api/clients/{client_name}/alerts")
+@app.get("/api/clients/{client_name}/alerts", tags=["Alerts"])
 async def get_client_alerts(client_name: str):
     """Get alert thresholds and recent triggers for a client."""
     import sys, os
@@ -1096,7 +1141,7 @@ async def send_email_digest(job_id: str, to_email: str):
     return {"status": "sent" if sent else "smtp_not_configured", "to": to_email}
 
 
-@app.get("/api/jobs/{job_id}/quality")
+@app.get("/api/jobs/{job_id}/quality", tags=["Quality"])
 async def get_job_quality_report(job_id: str):
     """Get the Data Quality Gate report for a completed job."""
     redis_client = await get_redis()
@@ -1112,6 +1157,126 @@ async def get_job_quality_report(job_id: str):
         "data_quality": dq,
         "currency_warnings": results.get("currency_warnings", {}),
         "snapshot_timestamp": results.get("stages", {}).get("query_execution", {}).get("snapshot_timestamp"),
+    }
+
+
+@app.get("/api/system/status", tags=["System"])
+async def system_status():
+    """
+    Comprehensive system status — services, versions, installed packages, feature flags.
+    """
+    import importlib
+
+    def check_pkg(name: str) -> dict:
+        try:
+            mod = importlib.import_module(name.replace('-', '_'))
+            return {"installed": True, "version": getattr(mod, '__version__', 'unknown')}
+        except ImportError:
+            return {"installed": False, "version": None}
+
+    redis_ok = False
+    redis_info = {}
+    try:
+        r = await get_redis()
+        await r.ping()
+        redis_ok = True
+        info = await r.info("server")
+        redis_info = {"version": info.get("redis_version"), "uptime_days": info.get("uptime_in_days")}
+    except:
+        pass
+
+    db_ok = False
+    try:
+        import asyncpg
+        db_url = os.getenv("DATABASE_URL", "")
+        if db_url:
+            conn = await asyncpg.connect(db_url)
+            await conn.close()
+            db_ok = True
+    except:
+        pass
+
+    return {
+        "version": "2.0.0",
+        "timestamp": datetime.utcnow().isoformat(),
+        "services": {
+            "api": "healthy",
+            "redis": "healthy" if redis_ok else "unavailable",
+            "database": "healthy" if db_ok else "unavailable",
+        },
+        "redis": redis_info,
+        "features": {
+            "data_quality_gate": True,
+            "factor_model": True,
+            "stl_decomposition": check_pkg("statsmodels")["installed"],
+            "cointegration_test": check_pkg("statsmodels")["installed"],
+            "benford_law": check_pkg("scipy")["installed"],
+            "pdf_reports": check_pkg("reportlab")["installed"],
+            "webhooks": True,
+            "sse_streaming": True,
+            "client_memory": True,
+            "segmentation": True,
+            "auto_refinement": True,
+        },
+        "packages": {
+            "statsmodels": check_pkg("statsmodels"),
+            "scipy": check_pkg("scipy"),
+            "reportlab": check_pkg("reportlab"),
+            "pandas": check_pkg("pandas"),
+            "asyncpg": check_pkg("asyncpg"),
+            "httpx": check_pkg("httpx"),
+        },
+        "quality_checks": [
+            "schema_integrity", "null_density", "duplicate_rate",
+            "accounting_balance", "cross_table_reconcile", "outlier_screen",
+            "benford_compliance", "temporal_consistency", "receivables_cointegration"
+        ],
+        "llm_provider": os.getenv("LLM_PROVIDER", "console_cli"),
+    }
+
+
+@app.get("/api/system/metrics", tags=["System"])
+async def system_metrics():
+    """
+    Operational metrics — job counts, success rates, client counts.
+    """
+    redis_client = await get_redis()
+
+    # Count jobs by status
+    status_counts = {"completed": 0, "failed": 0, "running": 0, "pending": 0, "cancelled": 0}
+    total_jobs = 0
+
+    async for key in redis_client.scan_iter("job:*"):
+        key_str = key if isinstance(key, str) else key.decode()
+        if ":results" in key_str:
+            continue
+        total_jobs += 1
+        job_data = await redis_client.hgetall(key_str)
+        job_status = job_data.get("status", "unknown")
+        if job_status in status_counts:
+            status_counts[job_status] += 1
+
+    success_rate = (
+        status_counts["completed"] / max(status_counts["completed"] + status_counts["failed"], 1) * 100
+    )
+
+    # Count clients
+    from shared.memory.profile_store import get_profile_store
+    store = get_profile_store()
+    client_count = 0
+    pool = await store._get_pool()
+    if pool:
+        try:
+            async with pool.acquire() as conn:
+                client_count = await conn.fetchval("SELECT COUNT(*) FROM client_profiles")
+        except:
+            pass
+
+    return {
+        "jobs": {**status_counts, "total": total_jobs},
+        "success_rate_pct": round(success_rate, 1),
+        "clients_with_profile": client_count,
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
 
@@ -1159,7 +1324,7 @@ async def delete_webhook(client_name: str, url: str):
     return {"status": "removed", "remaining": len(profile.webhooks)}
 
 
-@app.get("/api/clients/{client_name}/segmentation")
+@app.get("/api/clients/{client_name}/segmentation", tags=["Segmentation"])
 async def get_client_segmentation(client_name: str):
     """Get latest customer segmentation for a client."""
     from shared.memory.profile_store import get_profile_store
