@@ -722,6 +722,23 @@ RETURN ONLY THE JSON OBJECT."""
                 profile.dq_history.append(dq_entry)
                 profile.dq_history = profile.dq_history[-10:]  # keep last 10
 
+            # ── Run AlertEngine to check custom thresholds ────────────────────
+            try:
+                from shared.memory.alert_engine import AlertEngine
+                alert_engine = AlertEngine()
+                triggered_alerts = alert_engine.check_thresholds(
+                    profile, profile.baseline_history, findings
+                )
+                if triggered_alerts:
+                    results["triggered_alerts"] = triggered_alerts
+                    logger.info(
+                        "AlertEngine: thresholds triggered",
+                        count=len(triggered_alerts),
+                        labels=[a.get("threshold_label") for a in triggered_alerts],
+                    )
+            except Exception as _ae_err:
+                logger.warning("AlertEngine failed", error=str(_ae_err))
+
             await self.profile_store.save(profile)
 
             # ── Fire RefinementAgent in background ───────────────────────────────
