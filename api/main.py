@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from adapters.valinor_adapter import ValinorAdapter, PipelineExecutor
 from shared.storage import MetadataStorage
+from api.routes.quality import router as quality_router
 
 logger = structlog.get_logger()
 
@@ -44,6 +45,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register routers
+app.include_router(quality_router)
 
 # Global components
 redis_client = None
@@ -248,6 +252,15 @@ async def start_analysis(
         # Store job request in Redis
         client_name = request.client_name or request.db_config.get_db_name() or "unknown"
         period = request.period or "unspecified"
+        # Build a sanitized copy of the request for retry support (no passwords)
+        request_dict = request.dict()
+        safe_request = json.loads(json.dumps(request_dict, default=str))
+        for sensitive_key in ("password", "ssh_password", "private_key", "ssh_private_key"):
+            if "db_config" in safe_request and isinstance(safe_request["db_config"], dict):
+                safe_request["db_config"].pop(sensitive_key, None)
+            if "ssh_config" in safe_request and isinstance(safe_request["ssh_config"], dict):
+                safe_request["ssh_config"].pop(sensitive_key, None)
+
         job_data = {
             "job_id": job_id,
             "status": "pending",
@@ -255,6 +268,7 @@ async def start_analysis(
             "period": period,
             "created_at": datetime.utcnow().isoformat(),
             "request": json.dumps(request.dict()),
+            "request_data": json.dumps(safe_request),
         }
 
         await redis_client.hset(f"job:{job_id}", mapping=job_data)
@@ -370,7 +384,15 @@ async def get_job_results(
                 "sales_report": f"/api/jobs/{job_id}/download/sales_report.pdf",
                 "raw_data": f"/api/jobs/{job_id}/download/raw_data.json"
             }
-        
+
+        # Surface DQ metadata prominently in results
+        if results.get("data_quality"):
+            results["_dq_summary"] = {
+                "score": results["data_quality"]["score"],
+                "label": results["data_quality"]["confidence_label"],
+                "tag": results["data_quality"]["tag"],
+            }
+
         return results
         
     except HTTPException:
@@ -579,6 +601,42 @@ async def reset_client_profile(client_name: str):
     return {"status": "reset", "client": client_name}
 
 
+@app.get("/api/clients/{client_name}/dq-history")
+async def get_client_dq_history(client_name: str):
+    """Get historical DQ scores for a client."""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    dq_history = getattr(profile, 'dq_history', []) or profile.__dict__.get('dq_history', [])
+
+    avg_score = sum(r["score"] for r in dq_history) / len(dq_history) if dq_history else None
+    trend = None
+    if len(dq_history) >= 2:
+        recent = dq_history[-3:]
+        early = dq_history[:-3] if len(dq_history) > 3 else dq_history[:1]
+        recent_avg = sum(r["score"] for r in recent) / len(recent)
+        early_avg = sum(r["score"] for r in early) / len(early)
+        if recent_avg > early_avg + 2:
+            trend = "improving"
+        elif recent_avg < early_avg - 2:
+            trend = "declining"
+        else:
+            trend = "stable"
+
+    return {
+        "client": client_name,
+        "dq_history": dq_history,
+        "avg_score": round(avg_score, 1) if avg_score else None,
+        "trend": trend,
+        "runs_with_dq": len(dq_history),
+    }
+
+
 @app.get("/api/clients/{client_name}/stats")
 async def get_client_stats(client_name: str):
     """
@@ -688,6 +746,7 @@ async def download_report_pdf(job_id: str):
             period=period,
             run_delta=run_delta,
             findings_summary=findings_summary,
+            results=results,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
@@ -885,6 +944,122 @@ async def get_client_segmentation(client_name: str):
         "segments": latest.get("segments", {}),
         "history_count": len(history),
     }
+
+
+# ═══ JOB LIFECYCLE MANAGEMENT ═══
+
+@app.post("/api/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    """Cancel a running or pending job."""
+    redis_client = await get_redis()
+    job_data = await redis_client.hgetall(f"job:{job_id}")
+    if not job_data:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    current_status = job_data.get("status", "unknown")
+    if current_status in ("completed", "failed", "cancelled"):
+        return {"status": current_status, "message": "Job already finished"}
+
+    await redis_client.hset(f"job:{job_id}", mapping={
+        "status": "cancelled",
+        "cancelled_at": datetime.utcnow().isoformat(),
+    })
+    return {"status": "cancelled", "job_id": job_id}
+
+
+@app.get("/api/jobs")
+async def list_jobs(limit: int = 20, status_filter: Optional[str] = None):
+    """List recent jobs with optional status filter (use status_filter=completed|failed|pending|running|cancelled)."""
+    redis_client = await get_redis()
+
+    # Scan for job keys
+    job_keys = []
+    async for key in redis_client.scan_iter("job:*"):
+        key_str = key if isinstance(key, str) else key.decode()
+        # Skip results keys
+        if ":results" not in key_str:
+            job_keys.append(key_str)
+
+    jobs = []
+    for key in job_keys[-limit:]:
+        job_data = await redis_client.hgetall(key)
+        if not job_data:
+            continue
+        job_id = key.replace("job:", "")
+        job_status = job_data.get("status", "unknown")
+        if status_filter and job_status != status_filter:
+            continue
+        jobs.append({
+            "job_id": job_id,
+            "status": job_status,
+            "client_name": job_data.get("client_name", "unknown"),
+            "created_at": job_data.get("created_at"),
+            "completed_at": job_data.get("completed_at"),
+            "stage": job_data.get("stage"),
+            "progress": job_data.get("progress"),
+        })
+
+    # Sort by created_at desc
+    jobs.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    return {"jobs": jobs[:limit], "total": len(jobs)}
+
+
+@app.post("/api/jobs/{job_id}/retry")
+async def retry_job(job_id: str, background_tasks: BackgroundTasks):
+    """Retry a failed job with the same parameters."""
+    redis_client = await get_redis()
+    job_data = await redis_client.hgetall(f"job:{job_id}")
+
+    if not job_data:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job_data.get("status") not in ("failed", "cancelled"):
+        raise HTTPException(status_code=400, detail="Only failed or cancelled jobs can be retried")
+
+    request_data_raw = job_data.get("request_data")
+    if not request_data_raw:
+        raise HTTPException(status_code=400, detail="Original request data not available for retry")
+
+    # Create new job
+    new_job_id = str(uuid.uuid4())
+    request_data = json.loads(request_data_raw)
+    request_data["job_id"] = new_job_id
+
+    await redis_client.hset(f"job:{new_job_id}", mapping={
+        "status": "pending",
+        "created_at": datetime.utcnow().isoformat(),
+        "client_name": job_data.get("client_name", "unknown"),
+        "retry_of": job_id,
+        "request_data": request_data_raw,
+    })
+    await redis_client.expire(f"job:{new_job_id}", 86400)
+
+    background_tasks.add_task(run_analysis_task, new_job_id, request_data)
+    return {"job_id": new_job_id, "status": "pending", "retry_of": job_id}
+
+
+@app.delete("/api/jobs/cleanup")
+async def cleanup_old_jobs(older_than_days: int = 7):
+    """Delete completed/failed jobs older than N days."""
+    from datetime import timedelta
+    redis_client = await get_redis()
+    cutoff = (datetime.utcnow() - timedelta(days=older_than_days)).isoformat()
+
+    deleted = 0
+    async for key in redis_client.scan_iter("job:*"):
+        key_str = key if isinstance(key, str) else key.decode()
+        if ":results" in key_str:
+            continue
+        job_data = await redis_client.hgetall(key_str)
+        job_status = job_data.get("status", "")
+        created_at = job_data.get("created_at", "")
+
+        if job_status in ("completed", "failed", "cancelled") and created_at < cutoff:
+            await redis_client.delete(key_str)
+            await redis_client.delete(f"{key_str}:results")
+            deleted += 1
+
+    return {"deleted": deleted, "cutoff": cutoff}
 
 
 # ═══ BACKGROUND TASKS ═══

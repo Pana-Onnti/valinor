@@ -480,6 +480,40 @@ RETURN ONLY THE JSON OBJECT."""
             await self._progress("data_quality", 30,
                 f"DQ Score: {dq_report.overall_score:.0f}/100 ({dq_report.confidence_label})")
 
+            # ── Factor model decomposition ────────────────────────────────────
+            try:
+                from core.valinor.quality.factor_model import RevenueFactorModel
+                from sqlalchemy import create_engine as _create_engine
+                _fm_engine = _create_engine(config["connection_string"])
+                try:
+                    fm = RevenueFactorModel(_fm_engine)
+                    # Compute prior period (same length, shifted back)
+                    from datetime import datetime as _dt, timedelta
+                    _ps = period_config.get("start", "")
+                    _pe = period_config.get("end", "")
+                    if _ps and _pe:
+                        _start_dt = _dt.strptime(_ps, "%Y-%m-%d")
+                        _end_dt = _dt.strptime(_pe, "%Y-%m-%d")
+                        _duration = (_end_dt - _start_dt).days
+                        _prior_end = (_start_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+                        _prior_start = (_start_dt - timedelta(days=_duration + 1)).strftime("%Y-%m-%d")
+                        decomp = fm.compute_decomposition(_ps, _pe, _prior_start, _prior_end)
+                        if decomp:
+                            results["factor_model"] = {
+                                "expected_revenue": decomp.expected_revenue,
+                                "residual_pct": round(decomp.residual / max(abs(decomp.expected_revenue), 1) * 100, 2),
+                                "primary_driver": decomp.primary_driver,
+                                "anomaly": decomp.anomaly_detected,
+                                "anomaly_description": decomp.anomaly_description,
+                            }
+                            # Inject into agent memory
+                            memory_fm_context = fm.format_context_block(decomp)
+                            results["_factor_model_context"] = memory_fm_context
+                finally:
+                    _fm_engine.dispose()
+            except Exception as _fm_err:
+                logger.warning("Factor model failed, skipping", error=str(_fm_err))
+
             # ═══ STAGE 2: QUERY BUILDER ═══
             await self._progress("query_builder", 30, "Building analysis queries...")
 
@@ -561,6 +595,10 @@ RETURN ONLY THE JSON OBJECT."""
             if results.get("_segmentation_context"):
                 memory["segmentation_context"] = results["_segmentation_context"]
 
+            # Inject factor model context if available
+            if results.get("_factor_model_context"):
+                memory["factor_model_context"] = results["_factor_model_context"]
+
             # Inject historical context for narrator
             if profile.run_count > 0 and profile.run_history:
                 last_run = profile.run_history[-1] if profile.run_history else {}
@@ -619,6 +657,21 @@ RETURN ONLY THE JSON OBJECT."""
                 profile, findings, entity_map, reports, period, run_success=True
             )
             results["run_delta"] = run_delta
+
+            # Record DQ score in profile history
+            if results.get("data_quality") and hasattr(profile, 'dq_history'):
+                dq_entry = {
+                    "run_date": datetime.utcnow().isoformat(),
+                    "score": results["data_quality"].get("score", 100),
+                    "tag": results["data_quality"].get("tag", "UNKNOWN"),
+                    "label": results["data_quality"].get("confidence_label", "PROVISIONAL"),
+                    "warnings_count": len(results["data_quality"].get("warnings", [])),
+                }
+                if not isinstance(profile.dq_history, list):
+                    profile.dq_history = []
+                profile.dq_history.append(dq_entry)
+                profile.dq_history = profile.dq_history[-10:]  # keep last 10
+
             await self.profile_store.save(profile)
 
             # ── Fire RefinementAgent in background ───────────────────────────────

@@ -16,6 +16,18 @@ import structlog
 logger = structlog.get_logger()
 
 
+def _dq_color(score: int) -> str:
+    """Return hex color string for a DQ score."""
+    if score >= 85:
+        return "#16a34a"
+    elif score >= 65:
+        return "#d97706"
+    elif score >= 45:
+        return "#ea580c"
+    else:
+        return "#dc2626"
+
+
 def build_digest_html(
     client_name: str,
     period: str,
@@ -24,6 +36,7 @@ def build_digest_html(
     top_findings: List[Dict],
     kpi_history: Optional[Dict] = None,
     triggered_alerts: Optional[List[Dict]] = None,
+    data_quality: Optional[Dict] = None,
 ) -> str:
     """Build a complete HTML email digest."""
 
@@ -115,6 +128,36 @@ def build_digest_html(
         for l, v, c in _stats_items
     )
 
+    # Pre-compute DQ row
+    dq_row_html = ""
+    if data_quality:
+        dq_score = data_quality.get("score", 0)
+        dq_label = data_quality.get("confidence_label") or data_quality.get("label", "")
+        dq_tag = data_quality.get("tag", "")
+        dq_color_val = _dq_color(int(dq_score) if isinstance(dq_score, (int, float)) else 0)
+        dq_display = f"{dq_score}/100 {dq_label}" if dq_label else f"{dq_score}/100"
+        if dq_tag:
+            dq_display = f"{dq_display} · {dq_tag}"
+        dq_row_html = (
+            '<tr>'
+            '<td style="padding:4px 12px;font-size:11px;color:#6B7280;">Calidad datos</td>'
+            f'<td style="padding:4px 12px;font-size:11px;font-weight:bold;color:{dq_color_val};">'
+            f'{dq_display}</td>'
+            '</tr>'
+        )
+
+    # Pre-compute DQ section
+    if dq_row_html:
+        dq_row_section = (
+            '<tr><td style="padding:0 32px 8px;">'
+            '<table width="100%" cellpadding="0" cellspacing="0" '
+            'style="background:#F5F3FF;border-radius:6px;border:1px solid #DDD6FE;">'
+            + dq_row_html +
+            '</table></td></tr>'
+        )
+    else:
+        dq_row_section = ''
+
     # Pre-compute findings section
     if findings_html:
         findings_section = (
@@ -186,6 +229,9 @@ def build_digest_html(
           </td>
         </tr>
 
+        <!-- DQ row -->
+        {dq_row_section}
+
         <!-- Findings -->
         {findings_section}
 
@@ -211,6 +257,7 @@ def build_digest_html(
           <td style="background:#F9FAFB;border-top:1px solid #E5E7EB;padding:16px 32px;">
             <div style="font-size:10px;color:#9CA3AF;text-align:center;">
               Valinor SaaS · Delta4C · Análisis de solo lectura — sin almacenamiento de datos del cliente<br>
+              Análisis verificado con 8 controles de calidad — Aislamiento REPEATABLE READ<br>
               Para desuscribirse, contacte a su administrador.
             </div>
           </td>

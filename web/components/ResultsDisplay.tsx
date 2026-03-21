@@ -14,11 +14,26 @@ import {
   type ContradictionRow, type ActionRow,
 } from '@/lib/reportParser'
 import { DeltaPanel } from '@/components/DeltaPanel'
+import { DQScoreBadge } from '@/components/DQScoreBadge'
+
+interface DataQuality {
+  score: number
+  confidence_label: string
+  data_quality_tag: string
+  warnings?: string[]
+  decision?: string
+}
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 interface Report { type: string; title: string; content: string }
 interface ResultsDisplayProps { analysisId: string; onNewAnalysis: () => void }
+
+// Extends the base Finding with optional DQ fields injected from API data
+type FindingWithDQ = Finding & {
+  confidence_label?: string
+  confidence_score?: number
+}
 
 // ── Severity config ───────────────────────────────────────────────────────────
 const SEV = {
@@ -140,8 +155,23 @@ function BodyText({ text }: { text: string }) {
   )
 }
 
+function ConfidenceBadge({ label }: { label: string }) {
+  const map: Record<string, string> = {
+    CONFIRMED: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800',
+    PROVISIONAL: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800',
+    UNVERIFIED: 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800',
+    BLOCKED: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800',
+  }
+  const cls = map[label] ?? map['PROVISIONAL']
+  return (
+    <span className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-full border ${cls}`}>
+      {label}
+    </span>
+  )
+}
+
 function FindingCard({ finding, i, onFalsePositive }: {
-  finding: Finding;
+  finding: FindingWithDQ;
   i: number;
   onFalsePositive?: (id: string) => void
 }) {
@@ -169,6 +199,9 @@ function FindingCard({ finding, i, onFalsePositive }: {
           {s.icon}{s.label.toUpperCase()}
         </span>
         <span className="flex-1 text-sm font-semibold text-gray-900 dark:text-white">{finding.title}</span>
+        {(finding.confidence_label || finding.confidence_score !== undefined) && (
+          <ConfidenceBadge label={finding.confidence_label ?? 'PROVISIONAL'} />
+        )}
         <span className="text-xs text-gray-400 font-mono mr-2 hidden sm:block">{finding.id}</span>
         {open
           ? <ChevronUp className="h-4 w-4 text-gray-400 flex-shrink-0" />
@@ -443,6 +476,8 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
   const [knownFindings, setKnownFindings] = useState<any>(null)
   const [markedFP, setMarkedFP] = useState<Set<string>>(new Set())
   const [copiedLink, setCopiedLink] = useState(false)
+  const [dataQuality, setDataQuality] = useState<DataQuality | null>(null)
+  const [currencyWarnings, setCurrencyWarnings] = useState<string[]>([])
 
   useEffect(() => {
     axios.get(`${API_URL}/api/jobs/${analysisId}/results`).then(res => {
@@ -457,6 +492,8 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
       setReports(arr)
       setRunDelta(res.data.run_delta || null)
       setKnownFindings(res.data.known_findings || null)
+      setDataQuality(res.data.data_quality ?? null)
+      setCurrencyWarnings(res.data.currency_warnings ?? [])
     }).catch(() => {}).finally(() => setLoading(false))
   }, [analysisId])
 
@@ -487,7 +524,7 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
     if (!parsed.clientName) return
     try {
       await axios.put(`${API_URL}/api/clients/${encodeURIComponent(parsed.clientName)}/profile/false-positive?finding_id=${encodeURIComponent(findingId)}`)
-      setMarkedFP(prev => new Set([...prev, findingId]))
+      setMarkedFP(prev => { const next = new Set(prev); next.add(findingId); return next })
     } catch (e) {
       console.error('Failed to mark false positive', e)
     }
@@ -500,6 +537,44 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-5xl mx-auto space-y-8 pb-20">
+
+      {/* ── Data Quality Badge ── */}
+      {dataQuality && (
+        <DQScoreBadge
+          score={dataQuality.score}
+          label={dataQuality.confidence_label}
+          tag={dataQuality.data_quality_tag}
+          warnings={dataQuality.warnings}
+          compact={false}
+        />
+      )}
+
+      {/* ── DQ Warnings Banner ── */}
+      {dataQuality?.decision === 'PROCEED_WITH_WARNINGS' && dataQuality.warnings && dataQuality.warnings.length > 0 && (
+        <div className="flex gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-5 py-4">
+          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-200 mb-1">
+              Analysis completado con advertencias de calidad de datos
+            </p>
+            <ul className="space-y-0.5">
+              {dataQuality.warnings.slice(0, 2).map((w, i) => (
+                <li key={i} className="text-xs text-amber-700 dark:text-amber-300">{w}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* ── Currency Warnings ── */}
+      {currencyWarnings.length > 0 && (
+        <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-300">
+          <span>⚠</span>
+          <span>
+            Mezcla de monedas detectada en {currencyWarnings.length} consulta{currencyWarnings.length > 1 ? 's' : ''} — los totales usan moneda de empresa
+          </span>
+        </div>
+      )}
 
       {/* ── OutputKO Hero ── */}
       <OutputKOHero findings={visibleFindings} runDelta={runDelta} />

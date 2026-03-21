@@ -9,6 +9,7 @@ import Link from 'next/link'
 import { KPITrendChart } from '@/components/KPITrendChart'
 import { FindingTimeline } from '@/components/FindingTimeline'
 import { DeltaPanel } from '@/components/DeltaPanel'
+import { DQScoreBadge } from '@/components/DQScoreBadge'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -29,6 +30,7 @@ interface ClientProfileData {
     findings_count: number
     new: number
     resolved: number
+    dq_score?: number
   }>
   refinement: {
     focus_areas?: string[]
@@ -58,6 +60,33 @@ function StatCard({ icon: Icon, label, value, sub }: {
   )
 }
 
+function DQDot({ score }: { score?: number }) {
+  if (score === undefined || score === null) {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-gray-400" title="Sin dato de calidad">
+        <span className="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 flex-shrink-0" />
+        <span className="hidden sm:inline text-gray-400">—</span>
+      </span>
+    )
+  }
+  const color =
+    score >= 90 ? 'bg-emerald-400' :
+    score >= 75 ? 'bg-amber-400' :
+    score >= 50 ? 'bg-orange-400' :
+    'bg-red-400'
+  const textColor =
+    score >= 90 ? 'text-emerald-600 dark:text-emerald-400' :
+    score >= 75 ? 'text-amber-600 dark:text-amber-400' :
+    score >= 50 ? 'text-orange-600 dark:text-orange-400' :
+    'text-red-600 dark:text-red-400'
+  return (
+    <span className={`flex items-center gap-1.5 text-xs font-medium ${textColor}`} title={`Calidad de datos: ${score}/100`}>
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${color}`} />
+      <span className="hidden sm:inline">{score}</span>
+    </span>
+  )
+}
+
 function RunHistoryRow({ run, i }: { run: ClientProfileData['run_history'][0]; i: number }) {
   const date = new Date(run.run_date).toLocaleDateString('es', {
     day: 'numeric', month: 'short', year: 'numeric'
@@ -83,6 +112,7 @@ function RunHistoryRow({ run, i }: { run: ClientProfileData['run_history'][0]; i
           -{run.resolved} resuelto{run.resolved > 1 ? 's' : ''}
         </span>
       )}
+      <DQDot score={run.dq_score} />
     </motion.div>
   )
 }
@@ -93,6 +123,9 @@ export default function ClientHistoryPage() {
   const [profile, setProfile] = useState<ClientProfileData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [dqHistory, setDqHistory] = useState<{dq_history: any[], avg_score: number|null, trend: string|null}>({
+    dq_history: [], avg_score: null, trend: null
+  })
 
   const fetchProfile = () => {
     setLoading(true)
@@ -103,6 +136,13 @@ export default function ClientHistoryPage() {
   }
 
   useEffect(() => { fetchProfile() }, [clientId])
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/clients/${clientId}/dq-history`)
+      .then(r => r.json())
+      .then(setDqHistory)
+      .catch(() => {})
+  }, [clientId])
 
   if (loading) return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
@@ -172,6 +212,65 @@ export default function ClientHistoryPage() {
             sub={profile.focus_tables.slice(0, 2).join(', ')} />
         </div>
 
+        {/* DQ Trend section */}
+        {dqHistory.dq_history.length > 0 && (
+          <div>
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+              Tendencia de Calidad de Datos
+            </h2>
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm flex items-center gap-6">
+              {/* Average score ring */}
+              <div className="flex-shrink-0 flex flex-col items-center gap-1">
+                <div className={`w-14 h-14 rounded-full flex items-center justify-center border-4 ${
+                  dqHistory.avg_score !== null && dqHistory.avg_score >= 90 ? 'border-emerald-400 text-emerald-600' :
+                  dqHistory.avg_score !== null && dqHistory.avg_score >= 75 ? 'border-amber-400 text-amber-600' :
+                  'border-orange-400 text-orange-600'
+                }`}>
+                  <span className="text-sm font-bold">{dqHistory.avg_score ?? '—'}</span>
+                </div>
+                <span className="text-xs text-gray-400">Promedio</span>
+              </div>
+              {/* Sparkline SVG */}
+              <div className="flex-1">
+                <svg viewBox={`0 0 ${dqHistory.dq_history.length * 24} 40`} className="w-full h-10" preserveAspectRatio="none">
+                  {dqHistory.dq_history.length > 1 && (
+                    <polyline
+                      points={dqHistory.dq_history.map((d, i) => `${i * 24 + 12},${40 - (d.score / 100) * 36}`).join(' ')}
+                      fill="none"
+                      stroke={
+                        dqHistory.avg_score !== null && dqHistory.avg_score >= 90 ? '#34d399' :
+                        dqHistory.avg_score !== null && dqHistory.avg_score >= 75 ? '#fbbf24' : '#fb923c'
+                      }
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  )}
+                  {dqHistory.dq_history.map((d, i) => (
+                    <circle key={i} cx={i * 24 + 12} cy={40 - (d.score / 100) * 36} r="3"
+                      fill={d.score >= 90 ? '#34d399' : d.score >= 75 ? '#fbbf24' : '#fb923c'}
+                      title={`${d.run_date?.slice(0, 10)}: ${d.score}`}
+                    />
+                  ))}
+                </svg>
+              </div>
+              {/* Trend label */}
+              <div className="flex-shrink-0 flex flex-col items-center gap-1">
+                <span className={`text-sm font-semibold px-3 py-1 rounded-full ${
+                  dqHistory.trend === 'improving' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                  dqHistory.trend === 'declining' ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400' :
+                  'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+                }`}>
+                  {dqHistory.trend === 'improving' ? '↑ Mejorando' :
+                   dqHistory.trend === 'declining' ? '↓ Bajando' :
+                   dqHistory.trend === 'stable' ? '→ Estable' : '—'}
+                </span>
+                <span className="text-xs text-gray-400">{dqHistory.dq_history.length} runs</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Last run delta */}
         {lastRun && (lastRun.new > 0 || lastRun.resolved > 0) && (
           <div>
@@ -227,6 +326,14 @@ export default function ClientHistoryPage() {
               <a href={`/clients/${clientId}/compare`} className="text-xs text-violet-600 hover:underline">Comparar runs →</a>
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
+              {/* Column headers */}
+              <div className="flex items-center gap-4 px-5 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+                <span className="w-2 flex-shrink-0" />
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest w-28 flex-shrink-0">Período</span>
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest flex-1">Fecha</span>
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Hallazgos</span>
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest hidden sm:block w-16 text-right">Cal. Datos</span>
+              </div>
               <div className="divide-y divide-gray-50 dark:divide-gray-800/50">
                 {[...profile.run_history].reverse().map((run, i) => (
                   <RunHistoryRow key={i} run={run} i={i} />

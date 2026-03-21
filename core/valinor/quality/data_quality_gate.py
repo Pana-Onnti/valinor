@@ -26,6 +26,13 @@ try:
 except ImportError:
     SCIPY_ZSCORE_AVAILABLE = False
 
+try:
+    from statsmodels.tsa.seasonal import STL
+    from statsmodels.tsa.stattools import coint
+    STATSMODELS_AVAILABLE = True
+except ImportError:
+    STATSMODELS_AVAILABLE = False
+
 
 # ---------------------------------------------------------------------------
 # Result dataclasses
@@ -85,14 +92,15 @@ class DataQualityReport:
 
 class DataQualityGate:
     SCORE_WEIGHTS = {
-        "schema_integrity":       15,
-        "null_density":           15,
-        "duplicate_rate":         10,
-        "accounting_balance":     20,
-        "cross_table_reconcile":  15,
-        "outlier_screen":         10,
-        "benford_compliance":      5,
-        "temporal_consistency":   10,
+        "schema_integrity":              15,
+        "null_density":                  15,
+        "duplicate_rate":                10,
+        "accounting_balance":            20,
+        "cross_table_reconcile":         15,
+        "outlier_screen":                10,
+        "benford_compliance":             5,
+        "temporal_consistency":          10,
+        "receivables_cointegration":      5,
     }
 
     def __init__(self, engine, period_start: str, period_end: str):
@@ -129,6 +137,7 @@ class DataQualityGate:
             self._check_outlier_screen,
             self._check_benford_compliance,
             self._check_temporal_consistency,
+            self._check_receivables_revenue_cointegration,
         ]
 
         for method in check_methods:
@@ -747,8 +756,35 @@ class DataQualityGate:
     # Check 8 — Temporal Consistency
     # -----------------------------------------------------------------------
 
+    def _detect_structural_break(self, series: list, threshold: float = 5.0) -> bool:
+        """
+        Simple CUSUM test for structural break.
+        Returns True if the cumulative sum of deviations from mean exceeds threshold * std.
+        """
+        if len(series) < 6:
+            return False
+        arr = np.array(series)
+        mean = arr[:-2].mean()  # exclude last 2 periods from baseline
+        std = arr[:-2].std()
+        if std == 0:
+            return False
+        cusum = np.cumsum((arr - mean) / std)
+        # Flag if CUSUM crosses threshold in the last 2 periods
+        return bool(abs(cusum[-1]) > threshold or abs(cusum[-2]) > threshold)
+
     def _check_temporal_consistency(self) -> QualityCheckResult:
-        """Z-score test: is the current period revenue anomalous vs 24-month history?"""
+        """
+        Temporal anomaly detection on monthly revenue history.
+
+        If statsmodels is available and >= 12 months of history exist, uses STL
+        decomposition to isolate the residual component before z-scoring — preventing
+        legitimate Q4 seasonality from triggering false positives.
+
+        Falls back to a simple z-score when statsmodels is unavailable or history
+        is shorter than 12 months.
+
+        Additionally runs a CUSUM structural-break test on the full history series.
+        """
         sql_history = """
             SELECT
                 DATE_TRUNC('month', invoice_date) AS month,
@@ -758,7 +794,7 @@ class DataQualityGate:
               AND state        = 'posted'
               AND invoice_date < :period_start
             GROUP BY 1
-            ORDER BY 1 DESC
+            ORDER BY 1 ASC
             LIMIT 24
         """
         sql_current = """
@@ -783,6 +819,7 @@ class DataQualityGate:
             history_rows = conn.execute(text(sql_history), params).fetchall()
             current_rev  = float(conn.execute(text(sql_current), params).scalar() or 0)
 
+        # history_rows ordered ASC — chronological order for STL / CUSUM
         history_vals = [float(r[1]) for r in history_rows if r[1] is not None]
 
         if len(history_vals) < 6:
@@ -794,20 +831,57 @@ class DataQualityGate:
                 detail=f"Insufficient history ({len(history_vals)} months) for temporal check.",
             )
 
-        hist_arr = np.array(history_vals)
-        mean_hist = float(np.mean(hist_arr))
-        std_hist  = float(np.std(hist_arr, ddof=1))
+        # ---- Choose z-score method ----------------------------------------
+        method_label = "simple z-score"
+        full_series = history_vals + [current_rev]
 
-        if std_hist < 1e-6:
-            return QualityCheckResult(
-                check_name="temporal_consistency",
-                passed=True,
-                score_impact=0,
-                severity="INFO",
-                detail="Historical revenue has zero variance; temporal check skipped.",
-            )
+        if STATSMODELS_AVAILABLE and len(history_vals) >= 12:
+            # STL decomposition — extract residual, then z-score the residual
+            try:
+                import pandas as pd
+                series_arr = np.array(full_series, dtype=float)
+                stl = STL(series_arr, period=12, robust=True)
+                stl_result = stl.fit()
+                residuals = stl_result.resid
 
-        z_score = abs(current_rev - mean_hist) / std_hist
+                # Baseline residuals = all except last (current period)
+                baseline_resid = residuals[:-1]
+                current_resid  = residuals[-1]
+
+                mean_r = float(np.mean(baseline_resid))
+                std_r  = float(np.std(baseline_resid, ddof=1))
+
+                if std_r < 1e-6:
+                    z_score = 0.0
+                else:
+                    z_score = abs(current_resid - mean_r) / std_r
+
+                method_label = "STL-residual z-score"
+            except Exception:
+                # Fall back to simple z-score if STL fails for any reason
+                hist_arr  = np.array(history_vals)
+                mean_hist = float(np.mean(hist_arr))
+                std_hist  = float(np.std(hist_arr, ddof=1))
+                z_score   = abs(current_rev - mean_hist) / std_hist if std_hist > 1e-6 else 0.0
+        else:
+            hist_arr  = np.array(history_vals)
+            mean_hist = float(np.mean(hist_arr))
+            std_hist  = float(np.std(hist_arr, ddof=1))
+
+            if std_hist < 1e-6:
+                return QualityCheckResult(
+                    check_name="temporal_consistency",
+                    passed=True,
+                    score_impact=0,
+                    severity="INFO",
+                    detail="Historical revenue has zero variance; temporal check skipped.",
+                )
+
+            z_score = abs(current_rev - mean_hist) / std_hist
+
+        # ---- CUSUM structural-break test ----------------------------------
+        struct_break = self._detect_structural_break(full_series)
+        struct_break_suffix = " | CUSUM structural break detected in last 2 periods." if struct_break else ""
 
         if z_score > 3.0:
             return QualityCheckResult(
@@ -816,9 +890,9 @@ class DataQualityGate:
                 score_impact=self.SCORE_WEIGHTS["temporal_consistency"],
                 severity="WARNING",
                 detail=(
-                    f"Current period revenue anomalous: z={z_score:.2f} "
-                    f"(current={current_rev:,.0f}, hist_mean={mean_hist:,.0f}, "
-                    f"hist_std={std_hist:,.0f})"
+                    f"Current period revenue anomalous: z={z_score:.2f} [{method_label}] "
+                    f"(current={current_rev:,.0f}, n_history={len(history_vals)})"
+                    f"{struct_break_suffix}"
                 ),
                 recommendation="Verify whether the anomaly reflects a genuine business event "
                                "(large deal, seasonality) or a data import error.",
@@ -830,7 +904,127 @@ class DataQualityGate:
             score_impact=0,
             severity="INFO",
             detail=(
-                f"Revenue temporally consistent: z={z_score:.2f} "
-                f"(current={current_rev:,.0f}, hist_mean={mean_hist:,.0f})"
+                f"Revenue temporally consistent: z={z_score:.2f} [{method_label}] "
+                f"(current={current_rev:,.0f}, n_history={len(history_vals)})"
+                f"{struct_break_suffix}"
+            ),
+        )
+
+    # -----------------------------------------------------------------------
+    # Check 9 — Receivables / Revenue Cointegration
+    # -----------------------------------------------------------------------
+
+    def _check_receivables_revenue_cointegration(self) -> QualityCheckResult:
+        """
+        Test if receivables and revenue are cointegrated.
+        If they should move together but diverge, either:
+        a) A genuine business problem (collection failure) — legitimate finding
+        b) A data quality problem — one of the series is wrong
+
+        This check is WARNING only — divergence may be the actual insight.
+        """
+        sql_revenue = """
+            SELECT DATE_TRUNC('month', invoice_date) as month, SUM(amount_untaxed) as revenue
+            FROM account_move WHERE move_type='out_invoice' AND state='posted'
+            AND invoice_date >= CURRENT_DATE - INTERVAL '13 months'
+            GROUP BY 1 ORDER BY 1
+        """
+        sql_receivables = """
+            SELECT DATE_TRUNC('month', date) as month, SUM(debit - credit) as receivables
+            FROM account_move_line aml
+            JOIN account_account aa ON aml.account_id = aa.id
+            WHERE aa.account_type = 'asset_receivable' AND aml.date >= CURRENT_DATE - INTERVAL '13 months'
+            GROUP BY 1 ORDER BY 1
+        """
+
+        with self.engine.connect() as conn:
+            for tbl in ("account_move", "account_move_line", "account_account"):
+                if not self._table_exists(conn, tbl):
+                    return QualityCheckResult(
+                        check_name="receivables_cointegration",
+                        passed=True,
+                        score_impact=0,
+                        severity="INFO",
+                        detail=f"Table {tbl} not found; cointegration check skipped.",
+                    )
+
+            rev_rows = conn.execute(text(sql_revenue)).fetchall()
+            rec_rows = conn.execute(text(sql_receivables)).fetchall()
+
+        # Align on common months
+        rev_dict = {r[0]: float(r[1]) for r in rev_rows if r[1] is not None}
+        rec_dict = {r[0]: float(r[1]) for r in rec_rows if r[1] is not None}
+        common_months = sorted(set(rev_dict.keys()) & set(rec_dict.keys()))
+
+        if len(common_months) < 8:
+            return QualityCheckResult(
+                check_name="receivables_cointegration",
+                passed=True,
+                score_impact=0,
+                severity="INFO",
+                detail=(
+                    f"Insufficient overlapping months ({len(common_months)}) "
+                    "for cointegration check (need >= 8)."
+                ),
+            )
+
+        revenue     = np.array([rev_dict[m] for m in common_months])
+        receivables = np.array([rec_dict[m] for m in common_months])
+
+        if STATSMODELS_AVAILABLE:
+            try:
+                _, p_value, _ = coint(revenue, receivables)
+                if p_value > 0.10:
+                    return QualityCheckResult(
+                        check_name="receivables_cointegration",
+                        passed=False,
+                        score_impact=self.SCORE_WEIGHTS["receivables_cointegration"],
+                        severity="WARNING",
+                        detail=(
+                            f"Receivables and revenue are NOT cointegrated (p={p_value:.3f}). "
+                            "Receivables are diverging from revenue pattern — "
+                            "possible collection failure or data quality issue."
+                        ),
+                        recommendation="Compare DSO trend and review collection aging report. "
+                                       "If intentional, this is a key executive finding.",
+                    )
+                return QualityCheckResult(
+                    check_name="receivables_cointegration",
+                    passed=True,
+                    score_impact=0,
+                    severity="INFO",
+                    detail=(
+                        f"Receivables and revenue are cointegrated (p={p_value:.3f}). "
+                        "Series move together as expected."
+                    ),
+                )
+            except Exception as exc:
+                # Fallback to correlation if coint fails
+                pass
+
+        # Fallback: simple Pearson correlation
+        corr = float(np.corrcoef(revenue, receivables)[0, 1])
+        if corr < 0.3:
+            return QualityCheckResult(
+                check_name="receivables_cointegration",
+                passed=False,
+                score_impact=self.SCORE_WEIGHTS["receivables_cointegration"],
+                severity="WARNING",
+                detail=(
+                    f"Low correlation between receivables and revenue (r={corr:.2f}). "
+                    "Series are diverging — possible collection failure or data quality issue."
+                ),
+                recommendation="Review collection aging and DSO trend. "
+                               "If receivables growing while revenue flat, flag for executive report.",
+            )
+
+        return QualityCheckResult(
+            check_name="receivables_cointegration",
+            passed=True,
+            score_impact=0,
+            severity="INFO",
+            detail=(
+                f"Receivables/revenue correlation adequate (r={corr:.2f}, "
+                "statsmodels unavailable — using Pearson fallback)."
             ),
         )

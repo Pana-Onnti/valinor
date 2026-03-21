@@ -100,6 +100,9 @@ class ClientProfile:
     # ── Segmentation history ──────────────────────────────────────────────────
     segmentation_history: List[Dict] = field(default_factory=list)  # last 12 periods
 
+    # ── Data Quality history ──────────────────────────────────────────────────
+    dq_history: List[Dict] = field(default_factory=list)  # last 10 DQ reports per run
+
     def get_refinement(self) -> ClientRefinement:
         if self.refinement:
             return ClientRefinement(**self.refinement)

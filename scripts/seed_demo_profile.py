@@ -154,6 +154,13 @@ async def seed_profile(client_name: str):
             "resolved": 1 if i == 2 else 0,
         })
 
+    # Add DQ history (simulating past runs with good scores)
+    profile.dq_history = [
+        {"run_date": f"2026-0{i}-15T10:00:00", "score": 85 + i*2, "tag": "FINAL",
+         "label": "CONFIRMED", "warnings_count": 1}
+        for i in range(1, 6)
+    ]
+
     # Refinement
     profile.refinement = {
         "table_weights": profile.table_weights,
