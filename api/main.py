@@ -26,6 +26,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import structlog
 import redis.asyncio as redis
+import sentry_sdk
 
 # Add shared modules to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -39,6 +40,33 @@ from api.metrics import PrometheusMiddleware, metrics_response
 
 setup_logging()
 logger = structlog.get_logger()
+
+
+def _sentry_before_send(event, hint):
+    """Strip sensitive headers before sending events to Sentry."""
+    request_ctx = event.get("request", {})
+    headers = request_ctx.get("headers", {})
+    for key in list(headers.keys()):
+        if key.lower() in ("authorization", "x-api-key", "cookie"):
+            headers[key] = "[FILTERED]"
+    return event
+
+
+def _init_sentry() -> None:
+    dsn = os.getenv("SENTRY_DSN", "")
+    if not dsn:
+        logger.info("Sentry disabled — SENTRY_DSN not set")
+        return
+    sentry_sdk.init(
+        dsn=dsn,
+        environment=os.getenv("APP_ENV", "development"),
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+        before_send=_sentry_before_send,
+    )
+    logger.info("Sentry initialized", environment=os.getenv("APP_ENV", "development"))
+
+
+_init_sentry()
 
 # ═══ IN-MEMORY LRU CACHE FOR COMPLETED JOB RESULTS ═══
 # Keyed by job_id → (results_dict, cached_at_timestamp)
@@ -224,6 +252,17 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # Register routers
 app.include_router(quality_router)
 app.include_router(onboarding_router)
+
+
+# ═══ SENTRY DEBUG ENDPOINT (non-production only) ═══
+
+@app.get("/sentry-debug", include_in_schema=False)
+async def sentry_debug():
+    """Trigger a test error to verify Sentry integration. Non-production only."""
+    if os.getenv("APP_ENV", "development") == "production":
+        raise HTTPException(status_code=404)
+    raise ZeroDivisionError("Sentry debug endpoint triggered")
+
 
 # ═══ REQUEST/RESPONSE MODELS ═══
 
