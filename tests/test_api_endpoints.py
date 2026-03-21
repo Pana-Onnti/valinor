@@ -827,3 +827,211 @@ class TestAlertThresholdEndpoints:
         data = response.json()
         assert data["deleted"] is True
         assert data["metric"] == "total_revenue"
+
+
+# ---------------------------------------------------------------------------
+# TestInputValidation
+# ---------------------------------------------------------------------------
+
+
+class TestInputValidation:
+    """Validate that the /api/analyze endpoint enforces input constraints."""
+
+    @pytest.mark.asyncio
+    async def test_client_name_rejects_special_chars(self, client):
+        """client_name with spaces or slashes must return 422 or 400."""
+        for bad_name in ["bad name", "bad/name", "bad name!"]:
+            payload = {**VALID_ANALYSIS_PAYLOAD, "client_name": bad_name}
+            response = await client.post("/api/analyze", json=payload)
+            assert response.status_code in (400, 422), (
+                f"Expected 400 or 422 for client_name={bad_name!r}, "
+                f"got {response.status_code}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_client_name_rejects_too_long(self, client):
+        """client_name longer than 100 chars must return 422 or 400."""
+        payload = {**VALID_ANALYSIS_PAYLOAD, "client_name": "a" * 101}
+        response = await client.post("/api/analyze", json=payload)
+        assert response.status_code in (400, 422)
+
+    @pytest.mark.asyncio
+    async def test_period_rejects_free_text(self, client):
+        """period = 'last month' (free text) must return 422 or 400."""
+        payload = {**VALID_ANALYSIS_PAYLOAD, "period": "last month"}
+        response = await client.post("/api/analyze", json=payload)
+        assert response.status_code in (400, 422)
+
+    @pytest.mark.asyncio
+    async def test_period_accepts_quarterly(self, client, redis_mock):
+        """period = 'Q2-2025' is valid and must NOT return 422."""
+        async def _empty_scan(*args, **kwargs):
+            return
+            yield
+
+        redis_mock.scan_iter = _empty_scan
+
+        with patch("api.main.run_analysis_task", new=AsyncMock()):
+            payload = {**VALID_ANALYSIS_PAYLOAD, "period": "Q2-2025"}
+            response = await client.post("/api/analyze", json=payload)
+
+        assert response.status_code != 422
+
+    @pytest.mark.asyncio
+    async def test_period_accepts_annual(self, client, redis_mock):
+        """period = '2025' (annual year) is valid and must NOT return 422."""
+        async def _empty_scan(*args, **kwargs):
+            return
+            yield
+
+        redis_mock.scan_iter = _empty_scan
+
+        with patch("api.main.run_analysis_task", new=AsyncMock()):
+            payload = {**VALID_ANALYSIS_PAYLOAD, "period": "2025"}
+            response = await client.post("/api/analyze", json=payload)
+
+        assert response.status_code != 422
+
+    @pytest.mark.asyncio
+    async def test_period_accepts_half_year(self, client, redis_mock):
+        """period = 'H1-2025' is valid and must NOT return 422."""
+        async def _empty_scan(*args, **kwargs):
+            return
+            yield
+
+        redis_mock.scan_iter = _empty_scan
+
+        with patch("api.main.run_analysis_task", new=AsyncMock()):
+            payload = {**VALID_ANALYSIS_PAYLOAD, "period": "H1-2025"}
+            response = await client.post("/api/analyze", json=payload)
+
+        assert response.status_code != 422
+
+
+# ---------------------------------------------------------------------------
+# TestHealthEndpointEnhancements
+# ---------------------------------------------------------------------------
+
+
+class TestHealthEndpointEnhancements:
+    """Additional assertions on GET /health and GET /api/version."""
+
+    @pytest.mark.asyncio
+    async def test_health_has_uptime_field(self, client):
+        """GET /health response must include an 'uptime_seconds' field."""
+        response = await client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert "uptime_seconds" in data, (
+            f"Expected 'uptime_seconds' in /health response, got keys: {list(data.keys())}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_version_endpoint_returns_version(self, client):
+        """GET /api/version must return a JSON body with version == '2.0.0'."""
+        response = await client.get("/api/version")
+        assert response.status_code == 200
+        data = response.json()
+        assert "version" in data
+        assert data["version"] == "2.0.0"
+
+    @pytest.mark.asyncio
+    async def test_version_endpoint_has_supported_db_types(self, client):
+        """GET /api/version must return a non-empty 'supported_db_types' list."""
+        response = await client.get("/api/version")
+        assert response.status_code == 200
+        data = response.json()
+        assert "supported_db_types" in data
+        assert isinstance(data["supported_db_types"], list)
+        assert len(data["supported_db_types"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# TestAuditEndpoints
+# ---------------------------------------------------------------------------
+
+
+def _make_audit_redis_mock():
+    """
+    Extend the base Redis mock with the operations needed by the audit endpoints:
+      - lpush / ltrim  (write path)
+      - lrange         (read path, returns a serialized event list)
+    """
+    mock = _make_redis_mock()
+
+    # Sample event persisted in the list
+    _sample_event = json.dumps(
+        {
+            "event_type": "analysis_started",
+            "client_name": "test-client",
+            "job_id": "audit-job-001",
+            "timestamp": "2026-03-21T10:00:00",
+        }
+    )
+
+    mock.lpush = AsyncMock(return_value=1)
+    mock.ltrim = AsyncMock(return_value=True)
+    mock.lrange = AsyncMock(return_value=[_sample_event])
+    return mock
+
+
+class TestAuditEndpoints:
+    """Tests for POST /api/audit and GET /api/audit."""
+
+    @pytest_asyncio.fixture
+    async def audit_client(self, storage_mock):
+        """
+        AsyncClient variant whose Redis mock supports lpush, ltrim, and lrange
+        for the audit list operations.
+        """
+        from api.main import app  # noqa: PLC0415
+
+        audit_redis = _make_audit_redis_mock()
+
+        with (
+            patch("redis.asyncio.from_url", return_value=audit_redis),
+            patch("api.main.metadata_storage", storage_mock),
+            patch("api.main.redis_client", audit_redis),
+        ):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as ac:
+                yield ac
+
+    @pytest.mark.asyncio
+    async def test_post_audit_event(self, audit_client):
+        """POST /api/audit with a valid event dict must return {'logged': True}."""
+        payload = {
+            "event_type": "analysis_started",
+            "client_name": "test-client",
+            "job_id": "audit-job-001",
+        }
+        response = await audit_client.post("/api/audit", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("logged") is True
+
+    @pytest.mark.asyncio
+    async def test_get_audit_events_returns_list(self, audit_client):
+        """GET /api/audit must return {'events': [...], 'total_returned': <int>}."""
+        response = await audit_client.get("/api/audit")
+        assert response.status_code == 200
+        data = response.json()
+        assert "events" in data
+        assert isinstance(data["events"], list)
+        assert "total_returned" in data
+        assert isinstance(data["total_returned"], int)
+
+    @pytest.mark.asyncio
+    async def test_get_audit_events_with_type_filter(self, audit_client):
+        """GET /api/audit?event_type=analysis_started must return 200 and filter events."""
+        response = await audit_client.get(
+            "/api/audit", params={"event_type": "analysis_started"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "events" in data
+        # All returned events must match the requested event_type
+        for event in data["events"]:
+            assert event.get("event_type") == "analysis_started"
