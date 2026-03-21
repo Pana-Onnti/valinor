@@ -21,7 +21,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install flake8
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-3.11-lint-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-3.11-lint-
+
+      - name: Install lint dependencies
         run: pip install flake8
 
       - name: Run flake8
@@ -29,6 +37,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    needs: lint
 
     strategy:
       matrix:
@@ -59,8 +68,16 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Run tests with coverage
-        run: pytest tests/ --cov=. --cov-report=xml --cov-fail-under=60 -q --tb=short --junitxml=test-results.xml
+      - name: Run tests with coverage and JSON report
+        run: |
+          pytest tests/ \
+            --cov=api --cov=shared --cov=core \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=60 \
+            -q --tb=short \
+            --junitxml=test-results.xml \
+            --json-report --json-report-file=test-report.json
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -69,9 +86,61 @@ jobs:
           files: coverage.xml
           fail_ci_if_error: false
 
-      - name: Upload test results
-        if: failure()
+      - name: Generate coverage badge
+        if: matrix.python-version == '3.11' && github.ref == 'refs/heads/master'
+        uses: cicirello/jacoco-badge-generator@v2
+        with:
+          jacoco-csv-file: coverage.xml
+          badges-directory: .github/badges
+          generate-coverage-badge: true
+          coverage-badge-filename: coverage.svg
+        continue-on-error: true
+
+      - name: Test result summary
+        if: always()
+        run: |
+          python - <<'EOF'
+          import json, sys, pathlib
+
+          report_path = pathlib.Path("test-report.json")
+          if not report_path.exists():
+              print("No test-report.json found — skipping summary.")
+              sys.exit(0)
+
+          report = json.loads(report_path.read_text())
+          summary = report.get("summary", {})
+          passed  = summary.get("passed",  0)
+          failed  = summary.get("failed",  0)
+          errors  = summary.get("errors",  0)
+          skipped = summary.get("skipped", 0)
+          total   = summary.get("total",   0)
+          duration = report.get("duration", 0)
+
+          print(f"\n{'='*50}")
+          print(f"  TEST SUMMARY  (Python ${{ matrix.python-version }})")
+          print(f"{'='*50}")
+          print(f"  Total   : {total}")
+          print(f"  Passed  : {passed}")
+          print(f"  Failed  : {failed}")
+          print(f"  Errors  : {errors}")
+          print(f"  Skipped : {skipped}")
+          print(f"  Duration: {duration:.2f}s")
+          print(f"{'='*50}\n")
+
+          if failed or errors:
+              print("Failed / errored tests:")
+              for t in report.get("tests", []):
+                  if t.get("outcome") in ("failed", "error"):
+                      print(f"  - {t['nodeid']}")
+          EOF
+
+      - name: Upload test artefacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ matrix.python-version }}
-          path: test-results.xml
+          path: |
+            test-results.xml
+            test-report.json
+            coverage.xml
+          retention-days: 14
