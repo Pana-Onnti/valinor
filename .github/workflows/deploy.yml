@@ -1,234 +1,52 @@
-name: Deploy Valinor SaaS
+name: Deploy — Valinor SaaS
 
 on:
   push:
-    branches: 
-      - main
-      - develop
-  pull_request:
-    branches: 
-      - main
+    branches:
+      - master
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy to'
-        required: true
-        default: 'staging'
-        type: choice
-        options:
-          - staging
-          - production
 
 jobs:
-  test:
-    name: Test & Lint
+  deploy-api:
+    name: Deploy API → Railway
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Build
-        run: npm run build
-
-      - name: Unit tests
-        run: npm run test
-
-      - name: Integration tests
-        run: npm run test:integration
-
-  deploy-staging:
-    name: Deploy to Staging
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
-    environment: staging
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Deploy API Gateway (Cloudflare Worker)
-        working-directory: ./deploy/cloudflare
-        run: |
-          npm ci --silent
-          npx wrangler deploy --env staging
+      - name: Deploy to Railway
+        run: railway up --service API --detach
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
-      - name: Deploy Frontend
-        working-directory: ./packages/web
+  deploy-frontend:
+    name: Deploy Frontend → Vercel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel
+
+      - name: Deploy to Vercel
         run: |
-          echo "NEXT_PUBLIC_API_URL=https://valinor-api-staging.workers.dev" > .env.production
-          npm run build
+          vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+          vercel build --prod --token=$VERCEL_TOKEN
+          vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
+        working-directory: web
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-
-      - name: Deploy Dashboard
-        working-directory: ./apps/dashboard
-        run: |
-          echo "NEXT_PUBLIC_API_URL=https://valinor-api-staging.workers.dev" > .env.production
-          npm run build
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-
-      - name: Run smoke tests
-        run: |
-          sleep 30 # Wait for deployment
-          npm run test:e2e -- --grep "smoke"
-        env:
-          TEST_URL: https://valinor-staging.vercel.app
-
-  deploy-production:
-    name: Deploy to Production
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
-    environment: production
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Deploy API Gateway (Cloudflare Worker)
-        working-directory: ./deploy/cloudflare
-        run: |
-          npm ci --silent
-          npx wrangler deploy --env production
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-
-      - name: Deploy Frontend
-        working-directory: ./packages/web
-        run: |
-          echo "NEXT_PUBLIC_API_URL=https://valinor-api-production.workers.dev" > .env.production
-          npm run build
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-
-      - name: Deploy Dashboard
-        working-directory: ./apps/dashboard
-        run: |
-          echo "NEXT_PUBLIC_API_URL=https://valinor-api-production.workers.dev" > .env.production
-          npm run build
-
-      - name: Run full E2E tests
-        run: npm run test:e2e
-        env:
-          TEST_URL: https://valinor.vercel.app
-
-      - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main'
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ github.run_number }}
-          release_name: Release v${{ github.run_number }}
-          body: |
-            Automated release for Valinor SaaS v${{ github.run_number }}
-            
-            **Changes in this release:**
-            - See commit history for detailed changes
-            
-            **Deployment:**
-            - Frontend: https://valinor.vercel.app
-            - Dashboard: https://dashboard.valinor.vercel.app
-            - API: https://valinor-api-production.workers.dev
-
-  # Worker for analysis processing
-  process-analysis:
-    name: Process Analysis Job
-    runs-on: ubuntu-latest
-    # Only run when triggered by repository dispatch
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'process_analysis'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build worker
-        run: npm run build --workspace=@valinor/worker-runner
-
-      - name: Process analysis
-        working-directory: ./apps/worker-runner
-        run: node dist/index.js
-        env:
-          JOB_ID: ${{ github.event.client_payload.jobId }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          ENVIRONMENT: production
-
-      - name: Notify completion
-        run: |
-          curl -X POST "${{ secrets.WEBHOOK_URL }}/api/v1/webhooks/github" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${{ secrets.WEBHOOK_SECRET }}" \
-            -d '{
-              "jobId": "${{ github.event.client_payload.jobId }}", 
-              "status": "completed",
-              "runId": "${{ github.run_id }}"
-            }'
-
-  # Cleanup job for failed deployments
-  cleanup:
-    name: Cleanup Failed Deployments
-    runs-on: ubuntu-latest
-    if: failure()
-    needs: [deploy-staging, deploy-production]
-    steps:
-      - name: Rollback if needed
-        run: |
-          echo "Deployment failed. Manual intervention may be required."
-          # Add rollback logic if necessary
