@@ -19,7 +19,21 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 
 def _escape_pdf_string(text: str) -> str:
-    """Escape special characters for PDF string literals (parentheses, backslash)."""
+    """Escape for PDF string literals; replace non-latin-1 chars with ASCII approximations."""
+    # Replace common non-latin-1 symbols with ASCII alternatives
+    replacements = {
+        "\u20ac": "EUR",  # €
+        "\u00a3": "GBP",  # £
+        "\u00a5": "JPY",  # ¥
+        "\u2019": "'", "\u2018": "'",  # curly quotes
+        "\u201c": '"', "\u201d": '"',
+        "\u2013": "-", "\u2014": "--",  # en/em dash
+        "\u2026": "...",  # ellipsis
+    }
+    for ch, repl in replacements.items():
+        text = text.replace(ch, repl)
+    # Drop remaining non-latin-1 chars
+    text = text.encode("latin-1", errors="replace").decode("latin-1")
     return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 

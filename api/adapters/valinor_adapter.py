@@ -27,6 +27,14 @@ from shared.llm.monkey_patch import apply_monkey_patch  # noqa: E402
 apply_monkey_patch()
 # ──────────────────────────────────────────────────────────────────────────────
 
+from api.adapters.exceptions import (  # noqa: E402
+    ValinorError,
+    SSHConnectionError,
+    DatabaseConnectionError,
+    PipelineTimeoutError,
+    DQGateHaltError,
+)
+
 # Import original Valinor components (unchanged) — NOW safe to import
 from valinor.config import load_client_config, parse_period
 from valinor.agents.cartographer import run_cartographer
@@ -205,27 +213,43 @@ class ValinorAdapter:
             
             return results
             
-        except Exception as e:
+        except Exception as _raw_exc:
+            # ── Categorize raw exceptions into structured error types ─────────
+            e: Exception = _raw_exc
+            if not isinstance(_raw_exc, ValinorError):
+                error_msg = str(_raw_exc)
+                if any(kw in error_msg for kw in ("SSH", "Connection refused", "Authentication")):
+                    e = SSHConnectionError(error_msg)
+                elif any(kw in error_msg.lower() for kw in ("timeout", "timed out")):
+                    e = PipelineTimeoutError(error_msg)
+                elif "DQ" in error_msg and "HALT" in error_msg:
+                    _score_match = re.search(r"score=(\d+(?:\.\d+)?)", error_msg)
+                    _dq_score = float(_score_match.group(1)) if _score_match else None
+                    e = DQGateHaltError(error_msg, dq_score=_dq_score, gate_decision="HALT")
+
             logger.error(
                 "Analysis failed",
                 job_id=job_id,
                 client=client_name,
-                error=str(e)
+                error=str(e),
+                error_type=type(e).__name__,
             )
-            
+
             results["status"] = "failed"
             results["error"] = str(e)
+            results["error_type"] = type(e).__name__
             results["failed_at"] = datetime.utcnow().isoformat()
-            
-            # Store failure metadata
+
+            # Store failure metadata (including structured error type)
             await self.metadata_storage.store_job_results(job_id, {
                 "success": False,
-                "error": str(e)
+                "error": str(e),
+                "error_type": type(e).__name__,
             })
-            
+
             await self._progress("failed", -1, f"Analysis failed: {str(e)}")
-            
-            raise
+
+            raise e
     
     async def _run_direct_cartographer(self, config: Dict) -> Dict:
         """
@@ -394,9 +418,35 @@ RETURN ONLY THE JSON OBJECT."""
         self,
         config: Dict,
         period: str,
-        job_id: str
+        job_id: str,
+        timeout: int = 900,
     ) -> Dict[str, Any]:
         """
+        Run the original Valinor pipeline with progress callbacks and a hard
+        timeout of *timeout* seconds (default 900 = 15 minutes).
+
+        Raises:
+            PipelineTimeoutError: if the pipeline does not complete within the
+                                  allotted time.
+        """
+        try:
+            return await asyncio.wait_for(
+                self._run_pipeline_impl(config, period, job_id),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError as exc:
+            raise PipelineTimeoutError(
+                f"Pipeline exceeded the {timeout}s time limit for job {job_id}"
+            ) from exc
+
+    async def _run_pipeline_impl(
+        self,
+        config: Dict,
+        period: str,
+        job_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Internal pipeline implementation.
         Run the original Valinor pipeline with progress callbacks.
         Wraps the v0 pipeline without modifying it.
         """

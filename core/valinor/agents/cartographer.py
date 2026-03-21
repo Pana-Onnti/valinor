@@ -79,7 +79,11 @@ async def _prescan_filter_candidates(client_config: dict) -> dict:
         engine = create_engine(client_config["connection_string"])
         inspector = inspect(engine)
 
-        all_tables = inspector.get_table_names(schema="public")
+        # Detect schema: prefer 'public' (PostgreSQL) fall back to first available
+        available_schemas = inspector.get_schema_names()
+        db_schema = "public" if "public" in available_schemas else available_schemas[0]
+
+        all_tables = inspector.get_table_names(schema=db_schema)
 
         # Only probe tables with business-entity names
         target_tables = [
@@ -90,7 +94,7 @@ async def _prescan_filter_candidates(client_config: dict) -> dict:
         for table in target_tables:
             try:
                 col_names = [
-                    c["name"] for c in inspector.get_columns(table, schema="public")
+                    c["name"] for c in inspector.get_columns(table, schema=db_schema)
                 ]
             except Exception:
                 continue
@@ -111,7 +115,7 @@ async def _prescan_filter_candidates(client_config: dict) -> dict:
                         result = conn.execute(
                             sa_text(
                                 f'SELECT "{col}", COUNT(*) AS cnt '
-                                f'FROM "public"."{table}" '
+                                f'FROM "{db_schema}"."{table}" '
                                 f"GROUP BY 1 ORDER BY cnt DESC LIMIT 10"
                             )
                         )
