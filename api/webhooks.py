@@ -119,6 +119,8 @@ def build_job_summary(results: dict) -> dict:
     critical = sum(1 for f in all_findings if isinstance(f, dict) and f.get("severity") == "CRITICAL")
     high = sum(1 for f in all_findings if isinstance(f, dict) and f.get("severity") == "HIGH")
 
+    triggered_alerts = results.get("triggered_alerts", [])
+
     return {
         "total_findings": len(all_findings),
         "critical_count": critical,
@@ -127,4 +129,6 @@ def build_job_summary(results: dict) -> dict:
         "dq_label": results.get("data_quality", {}).get("confidence_label"),
         "period": results.get("period"),
         "run_delta": results.get("run_delta", {}),
+        "triggered_alerts": len(triggered_alerts),
+        "alert_labels": [a.get("threshold_label") for a in triggered_alerts[:5]],
     }
