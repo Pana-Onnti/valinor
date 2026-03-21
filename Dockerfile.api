@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     openssh-client \
     curl \
+    liblapack-dev \
+    libblas-dev \
+    gfortran \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements

@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y \
     g++ \
     libpq-dev \
     openssh-client \
+    liblapack-dev \
+    libblas-dev \
+    gfortran \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
