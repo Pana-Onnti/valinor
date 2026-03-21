@@ -2,6 +2,15 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
+interface ClientComparison {
+  client_name: string;
+  avg_dq_score: number;
+  dq_trend: string;
+  critical_findings: number;
+  last_run: string;
+  industry: string;
+}
+
 interface ClientSummary {
   client_name: string;
   run_count: number;
@@ -144,6 +153,7 @@ export default function DashboardPage() {
   const [clients, setClients] = useState<ClientSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState<'critical' | 'last_run' | 'dq_score'>('critical');
+  const [comparison, setComparison] = useState<ClientComparison[]>([]);
 
   useEffect(() => {
     const load = async () => {
@@ -173,6 +183,15 @@ export default function DashboardPage() {
         })
       );
       setClients(enriched);
+
+      // Fetch cross-client comparison data
+      try {
+        const comp = await fetch(`${API}/api/clients/comparison`).then(r => r.json());
+        setComparison(comp || []);
+      } catch {
+        // comparison table is optional; silently ignore errors
+      }
+
       setLoading(false);
     };
     load();
@@ -246,7 +265,83 @@ export default function DashboardPage() {
             ))}
           </div>
         )}
+
+        {/* Cross-client comparison table — only when 2+ clients */}
+        {!loading && comparison.length >= 2 && (
+          <div className="mt-8">
+            <h2 className="text-lg font-semibold text-gray-900 mb-3">Comparar clientes</h2>
+            <ClientComparisonTable rows={comparison} />
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+function ClientComparisonTable({ rows }: { rows: ClientComparison[] }) {
+  const dqScoreColor = (score: number) =>
+    score >= 85
+      ? 'text-green-600 font-semibold'
+      : score >= 65
+      ? 'text-amber-500 font-semibold'
+      : 'text-red-600 font-semibold';
+
+  const formatDate = (iso: string) => {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch {
+      return iso;
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-xl border overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+            <th className="text-left px-5 py-3 font-medium">Cliente</th>
+            <th className="text-center px-4 py-3 font-medium">DQ Score</th>
+            <th className="text-center px-4 py-3 font-medium">Tendencia</th>
+            <th className="text-center px-4 py-3 font-medium">Críticos</th>
+            <th className="text-left px-4 py-3 font-medium">Industria</th>
+            <th className="text-right px-5 py-3 font-medium">Último análisis</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, idx) => (
+            <tr
+              key={row.client_name}
+              className={`border-b last:border-0 hover:bg-gray-50 transition-colors ${idx % 2 === 0 ? '' : 'bg-gray-50/40'}`}
+            >
+              <td className="px-5 py-3 font-medium text-gray-900">
+                <Link href={`/clients/${row.client_name}/history`} className="hover:text-violet-600">
+                  {row.client_name}
+                </Link>
+              </td>
+              <td className={`px-4 py-3 text-center ${dqScoreColor(row.avg_dq_score)}`}>
+                {row.avg_dq_score ?? '—'}
+              </td>
+              <td className="px-4 py-3">
+                <div className="flex justify-center">
+                  <DQSparkline trend={row.dq_trend} />
+                </div>
+              </td>
+              <td className="px-4 py-3 text-center">
+                {row.critical_findings > 0 ? (
+                  <span className="inline-block px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-bold">
+                    {row.critical_findings}
+                  </span>
+                ) : (
+                  <span className="text-gray-400">—</span>
+                )}
+              </td>
+              <td className="px-4 py-3 text-gray-600">{row.industry || '—'}</td>
+              <td className="px-5 py-3 text-right text-gray-500">{formatDate(row.last_run)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

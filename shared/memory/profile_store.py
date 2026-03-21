@@ -94,25 +94,38 @@ class ProfileStore:
         return None
 
     async def save(self, profile: ClientProfile) -> bool:
-        """Upsert profile."""
+        """Upsert profile. Always writes to local file as backup, then attempts PostgreSQL upsert."""
         try:
             profile.updated_at = datetime.utcnow().isoformat()
             data = json.dumps(profile.to_dict())
 
-            pool = await self._get_pool()
-            if pool:
-                async with pool.acquire() as conn:
-                    await conn.execute("""
-                        INSERT INTO client_profiles (client_name, profile, updated_at)
-                        VALUES ($1, $2::jsonb, NOW())
-                        ON CONFLICT (client_name) DO UPDATE
-                            SET profile = EXCLUDED.profile, updated_at = NOW()
-                    """, profile.client_name, data)
-                logger.info("ProfileStore: saved to DB", client=profile.client_name)
-            else:
-                path = _LOCAL_DIR / f"{profile.client_name}.json"
-                path.write_text(data)
-                logger.info("ProfileStore: saved to file", client=profile.client_name)
+            # 1. Always persist to local file first (backup / fallback).
+            path = _LOCAL_DIR / f"{profile.client_name}.json"
+            path.write_text(data)
+            logger.info("ProfileStore: saved to file", client=profile.client_name)
+
+            # 2. Best-effort upsert to PostgreSQL — never raise on failure.
+            try:
+                pool = await self._get_pool()
+                if pool:
+                    async with pool.acquire() as conn:
+                        await conn.execute(
+                            """
+                            INSERT INTO client_profiles (client_name, profile, updated_at)
+                            VALUES ($1, $2, NOW())
+                            ON CONFLICT (client_name) DO UPDATE
+                                SET profile = EXCLUDED.profile, updated_at = NOW()
+                            """,
+                            profile.client_name,
+                            data,
+                        )
+                    logger.info("ProfileStore: saved to DB", client=profile.client_name)
+            except Exception as db_exc:
+                logger.warning(
+                    "ProfileStore: DB upsert failed, file backup retained",
+                    client=profile.client_name,
+                    error=str(db_exc),
+                )
 
             return True
         except Exception as e:
