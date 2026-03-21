@@ -405,6 +405,26 @@ PATTERNS: List[AnomalyPattern] = [
     ),
 
     AnomalyPattern(
+        id="benford_deviation",
+        name="benford_deviation",
+        description="Distribución de primeros dígitos se desvía de la Ley de Benford (indica posible manipulación)",
+        sql_template="""
+            SELECT grandtotal
+            FROM account_move
+            WHERE state = 'posted'
+            AND grandtotal > 0
+        """,
+        severity="HIGH",
+        category="fraud_risk",
+        erp_tables=["account_move"],
+        interpretation=(
+            "La Ley de Benford predice que ~30% de los valores empiezan con 1, ~17% con 2, etc. "
+            "Desviaciones >15% pueden indicar manipulación contable. "
+            "El test chi² se ejecuta en Python (benford_test() en statistical_checks.py) sobre los valores obtenidos."
+        ),
+    ),
+
+    AnomalyPattern(
         id="benford_first_digit_invoices",
         name="Ley de Benford — anomalía en primer dígito de facturas",
         description="Distribution of invoice first digits deviates from expected Benford's Law distribution",
