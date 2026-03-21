@@ -602,3 +602,209 @@ async def test_send_digest_with_empty_findings(client):
         r = await client.post("/api/jobs/job-empty/send-digest?to_email=ops@example.com")
     assert r.status_code == 200
     assert r.json()["to"] == "ops@example.com"
+
+
+# ===========================================================================
+# New tests — unit-level helpers + additional endpoint edge cases
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# _dq_color helper
+# ---------------------------------------------------------------------------
+
+def test_dq_color_high_score_returns_green():
+    """Score >= 85 maps to green (#16a34a)."""
+    from api.email_digest import _dq_color
+    assert _dq_color(85) == "#16a34a"
+    assert _dq_color(100) == "#16a34a"
+
+
+def test_dq_color_medium_score_returns_amber():
+    """Score in [65, 84] maps to amber (#d97706)."""
+    from api.email_digest import _dq_color
+    assert _dq_color(65) == "#d97706"
+    assert _dq_color(75) == "#d97706"
+    assert _dq_color(84) == "#d97706"
+
+
+def test_dq_color_low_score_returns_orange():
+    """Score in [45, 64] maps to orange (#ea580c)."""
+    from api.email_digest import _dq_color
+    assert _dq_color(45) == "#ea580c"
+    assert _dq_color(60) == "#ea580c"
+    assert _dq_color(64) == "#ea580c"
+
+
+def test_dq_color_critical_score_returns_red():
+    """Score < 45 maps to red (#dc2626)."""
+    from api.email_digest import _dq_color
+    assert _dq_color(0) == "#dc2626"
+    assert _dq_color(44) == "#dc2626"
+
+
+# ---------------------------------------------------------------------------
+# build_alerts_section unit tests
+# ---------------------------------------------------------------------------
+
+def test_build_alerts_section_empty_list_returns_empty_string():
+    """build_alerts_section with empty list returns empty string."""
+    from api.email_digest import build_alerts_section
+    assert build_alerts_section([]) == ""
+
+
+def test_build_alerts_section_renders_alert_name():
+    """build_alerts_section includes the alert name in the output."""
+    from api.email_digest import build_alerts_section
+    alerts = [{"name": "Churn Rate Alert", "metric": "churn", "severity": "HIGH",
+               "computed_value": 0.35, "threshold_value": 0.2, "operator": ">"}]
+    html = build_alerts_section(alerts)
+    assert "Churn Rate Alert" in html
+
+
+def test_build_alerts_section_medium_severity_uses_amber_color():
+    """MEDIUM severity alert uses amber (#D97706) color styling."""
+    from api.email_digest import build_alerts_section
+    alerts = [{"name": "Late Payments", "metric": "late_ratio", "severity": "MEDIUM",
+               "computed_value": 0.18, "threshold_value": 0.1, "operator": ">"}]
+    html = build_alerts_section(alerts)
+    assert "#D97706" in html
+
+
+def test_build_alerts_section_multiple_alerts_all_rendered():
+    """All alerts passed are included in the HTML output."""
+    from api.email_digest import build_alerts_section
+    alerts = [
+        {"name": "Alert A", "metric": "m1", "severity": "CRITICAL",
+         "computed_value": -30, "threshold_value": -10, "operator": "<"},
+        {"name": "Alert B", "metric": "m2", "severity": "HIGH",
+         "computed_value": 5, "threshold_value": 3, "operator": ">"},
+    ]
+    html = build_alerts_section(alerts)
+    assert "Alert A" in html
+    assert "Alert B" in html
+
+
+# ---------------------------------------------------------------------------
+# build_digest_html unit tests
+# ---------------------------------------------------------------------------
+
+def test_build_digest_html_returns_string():
+    """build_digest_html returns a non-empty string."""
+    from api.email_digest import build_digest_html
+    html = build_digest_html(
+        client_name="Test Co",
+        period="Q2 2026",
+        run_delta={"new": [], "resolved": []},
+        findings_summary={"critical": 0, "high": 0},
+        top_findings=[],
+    )
+    assert isinstance(html, str)
+    assert len(html) > 100
+
+
+def test_build_digest_html_three_or_more_critical_shows_urgente():
+    """When critical >= 3, the next-analysis section shows URGENTE text."""
+    from api.email_digest import build_digest_html
+    html = build_digest_html(
+        client_name="Crisis Corp",
+        period="Q1 2026",
+        run_delta={"new": [], "resolved": []},
+        findings_summary={"critical": 3, "high": 0},
+        top_findings=[],
+    )
+    assert "URGENTE" in html
+
+
+def test_build_digest_html_dq_halt_decision_rendered():
+    """HALT gate decision is rendered as BLOQUEADO in the HTML."""
+    from api.email_digest import build_digest_html
+    dq = {"score": 30, "decision": "HALT", "confidence_label": "BAJA", "tag": "RED"}
+    html = build_digest_html(
+        client_name="Blocked Co",
+        period="Q1 2026",
+        run_delta={"new": [], "resolved": []},
+        findings_summary={"critical": 0, "high": 0},
+        top_findings=[],
+        data_quality=dq,
+    )
+    assert "BLOQUEADO" in html
+
+
+def test_build_digest_html_dq_proceed_with_warnings_rendered():
+    """PROCEED_WITH_WARNINGS gate decision is rendered as 'PROCEDER CON ADVERTENCIAS'."""
+    from api.email_digest import build_digest_html
+    dq = {"score": 70, "decision": "PROCEED_WITH_WARNINGS", "confidence_label": "MEDIA", "tag": "SILVER"}
+    html = build_digest_html(
+        client_name="Cautious Corp",
+        period="Q1 2026",
+        run_delta={"new": [], "resolved": []},
+        findings_summary={"critical": 0, "high": 0},
+        top_findings=[],
+        data_quality=dq,
+    )
+    assert "PROCEDER CON ADVERTENCIAS" in html
+
+
+def test_build_digest_html_with_kpi_history():
+    """KPI history data is rendered in the digest when provided."""
+    from api.email_digest import build_digest_html
+    kpi_history = {
+        "Revenue": [
+            {"value": "$1.0M", "numeric_value": 1_000_000},
+            {"value": "$1.2M", "numeric_value": 1_200_000},
+        ]
+    }
+    html = build_digest_html(
+        client_name="KPI Corp",
+        period="Q1 2026",
+        run_delta={"new": [], "resolved": []},
+        findings_summary={"critical": 0, "high": 0},
+        top_findings=[],
+        kpi_history=kpi_history,
+    )
+    assert "Revenue" in html
+
+
+# ---------------------------------------------------------------------------
+# Endpoint edge cases — send_digest function + redis-down paths
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_digest_redis_unavailable_returns_503(client):
+    """When redis_client is None/falsy, digest returns 503."""
+    with patch("api.main.redis_client", None):
+        r = await client.get("/api/jobs/job-xyz/digest")
+    assert r.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_send_digest_redis_unavailable_returns_503(client):
+    """When redis_client is None/falsy, send-digest returns 503."""
+    with patch("api.main.redis_client", None):
+        r = await client.post("/api/jobs/job-xyz/send-digest?to_email=x@x.com")
+    assert r.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_send_digest_function_no_smtp_returns_false():
+    """send_digest returns False when SMTP_HOST env var is not set."""
+    import os
+    from api.email_digest import send_digest
+    env = {k: v for k, v in os.environ.items() if k != "SMTP_HOST"}
+    with patch.dict("os.environ", env, clear=True):
+        result = await send_digest("x@example.com", "Subject", "<html></html>")
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_quality_stages_present_but_no_query_execution_key(client):
+    """When stages exist but lack 'query_execution', snapshot_timestamp is None."""
+    raw = _minimal_results(
+        data_quality={"score": 80, "decision": "PROCEED"},
+        stages={"cartographer": {"duration_ms": 120}},
+    )
+    with patch("api.main.redis_client") as rm:
+        rm.get = AsyncMock(return_value=raw)
+        r = await client.get("/api/jobs/job-no-qe/quality")
+    assert r.status_code == 200
+    assert r.json()["snapshot_timestamp"] is None

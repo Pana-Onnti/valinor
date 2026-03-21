@@ -446,3 +446,203 @@ class TestValidatePeriod:
     def test_response_echoes_period(self):
         resp = _test_client.post("/api/onboarding/validate-period", json={"period": "Q2-2025"})
         assert resp.json()["period"] == "Q2-2025"
+
+
+# ---------------------------------------------------------------------------
+# Additional tests — untested behaviors
+# ---------------------------------------------------------------------------
+
+class TestConnectionEndpointExtended:
+    """Extended coverage for /api/onboarding/test-connection."""
+
+    def test_mysql_db_type_succeeds(self):
+        """MySQL path builds a mysql+pymysql connection string and must return success=True."""
+        engine_mock, inspector_mock = _make_engine_mock(["orders", "customers"])
+        with (
+            patch("sqlalchemy.create_engine", return_value=engine_mock),
+            patch("sqlalchemy.inspect", return_value=inspector_mock),
+        ):
+            payload = {**VALID_CONNECTION_PAYLOAD, "db_type": "mysql"}
+            resp = _test_client.post("/api/onboarding/test-connection", json=payload)
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+    def test_idempiere_erp_detected(self):
+        """Tables c_bpartner + c_invoice must trigger idempiere detection."""
+        engine_mock, inspector_mock = _make_engine_mock(["c_bpartner", "c_invoice", "c_order"])
+        with (
+            patch("sqlalchemy.create_engine", return_value=engine_mock),
+            patch("sqlalchemy.inspect", return_value=inspector_mock),
+        ):
+            resp = _test_client.post("/api/onboarding/test-connection", json=VALID_CONNECTION_PAYLOAD)
+        assert resp.status_code == 200
+        assert resp.json()["erp_detected"] == "idempiere"
+
+    def test_sap_b1_erp_detected(self):
+        """Tables ocrd + oinv must trigger sap_b1 detection."""
+        engine_mock, inspector_mock = _make_engine_mock(["ocrd", "oinv", "opor"])
+        with (
+            patch("sqlalchemy.create_engine", return_value=engine_mock),
+            patch("sqlalchemy.inspect", return_value=inspector_mock),
+        ):
+            resp = _test_client.post("/api/onboarding/test-connection", json=VALID_CONNECTION_PAYLOAD)
+        assert resp.status_code == 200
+        assert resp.json()["erp_detected"] == "sap_b1"
+
+    def test_generic_postgresql_detected_when_no_erp_tables(self):
+        """A non-empty table list with no known ERP signatures returns generic_postgresql."""
+        engine_mock, inspector_mock = _make_engine_mock(["users", "products", "orders"])
+        with (
+            patch("sqlalchemy.create_engine", return_value=engine_mock),
+            patch("sqlalchemy.inspect", return_value=inspector_mock),
+        ):
+            resp = _test_client.post("/api/onboarding/test-connection", json=VALID_CONNECTION_PAYLOAD)
+        assert resp.status_code == 200
+        assert resp.json()["erp_detected"] == "generic_postgresql"
+
+    def test_unknown_erp_when_empty_tables(self):
+        """An empty table list should produce erp_detected == 'unknown'."""
+        engine_mock, inspector_mock = _make_engine_mock([])
+        with (
+            patch("sqlalchemy.create_engine", return_value=engine_mock),
+            patch("sqlalchemy.inspect", return_value=inspector_mock),
+        ):
+            resp = _test_client.post("/api/onboarding/test-connection", json=VALID_CONNECTION_PAYLOAD)
+        assert resp.status_code == 200
+        assert resp.json()["erp_detected"] == "unknown"
+
+    def test_accounting_only_recommendation(self):
+        """has_accounting=True but no invoices/partners → recommended_analysis == 'accounting_only'."""
+        engine_mock, inspector_mock = _make_engine_mock(["account_move", "unrelated_table"])
+        with (
+            patch("sqlalchemy.create_engine", return_value=engine_mock),
+            patch("sqlalchemy.inspect", return_value=inspector_mock),
+        ):
+            resp = _test_client.post("/api/onboarding/test-connection", json=VALID_CONNECTION_PAYLOAD)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["has_accounting"] is True
+        assert data["recommended_analysis"] == "accounting_only"
+
+    def test_limited_recommendation_no_accounting(self):
+        """No accounting/invoice/partner tables → recommended_analysis == 'limited'."""
+        engine_mock, inspector_mock = _make_engine_mock(["log_entries", "config"])
+        with (
+            patch("sqlalchemy.create_engine", return_value=engine_mock),
+            patch("sqlalchemy.inspect", return_value=inspector_mock),
+        ):
+            resp = _test_client.post("/api/onboarding/test-connection", json=VALID_CONNECTION_PAYLOAD)
+        assert resp.status_code == 200
+        assert resp.json()["recommended_analysis"] == "limited"
+
+    def test_error_message_truncated_to_200_chars(self):
+        """Errors longer than 200 characters must be truncated in the response."""
+        long_error = "x" * 500
+        with patch("sqlalchemy.create_engine", side_effect=Exception(long_error)):
+            resp = _test_client.post("/api/onboarding/test-connection", json=VALID_CONNECTION_PAYLOAD)
+        assert resp.status_code == 200
+        assert len(resp.json()["error"]) <= 200
+
+    def test_missing_user_returns_422(self):
+        """Required field 'user' missing must produce a 422 Unprocessable Entity."""
+        payload = {k: v for k, v in VALID_CONNECTION_PAYLOAD.items() if k != "user"}
+        resp = _test_client.post("/api/onboarding/test-connection", json=payload)
+        assert resp.status_code == 422
+
+    def test_table_count_returned_correctly(self):
+        """table_count in the response must match the number of tables returned by the inspector."""
+        tables = ["a", "b", "c", "d", "e"]
+        engine_mock, inspector_mock = _make_engine_mock(tables)
+        with (
+            patch("sqlalchemy.create_engine", return_value=engine_mock),
+            patch("sqlalchemy.inspect", return_value=inspector_mock),
+        ):
+            resp = _test_client.post("/api/onboarding/test-connection", json=VALID_CONNECTION_PAYLOAD)
+        assert resp.status_code == 200
+        assert resp.json()["table_count"] == len(tables)
+
+
+class TestSSHTestEndpoint:
+    """Coverage for /api/onboarding/ssh-test zero-trust host validation."""
+
+    def test_loopback_ssh_host_rejected(self):
+        """127.x address for ssh_host must be blocked with 400."""
+        payload = {**VALID_SSH_PAYLOAD, "ssh_host": "127.0.0.1"}
+        resp = _test_client.post("/api/onboarding/ssh-test", json=payload)
+        assert resp.status_code == 400
+
+    def test_private_10_range_ssh_host_rejected(self):
+        """10.x.x.x address must be blocked (RFC-1918 SSRF guard)."""
+        payload = {**VALID_SSH_PAYLOAD, "ssh_host": "10.0.0.5"}
+        resp = _test_client.post("/api/onboarding/ssh-test", json=payload)
+        assert resp.status_code == 400
+
+    def test_private_192_168_range_db_host_rejected(self):
+        """192.168.x.x address for db_host must be blocked."""
+        payload = {**VALID_SSH_PAYLOAD, "db_host": "192.168.1.100"}
+        resp = _test_client.post("/api/onboarding/ssh-test", json=payload)
+        assert resp.status_code == 400
+
+
+class TestSupportedDatabasesExtended:
+    """Extended coverage for /api/onboarding/supported-databases."""
+
+    def test_contains_sqlserver(self):
+        resp = _test_client.get("/api/onboarding/supported-databases")
+        ids = [db["id"] for db in resp.json()]
+        assert "sqlserver" in ids
+
+    def test_contains_oracle(self):
+        resp = _test_client.get("/api/onboarding/supported-databases")
+        ids = [db["id"] for db in resp.json()]
+        assert "oracle" in ids
+
+    def test_mysql_default_port_is_3306(self):
+        resp = _test_client.get("/api/onboarding/supported-databases")
+        mysql_entry = next(db for db in resp.json() if db["id"] == "mysql")
+        assert mysql_entry["default_port"] == 3306
+
+
+class TestEstimateCostExtended:
+    """Extended coverage for /api/onboarding/estimate-cost."""
+
+    def test_duration_within_bounds(self):
+        """Estimated duration must be between 3 and 30 minutes (per module spec)."""
+        payload = {"estimated_rows": 1_000_000, "tables_count": 20, "period": "Q3-2025"}
+        resp = _test_client.post("/api/onboarding/estimate-cost", json=payload)
+        assert resp.status_code == 200
+        duration = resp.json()["estimated_duration_minutes"]
+        assert 3 <= duration <= 30
+
+    def test_token_estimate_includes_base(self):
+        """With zero rows and zero tables the token estimate must be at least 50 000 (base)."""
+        payload = {"estimated_rows": 0, "tables_count": 0, "period": "2025"}
+        resp = _test_client.post("/api/onboarding/estimate-cost", json=payload)
+        assert resp.status_code == 200
+        assert resp.json()["token_estimate"] >= 50_000
+
+
+class TestValidatePeriodExtended:
+    """Extended coverage for /api/onboarding/validate-period."""
+
+    def test_valid_h2_format(self):
+        resp = _test_client.post("/api/onboarding/validate-period", json={"period": "H2-2024"})
+        assert resp.status_code == 200
+        assert resp.json()["valid"] is True
+
+    def test_invalid_q0_returns_false(self):
+        """Q0 is not a valid quarter."""
+        resp = _test_client.post("/api/onboarding/validate-period", json={"period": "Q0-2025"})
+        assert resp.status_code == 200
+        assert resp.json()["valid"] is False
+
+    def test_response_contains_message_field(self):
+        """Response must always include a 'message' key."""
+        resp = _test_client.post("/api/onboarding/validate-period", json={"period": "Q1-2025"})
+        assert resp.status_code == 200
+        assert "message" in resp.json()
+
+    def test_empty_string_period_invalid(self):
+        resp = _test_client.post("/api/onboarding/validate-period", json={"period": ""})
+        assert resp.status_code == 200
+        assert resp.json()["valid"] is False

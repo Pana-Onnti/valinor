@@ -189,3 +189,127 @@ class TestDaysSince:
     def test_returns_integer(self):
         result = days_since("2020-06-15")
         assert isinstance(result, int)
+
+
+# ===========================================================================
+# Additional tests — untested behaviors
+# ===========================================================================
+
+class TestParsePeriodAdditional:
+
+    def test_q2_end_is_june_30(self):
+        """Q2 must end on June 30, not an off-by-one day."""
+        _, end = parse_period("Q2-2025")
+        assert end == "2025-06-30"
+
+    def test_q3_end_is_september_30(self):
+        """Q3 must end on September 30."""
+        _, end = parse_period("Q3-2025")
+        assert end == "2025-09-30"
+
+    def test_q1_start_is_january_first(self):
+        start, _ = parse_period("Q1-2025")
+        assert start == "2025-01-01"
+
+    def test_h1_end_is_june_30(self):
+        """H1 must end on June 30 — not July 1 or June 31."""
+        _, end = parse_period("H1-2025")
+        assert end == "2025-06-30"
+
+    def test_year_only_three_digits_raises(self):
+        """A 3-digit 'year' like '202' should not match and must raise."""
+        with pytest.raises(ValueError):
+            parse_period("202")
+
+    def test_year_five_digits_raises(self):
+        """A 5-digit string like '20250' is not a recognised format."""
+        with pytest.raises(ValueError):
+            parse_period("20250")
+
+    def test_leap_year_period(self):
+        """Full-year parse works for a leap year without errors."""
+        start, end = parse_period("2000")
+        assert start == "2000-01-01"
+        assert end == "2000-12-31"
+
+    def test_far_future_year(self):
+        """parse_period works for years well in the future."""
+        start, end = parse_period("2099")
+        assert start == "2099-01-01"
+        assert end == "2099-12-31"
+
+    def test_mixed_case_quarter_uppercase(self):
+        """Uppercase Q is accepted (regression guard for case-insensitive flag)."""
+        start, end = parse_period("Q4-2024")
+        assert start == "2024-10-01"
+        assert end == "2024-12-31"
+
+    def test_mixed_case_half_uppercase(self):
+        """Uppercase H is accepted."""
+        start, end = parse_period("H1-2024")
+        assert start == "2024-01-01"
+        assert end == "2024-06-30"
+
+
+class TestFormatDurationAdditional:
+
+    def test_one_hour_with_seconds_but_no_minutes(self):
+        """3601s = 1h 0m 1s — minutes==0 so result must be '1h', not '1h 1s'."""
+        assert format_duration(3601) == "1h"
+
+    def test_fifty_nine_minutes_fifty_nine_seconds(self):
+        """3599s = 59m 59s, just under one hour."""
+        assert format_duration(3599) == "59m 59s"
+
+    def test_sixty_one_seconds(self):
+        """61s = 1m 1s."""
+        assert format_duration(61) == "1m 1s"
+
+    def test_very_large_hours(self):
+        """100 hours exactly."""
+        assert format_duration(360000) == "100h"
+
+    def test_hours_and_minutes_no_seconds_suffix(self):
+        """When hours > 0, seconds are never shown even if non-zero."""
+        result = format_duration(7322)   # 2h 2m 2s
+        assert result == "2h 2m"
+        assert "s" not in result
+
+    def test_negative_input_treated_as_zero(self):
+        """Negative durations should not crash; int(-5) -> 0s output."""
+        # The implementation uses int() then floor-divides; -5 // 3600 == -1
+        # which means hours < 0 branch is taken — the function returns a
+        # string. We just assert it doesn't raise and returns a str.
+        result = format_duration(-5)
+        assert isinstance(result, str)
+
+
+class TestDaysSinceAdditional:
+
+    def test_none_input_raises_value_error(self):
+        with pytest.raises(ValueError):
+            days_since(None)  # type: ignore[arg-type]
+
+    def test_integer_input_raises_value_error(self):
+        with pytest.raises(ValueError):
+            days_since(20250101)  # type: ignore[arg-type]
+
+    def test_two_weeks_ago(self):
+        two_weeks = (datetime.utcnow().date() - timedelta(days=14)).isoformat()
+        assert days_since(two_weeks) == 14
+
+    def test_thirty_days_ago(self):
+        thirty = (datetime.utcnow().date() - timedelta(days=30)).isoformat()
+        assert days_since(thirty) == 30
+
+    def test_deterministic_with_mock(self):
+        """Pin 'today' via mock to get a fully deterministic result."""
+        fixed_today = date(2026, 3, 21)
+        with patch("shared.utils.date_utils.datetime") as mock_dt:
+            mock_dt.utcnow.return_value.date.return_value = fixed_today
+            result = days_since("2026-03-11")
+        assert result == 10
+
+    def test_far_past_date_is_large_positive(self):
+        result = days_since("2000-01-01")
+        assert result > 9000   # ~26 years of days

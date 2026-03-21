@@ -1,7 +1,24 @@
 """
 Unit tests for AlertEngine.check_thresholds() and create_default_thresholds().
-No mocking — pure in-memory data.
+Pure in-memory data — no database or external service required.
+
+Missing optional dependencies (structlog) are stubbed via sys.modules so the
+test suite runs in any environment, including CI without the full dependency set.
 """
+import sys
+import types
+import logging
+
+# ---------------------------------------------------------------------------
+# sys.modules stubs — stub optional / heavy dependencies before any import
+# ---------------------------------------------------------------------------
+
+# structlog — used by alert_engine.py; fall back gracefully when absent
+if "structlog" not in sys.modules:
+    _structlog_stub = types.ModuleType("structlog")
+    _structlog_stub.get_logger = lambda: logging.getLogger("structlog_stub")
+    sys.modules["structlog"] = _structlog_stub
+
 import pytest
 from shared.memory.alert_engine import AlertEngine, create_default_thresholds
 from shared.memory.client_profile import ClientProfile
@@ -471,3 +488,165 @@ def test_below_threshold_not_triggered_when_value_ok():
     alerts = engine.check_thresholds(profile, history, {})
     ar_alerts = [a for a in alerts if "AR" in (a.get("label", "") + a.get("metric", ""))]
     assert len(ar_alerts) == 0
+
+
+# ---------------------------------------------------------------------------
+# Additional edge-case and coverage tests
+# ---------------------------------------------------------------------------
+
+def test_pct_change_below_exact_boundary_does_not_trigger():
+    """pct_change_below with exact boundary value should NOT trigger (strict <)."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("revenue_drop", "total_revenue", "pct_change_below", -15.0)
+    ])
+    # prev=1_000_000, curr=850_000 → exactly -15.0%
+    history = {"total_revenue": make_history([1_000_000.0, 850_000.0])}
+    alerts = engine.check_thresholds(profile, history, {})
+    assert alerts == []
+
+
+def test_pct_change_above_exact_boundary_does_not_trigger():
+    """pct_change_above with exact boundary value should NOT trigger (strict >)."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("receivables_spike", "total_receivables", "pct_change_above", 25.0)
+    ])
+    # prev=100_000, curr=125_000 → exactly +25.0%
+    history = {"total_receivables": make_history([100_000.0, 125_000.0])}
+    alerts = engine.check_thresholds(profile, history, {})
+    assert alerts == []
+
+
+def test_absolute_below_exact_boundary_does_not_trigger():
+    """absolute_below: current == threshold — NOT triggered (strict <)."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("zero_revenue", "total_revenue", "absolute_below", 100.0, "CRITICAL")
+    ])
+    history = {"total_revenue": make_history([100.0])}
+    alerts = engine.check_thresholds(profile, history, {})
+    assert alerts == []
+
+
+def test_alert_triggered_at_is_iso_string():
+    """triggered_at field in triggered alerts is a non-empty ISO timestamp string."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("zero_revenue", "total_revenue", "absolute_below", 100.0, "CRITICAL")
+    ])
+    history = {"total_revenue": make_history([50.0])}
+    alerts = engine.check_thresholds(profile, history, {})
+    assert len(alerts) == 1
+    ts = alerts[0].get("triggered_at", "")
+    assert isinstance(ts, str) and len(ts) > 0
+
+
+def test_multiple_thresholds_only_one_fires():
+    """Two thresholds for different metrics — only one condition met — one alert."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("revenue_drop", "total_revenue", "absolute_below", 100.0, "CRITICAL"),
+        make_threshold("receivables_spike", "total_receivables", "absolute_above", 500_000.0, "HIGH"),
+    ])
+    # Revenue OK (200 > 100), receivables OK (300_000 < 500_000)
+    history = {
+        "total_revenue": make_history([200.0]),
+        "total_receivables": make_history([300_000.0]),
+    }
+    alerts = engine.check_thresholds(profile, history, {})
+    assert alerts == []
+
+
+def test_multiple_thresholds_both_fire():
+    """Two thresholds — both conditions met — two alerts returned."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("zero_revenue", "total_revenue", "absolute_below", 100.0, "CRITICAL"),
+        make_threshold("high_ar", "total_receivables", "absolute_above", 500_000.0, "HIGH"),
+    ])
+    history = {
+        "total_revenue": make_history([50.0]),
+        "total_receivables": make_history([600_000.0]),
+    }
+    alerts = engine.check_thresholds(profile, history, {})
+    assert len(alerts) == 2
+    severities = {a["severity"] for a in alerts}
+    assert "CRITICAL" in severities
+    assert "HIGH" in severities
+
+
+def test_pct_change_with_single_value_does_not_trigger():
+    """pct_change_below requires at least 2 history values — one value must not trigger."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("revenue_drop", "total_revenue", "pct_change_below", -15.0)
+    ])
+    history = {"total_revenue": make_history([1_000_000.0])}  # only one entry
+    alerts = engine.check_thresholds(profile, history, {})
+    assert alerts == []
+
+
+def test_triggered_alerts_overflow_beyond_20_is_truncated():
+    """When pre-existing triggered_alerts already has 20 entries, adding 1 more stays at 20."""
+    engine = AlertEngine()
+    old_alerts = [{"condition": "absolute_below", "metric": "x", "period": str(i)} for i in range(20)]
+    profile = make_profile(
+        alert_thresholds=[
+            make_threshold("zero_revenue", "total_revenue", "absolute_below", 100.0, "CRITICAL")
+        ],
+        triggered_alerts=old_alerts,
+    )
+    history = {"total_revenue": make_history([10.0])}
+    engine.check_thresholds(profile, history, {})
+    assert len(profile.triggered_alerts) == 20
+
+
+def test_implicit_alert_finding_id_present():
+    """Implicit alert from CRITICAL finding must contain finding_id field."""
+    engine = AlertEngine()
+    profile = make_profile()
+    findings = {
+        "sentinel": {
+            "findings": [
+                {"id": "fraud_xyz", "title": "Suspected fraud", "severity": "CRITICAL"},
+            ]
+        }
+    }
+    alerts = engine.check_thresholds(profile, {}, findings)
+    assert len(alerts) == 1
+    assert alerts[0].get("finding_id") == "fraud_xyz"
+
+
+def test_findings_from_multiple_agents_are_all_checked():
+    """CRITICAL findings from two different agent result dicts both produce alerts."""
+    engine = AlertEngine()
+    profile = make_profile()
+    findings = {
+        "sentinel": {
+            "findings": [
+                {"id": "s001", "title": "Sentinel finding", "severity": "CRITICAL"},
+            ]
+        },
+        "hunter": {
+            "findings": [
+                {"id": "h001", "title": "Hunter finding", "severity": "CRITICAL"},
+            ]
+        },
+    }
+    alerts = engine.check_thresholds(profile, {}, findings)
+    assert len(alerts) == 2
+    ids = {a["finding_id"] for a in alerts}
+    assert "s001" in ids
+    assert "h001" in ids
+
+
+def test_create_default_thresholds_retail_industry():
+    """An industry other than 'distribución mayorista' only gets the universal threshold."""
+    profile = make_profile()
+    profile.industry_inferred = "retail"
+    thresholds = create_default_thresholds(profile)
+    labels = [t["label"] for t in thresholds]
+    assert "consecutive_zero_revenue" in labels
+    assert "revenue_drop" not in labels
+    assert "receivables_spike" not in labels

@@ -401,3 +401,151 @@ class TestActiveRefinement:
         }
         result = build_adaptive_context(p)
         assert "sin refinamiento" in result
+
+
+# ---------------------------------------------------------------------------
+# 10. Output structure
+# ---------------------------------------------------------------------------
+
+class TestOutputStructure:
+
+    def test_output_is_multiline(self):
+        """Context block must contain newlines (it's a multi-section block)."""
+        result = build_adaptive_context(_profile())
+        assert "\n" in result
+
+    def test_baseline_section_before_refinement_section(self):
+        """Sections must appear in document order."""
+        result = build_adaptive_context(_profile())
+        baseline_pos = result.index("LÍNEA BASE HISTÓRICA")
+        refinement_pos = result.index("REFINAMIENTO ACTIVO")
+        assert baseline_pos < refinement_pos
+
+    def test_header_before_client_name(self):
+        p = _profile("GlobalCorp")
+        result = build_adaptive_context(p)
+        header_pos = result.index("CONTEXTO ADAPTATIVO")
+        name_pos = result.index("GlobalCorp")
+        assert header_pos < name_pos
+
+
+# ---------------------------------------------------------------------------
+# 11. Boundary conditions
+# ---------------------------------------------------------------------------
+
+class TestBoundaryConditions:
+
+    def test_runs_open_exactly_three_counts_as_persistent(self):
+        """runs_open == 3 must be included in persistent count (>= 3)."""
+        p = _profile()
+        p.known_findings = {"F1": {"runs_open": 3}}
+        result = build_adaptive_context(p)
+        assert "Hallazgos persistentes: 1" in result
+
+    def test_runs_open_exactly_two_does_not_count(self):
+        p = _profile()
+        p.known_findings = {"F1": {"runs_open": 2}}
+        result = build_adaptive_context(p)
+        assert "Hallazgos persistentes: 0" in result
+
+    def test_focus_tables_exactly_five_all_shown(self):
+        p = _profile()
+        p.focus_tables = ["alpha", "beta", "gamma", "delta", "epsilon"]
+        result = build_adaptive_context(p)
+        for t in ["alpha", "beta", "gamma", "delta", "epsilon"]:
+            assert t in result
+
+    def test_focus_tables_six_sixth_hidden(self):
+        p = _profile()
+        p.focus_tables = ["t1", "t2", "t3", "t4", "t5", "should_not_appear"]
+        result = build_adaptive_context(p)
+        assert "should_not_appear" not in result
+
+    def test_single_alert_threshold(self):
+        p = _profile()
+        p.alert_thresholds = [{"label": "Margin", "metric": "margin", "operator": ">", "value": 0.2}]
+        result = build_adaptive_context(p)
+        assert "Umbrales activos: 1" in result
+
+    def test_large_run_count(self):
+        p = _profile()
+        p.run_count = 9999
+        result = build_adaptive_context(p)
+        assert "9999" in result
+
+
+# ---------------------------------------------------------------------------
+# 12. Client name edge cases
+# ---------------------------------------------------------------------------
+
+class TestClientNameEdgeCases:
+
+    def test_client_name_with_spaces_and_accents(self):
+        p = _profile("Córdoba Industrias S.A.")
+        result = build_adaptive_context(p)
+        assert "Córdoba Industrias S.A." in result
+
+    def test_client_name_with_numbers(self):
+        p = _profile("Client42")
+        result = build_adaptive_context(p)
+        assert "Client42" in result
+
+    def test_very_long_client_name(self):
+        long_name = "A" * 200
+        p = _profile(long_name)
+        result = build_adaptive_context(p)
+        assert long_name in result
+
+
+# ---------------------------------------------------------------------------
+# 13. Currency edge cases
+# ---------------------------------------------------------------------------
+
+class TestCurrencyEdgeCases:
+
+    def test_currency_with_symbol(self):
+        p = _profile()
+        p.currency_detected = "ARS $"
+        result = build_adaptive_context(p)
+        assert "ARS $" in result
+
+    def test_currency_eur(self):
+        p = _profile()
+        p.currency_detected = "EUR"
+        result = build_adaptive_context(p)
+        assert "EUR" in result
+
+
+# ---------------------------------------------------------------------------
+# 14. Baseline edge cases
+# ---------------------------------------------------------------------------
+
+class TestBaselineEdgeCases:
+
+    def test_baseline_series_last_item_not_dict_uses_empty_fallback(self):
+        """If the last series element is not a dict, value shows 'N/A'."""
+        p = _profile()
+        p.baseline_history = {
+            "KPI_X": ["not_a_dict"],
+        }
+        # Should not raise; last_point will be {} via the isinstance guard
+        result = build_adaptive_context(p)
+        assert isinstance(result, str)
+
+    def test_exactly_three_kpis_all_shown(self):
+        p = _profile()
+        p.baseline_history = {
+            "Revenue": [{"period": "2026-01", "label": "Revenue", "value": "$1M", "numeric_value": 1e6}],
+            "Costs": [{"period": "2026-01", "label": "Costs", "value": "$500k", "numeric_value": 5e5}],
+            "EBITDA": [{"period": "2026-01", "label": "EBITDA", "value": "$500k", "numeric_value": 5e5}],
+        }
+        result = build_adaptive_context(p)
+        for label in ["Revenue", "Costs", "EBITDA"]:
+            assert label in result
+
+    def test_none_baseline_history_shows_placeholder(self):
+        """Setting baseline_history to None should show the no-history placeholder."""
+        p = _profile()
+        p.baseline_history = None
+        result = build_adaptive_context(p)
+        assert "sin historial" in result

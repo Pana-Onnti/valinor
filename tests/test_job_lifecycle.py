@@ -744,3 +744,385 @@ class TestJobResultsEdgeCases:
 
         assert response.status_code == 200
         redis_mock.hset.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# TestCancelRetryEdgeCases
+# ---------------------------------------------------------------------------
+
+
+class TestCancelRetryEdgeCases:
+    """Edge cases for the cancel and retry job endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_nonexistent_job_returns_404(self, client, redis_mock):
+        """POST /api/jobs/ghost/cancel with Redis returning {} → 404."""
+        redis_mock.hgetall = AsyncMock(return_value={})
+        response = await client.post("/api/jobs/ghost/cancel")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_cancel_completed_job_returns_current_status(self, client, redis_mock):
+        """
+        POST /api/jobs/{id}/cancel on an already-completed job should NOT
+        transition to cancelled; the API returns the current status.
+        """
+        job_id = "already-completed-job"
+        redis_mock.hgetall = AsyncMock(
+            return_value={
+                "job_id": job_id,
+                "status": "completed",
+                "stage": "done",
+                "progress": "100",
+            }
+        )
+        response = await client.post(f"/api/jobs/{job_id}/cancel")
+        assert response.status_code == 200
+        data = response.json()
+        # The endpoint returns the existing terminal status, NOT "cancelled"
+        assert data["status"] == "completed"
+        # hset must NOT have been called (no transition needed)
+        redis_mock.hset.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retry_nonexistent_job_returns_404(self, client, redis_mock):
+        """POST /api/jobs/ghost/retry with Redis returning {} → 404."""
+        redis_mock.hgetall = AsyncMock(return_value={})
+        response = await client.post("/api/jobs/ghost/retry")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_retry_running_job_returns_400(self, client, redis_mock):
+        """
+        POST /api/jobs/{id}/retry on a running job → 400.
+        Only failed or cancelled jobs may be retried.
+        """
+        job_id = "still-running-job"
+        redis_mock.hgetall = AsyncMock(
+            return_value={
+                "job_id": job_id,
+                "status": "running",
+                "stage": "cartographer",
+                "progress": "50",
+                "request_data": json.dumps(VALID_ANALYSIS_PAYLOAD),
+            }
+        )
+        with patch("api.main.run_analysis_task", new=AsyncMock()):
+            response = await client.post(f"/api/jobs/{job_id}/retry")
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_retry_cancelled_job_succeeds(self, client, redis_mock):
+        """POST /api/jobs/{id}/retry on a *cancelled* job must also succeed."""
+        job_id = "cancelled-for-retry"
+        redis_mock.hgetall = AsyncMock(
+            return_value={
+                "job_id": job_id,
+                "status": "cancelled",
+                "client_name": "test-client",
+                "request_data": json.dumps(VALID_ANALYSIS_PAYLOAD),
+            }
+        )
+        with patch("api.main.run_analysis_task", new=AsyncMock()):
+            response = await client.post(f"/api/jobs/{job_id}/retry")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "pending"
+        assert data["job_id"] != job_id
+        assert data.get("retry_of") == job_id
+
+
+# ---------------------------------------------------------------------------
+# TestJobsListSorting
+# ---------------------------------------------------------------------------
+
+
+class TestJobsListSorting:
+    """Tests covering sort_by and sort_order parameters on GET /api/jobs."""
+
+    @pytest.mark.asyncio
+    async def test_invalid_sort_by_returns_400(self, client, redis_mock):
+        """GET /api/jobs?sort_by=invalid → 400."""
+        async def _empty_scan(*args, **kwargs):
+            return
+            yield
+
+        redis_mock.scan_iter = _empty_scan
+        response = await client.get("/api/jobs?sort_by=invalid_field")
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_invalid_sort_order_returns_400(self, client, redis_mock):
+        """GET /api/jobs?sort_order=sideways → 400."""
+        async def _empty_scan(*args, **kwargs):
+            return
+            yield
+
+        redis_mock.scan_iter = _empty_scan
+        response = await client.get("/api/jobs?sort_order=sideways")
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_page_size_exceeds_maximum_returns_400(self, client, redis_mock):
+        """GET /api/jobs?page_size=999 → 400 (max is 100)."""
+        async def _empty_scan(*args, **kwargs):
+            return
+            yield
+
+        redis_mock.scan_iter = _empty_scan
+        response = await client.get("/api/jobs?page_size=999")
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_page_zero_returns_400(self, client, redis_mock):
+        """GET /api/jobs?page=0 → 400 (pages are 1-indexed)."""
+        async def _empty_scan(*args, **kwargs):
+            return
+            yield
+
+        redis_mock.scan_iter = _empty_scan
+        response = await client.get("/api/jobs?page=0")
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_empty_job_list_returns_zero_total(self, client, redis_mock):
+        """When no jobs exist GET /api/jobs returns total=0 and jobs=[]."""
+        async def _empty_scan(*args, **kwargs):
+            return
+            yield
+
+        redis_mock.scan_iter = _empty_scan
+        response = await client.get("/api/jobs")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 0
+        assert data["jobs"] == []
+
+
+# ---------------------------------------------------------------------------
+# TestAuditEndpoints
+# ---------------------------------------------------------------------------
+
+
+class TestAuditEndpoints:
+    """Tests for POST /api/audit and GET /api/audit."""
+
+    @pytest.mark.asyncio
+    async def test_post_audit_event_returns_logged_true(self, client, redis_mock):
+        """POST /api/audit with a valid body → {"logged": true}."""
+        response = await client.post(
+            "/api/audit",
+            json={"event_type": "test_event", "detail": "unit test"},
+        )
+        assert response.status_code == 200
+        assert response.json().get("logged") is True
+        # lpush and ltrim must have been called
+        redis_mock.lpush.assert_called_once()
+        redis_mock.ltrim.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_audit_events_returns_events_list(self, client, redis_mock):
+        """
+        GET /api/audit when Redis lrange returns serialised events → list is
+        decoded and returned under the 'events' key.
+        """
+        sample_events = [
+            json.dumps({"event_type": "analysis_started", "job_id": "j1"}),
+            json.dumps({"event_type": "analysis_completed", "job_id": "j1"}),
+        ]
+        redis_mock.lrange = AsyncMock(return_value=sample_events)
+
+        response = await client.get("/api/audit?limit=10")
+        assert response.status_code == 200
+        data = response.json()
+        assert "events" in data
+        assert len(data["events"]) == 2
+        assert data["events"][0]["event_type"] == "analysis_started"
+
+    @pytest.mark.asyncio
+    async def test_get_audit_events_filter_by_event_type(self, client, redis_mock):
+        """GET /api/audit?event_type=analysis_started returns only matching events."""
+        sample_events = [
+            json.dumps({"event_type": "analysis_started", "job_id": "j1"}),
+            json.dumps({"event_type": "analysis_completed", "job_id": "j1"}),
+            json.dumps({"event_type": "analysis_started", "job_id": "j2"}),
+        ]
+        redis_mock.lrange = AsyncMock(return_value=sample_events)
+
+        response = await client.get("/api/audit?event_type=analysis_started")
+        assert response.status_code == 200
+        data = response.json()
+        types = {e["event_type"] for e in data["events"]}
+        assert types == {"analysis_started"}
+        assert data["total_returned"] == 2
+
+
+# ---------------------------------------------------------------------------
+# TestSystemEndpoints
+# ---------------------------------------------------------------------------
+
+
+class TestSystemEndpoints:
+    """Tests for /api/version, /api/cache/stats, and /api/system/metrics."""
+
+    @pytest.mark.asyncio
+    async def test_version_endpoint_returns_version_string(self, client, redis_mock):
+        """GET /api/version returns a dict with a 'version' key."""
+        response = await client.get("/api/version")
+        assert response.status_code == 200
+        data = response.json()
+        assert "version" in data
+        assert data["version"] == "2.0.0"
+
+    @pytest.mark.asyncio
+    async def test_cache_stats_returns_cached_jobs_key(self, client, redis_mock):
+        """GET /api/cache/stats returns at least the 'cached_jobs' field."""
+        response = await client.get("/api/cache/stats")
+        assert response.status_code == 200
+        data = response.json()
+        assert "cached_jobs" in data
+        assert isinstance(data["cached_jobs"], int)
+
+    @pytest.mark.asyncio
+    async def test_results_cache_hit_bypasses_redis(self, client, redis_mock):
+        """
+        After a completed result is loaded, a second GET /api/jobs/{id}/results
+        should be served from the in-memory cache — redis.get must be called
+        only once across the two requests.
+        """
+        job_id = "cache-hit-job-001"
+        results_payload = {
+            "job_id": job_id,
+            "client_name": "cache-client",
+            "period": "Q1-2025",
+            "status": "completed",
+            "execution_time_seconds": 10.0,
+            "timestamp": "2026-03-21T10:00:00",
+            "findings": {},
+            "reports": {"executive": "Done."},
+        }
+
+        redis_mock.hgetall = AsyncMock(
+            return_value={
+                "job_id": job_id,
+                "status": "completed",
+                "client_name": "cache-client",
+                "period": "Q1-2025",
+            }
+        )
+        redis_mock.get = AsyncMock(return_value=json.dumps(results_payload))
+
+        from api.main import _results_cache
+        _results_cache.pop(job_id, None)
+
+        # First request — populates cache
+        r1 = await client.get(f"/api/jobs/{job_id}/results")
+        assert r1.status_code == 200
+
+        # Reset call count so we can assert the second request doesn't hit Redis
+        redis_mock.get.reset_mock()
+
+        # Second request — should be served from in-memory cache
+        r2 = await client.get(f"/api/jobs/{job_id}/results")
+        assert r2.status_code == 200
+        redis_mock.get.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# TestAnalysisSubmissionAdditionalValidation
+# ---------------------------------------------------------------------------
+
+
+class TestAnalysisSubmissionAdditionalValidation:
+    """Additional validation coverage for POST /api/analyze."""
+
+    @pytest.mark.asyncio
+    async def test_submit_with_out_of_range_port_returns_422(self, client, redis_mock):
+        """POST /api/analyze with db_config.port=0 → 422 (port must be 1-65535)."""
+        async def _empty_scan(*args, **kwargs):
+            return
+            yield
+
+        redis_mock.scan_iter = _empty_scan
+        payload = {
+            **VALID_ANALYSIS_PAYLOAD,
+            "db_config": {**VALID_ANALYSIS_PAYLOAD["db_config"], "port": 0},
+        }
+        with patch("api.main.run_analysis_task", new=AsyncMock()):
+            response = await client.post("/api/analyze", json=payload)
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_submit_with_invalid_ssh_host_returns_422(self, client, redis_mock):
+        """POST /api/analyze with an ssh_config.host containing spaces → 422."""
+        async def _empty_scan(*args, **kwargs):
+            return
+            yield
+
+        redis_mock.scan_iter = _empty_scan
+        payload = {
+            **VALID_ANALYSIS_PAYLOAD,
+            "ssh_config": {
+                "host": "invalid host name!",
+                "username": "admin",
+                "port": 22,
+            },
+        }
+        with patch("api.main.run_analysis_task", new=AsyncMock()):
+            response = await client.post("/api/analyze", json=payload)
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_submit_returns_message_field(self, client, redis_mock):
+        """POST /api/analyze success response contains a non-empty 'message' field."""
+        async def _empty_scan(*args, **kwargs):
+            return
+            yield
+
+        redis_mock.scan_iter = _empty_scan
+        with patch("api.main.run_analysis_task", new=AsyncMock()):
+            response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
+        assert response.status_code == 200
+        data = response.json()
+        assert "message" in data
+        assert data["message"]  # non-empty string
+
+    @pytest.mark.asyncio
+    async def test_monthly_limit_returns_429_when_exceeded(self, client, redis_mock):
+        """
+        When redis.incr for the monthly limit counter returns 26,
+        POST /api/analyze → 429 with error='monthly_limit_reached'.
+        """
+        async def _empty_scan(*args, **kwargs):
+            return
+            yield
+
+        redis_mock.scan_iter = _empty_scan
+        # Simulate monthly counter already at 26 (> 25 limit)
+        redis_mock.incr = AsyncMock(return_value=26)
+        with patch("api.main.run_analysis_task", new=AsyncMock()):
+            response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
+        assert response.status_code == 429
+        detail = response.json().get("detail", {})
+        assert isinstance(detail, dict)
+        assert detail.get("error") == "monthly_limit_reached"
+
+    @pytest.mark.asyncio
+    async def test_health_endpoint_contains_version_and_uptime(self, client, redis_mock):
+        """GET /health response includes 'version' and 'uptime_seconds' fields."""
+        response = await client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert "version" in data
+        assert "uptime_seconds" in data
+        assert isinstance(data["uptime_seconds"], (int, float))
+
+    @pytest.mark.asyncio
+    async def test_health_includes_component_status(self, client, redis_mock):
+        """GET /health response contains a 'components' dict with redis and storage keys."""
+        response = await client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert "components" in data
+        assert "redis" in data["components"]
+        assert "storage" in data["components"]

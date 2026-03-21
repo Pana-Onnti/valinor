@@ -252,6 +252,10 @@ from worker.tasks import (  # noqa: E402
     run_analysis_task,
     cleanup_expired_jobs,
     get_redis_client,
+    cleanup_job,
+    health_check,
+    monitor_jobs,
+    ProgressUpdater,
 )
 from worker.celery_app import celery_app  # noqa: E402
 
@@ -611,3 +615,280 @@ class TestCeleryAppConfiguration:
 
     def test_run_analysis_task_retry_backoff(self):
         assert run_analysis_task.retry_backoff is True
+
+
+# ===========================================================================
+# 5. get_redis_client — singleton and env-var behaviour
+# ===========================================================================
+
+class TestGetRedisClient:
+    def test_returns_same_instance_on_second_call(self):
+        """get_redis_client must reuse the cached singleton."""
+        fake_rc = _make_redis_mock()
+        tasks_module.redis_client = fake_rc  # pre-seed the global
+        assert get_redis_client() is fake_rc
+
+    def test_uses_redis_url_env_var(self):
+        """When REDIS_URL is set, it must be forwarded to redis.from_url."""
+        custom_url = "redis://custom-host:9999/3"
+        with patch.dict("os.environ", {"REDIS_URL": custom_url}), \
+             patch("worker.tasks.redis") as mock_redis_mod:
+            mock_redis_mod.from_url.return_value = _make_redis_mock()
+            tasks_module.redis_client = None  # force recreation
+            get_redis_client()
+            mock_redis_mod.from_url.assert_called_once_with(custom_url, decode_responses=True)
+
+    def test_default_redis_url_without_env_var(self):
+        """Without REDIS_URL set, the default must be used."""
+        env = {k: v for k, v in __import__("os").environ.items() if k != "REDIS_URL"}
+        with patch.dict("os.environ", env, clear=True), \
+             patch("worker.tasks.redis") as mock_redis_mod:
+            mock_redis_mod.from_url.return_value = _make_redis_mock()
+            tasks_module.redis_client = None
+            get_redis_client()
+            call_url = mock_redis_mod.from_url.call_args[0][0]
+            assert call_url == "redis://localhost:6379"
+
+
+# ===========================================================================
+# 6. ProgressUpdater
+# ===========================================================================
+
+class TestProgressUpdater:
+    def test_update_progress_calls_hset(self):
+        """update_progress must write status=running and the given stage/progress."""
+        rc = _make_redis_mock()
+        with patch.object(tasks_module, "get_redis_client", return_value=rc):
+            updater = ProgressUpdater("prog-job-1")
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(updater.update_progress("cartographer", 20, "Mapping schema"))
+        loop.close()
+
+        rc.hset.assert_called_once()
+        mapping = rc.hset.call_args[1].get("mapping") or rc.hset.call_args[0][1]
+        assert mapping["status"] == "running"
+        assert mapping["stage"] == "cartographer"
+        assert mapping["progress"] == 20
+        assert mapping["message"] == "Mapping schema"
+
+    def test_update_progress_does_not_raise_on_redis_error(self):
+        """A Redis error inside update_progress must be silently swallowed."""
+        rc = _make_redis_mock()
+        rc.hset.side_effect = Exception("redis gone")
+        with patch.object(tasks_module, "get_redis_client", return_value=rc):
+            updater = ProgressUpdater("prog-job-2")
+        loop = asyncio.new_event_loop()
+        # Should NOT raise
+        loop.run_until_complete(updater.update_progress("analyst", 50, "Analysing"))
+        loop.close()
+
+
+# ===========================================================================
+# 7. cleanup_job task
+# ===========================================================================
+
+class TestCleanupJob:
+    def test_sets_expire_on_job_key(self):
+        """cleanup_job must call redis.expire on the job hash key."""
+        rc = _make_redis_mock()
+        with patch.object(tasks_module, "get_redis_client", return_value=rc), \
+             patch("worker.tasks.Path") as mock_path:
+            mock_path.return_value.exists.return_value = False
+            cleanup_job.run("cleanup-job-1")
+
+        expire_keys = [c[0][0] for c in rc.expire.call_args_list]
+        assert "job:cleanup-job-1" in expire_keys
+
+    def test_sets_expire_on_results_key(self):
+        """cleanup_job must also call redis.expire on the :results sub-key."""
+        rc = _make_redis_mock()
+        with patch.object(tasks_module, "get_redis_client", return_value=rc), \
+             patch("worker.tasks.Path") as mock_path:
+            mock_path.return_value.exists.return_value = False
+            cleanup_job.run("cleanup-job-2")
+
+        expire_keys = [c[0][0] for c in rc.expire.call_args_list]
+        assert "job:cleanup-job-2:results" in expire_keys
+
+    def test_does_not_raise_when_redis_unavailable(self):
+        """Errors in cleanup_job must be caught and not re-raised."""
+        rc = _make_redis_mock()
+        rc.expire.side_effect = Exception("redis down")
+        with patch.object(tasks_module, "get_redis_client", return_value=rc), \
+             patch("worker.tasks.Path") as mock_path:
+            mock_path.return_value.exists.return_value = False
+            # Should not raise
+            cleanup_job.run("cleanup-job-3")
+
+
+# ===========================================================================
+# 8. health_check task
+# ===========================================================================
+
+class TestHealthCheck:
+    def test_returns_healthy_status(self):
+        """health_check must return status='healthy' when Redis responds."""
+        rc = _make_redis_mock()
+        rc.ping.return_value = True
+        with patch.object(tasks_module, "get_redis_client", return_value=rc):
+            result = health_check.run()
+        assert result["status"] == "healthy"
+
+    def test_healthy_result_contains_timestamp(self):
+        rc = _make_redis_mock()
+        with patch.object(tasks_module, "get_redis_client", return_value=rc):
+            result = health_check.run()
+        assert "timestamp" in result
+
+    def test_returns_unhealthy_when_redis_ping_fails(self):
+        """When ping raises, health_check must return status='unhealthy'."""
+        rc = _make_redis_mock()
+        rc.ping.side_effect = Exception("connection refused")
+        with patch.object(tasks_module, "get_redis_client", return_value=rc):
+            result = health_check.run()
+        assert result["status"] == "unhealthy"
+        assert "error" in result
+
+
+# ===========================================================================
+# 9. monitor_jobs task
+# ===========================================================================
+
+class TestMonitorJobs:
+    def _stale_job_data(self) -> dict:
+        stale_ts = (datetime.utcnow() - timedelta(hours=3)).isoformat()
+        return {"status": "running", "updated_at": stale_ts, "job_id": "stale-job-99"}
+
+    def _fresh_job_data(self) -> dict:
+        fresh_ts = datetime.utcnow().isoformat()
+        return {"status": "running", "updated_at": fresh_ts, "job_id": "fresh-job-99"}
+
+    def test_stale_running_job_is_marked_failed(self):
+        """Jobs running for >2 hours must be marked as failed."""
+        rc = _make_redis_mock()
+        rc.keys.return_value = ["job:stale-job-99"]
+        rc.hgetall.return_value = self._stale_job_data()
+        with patch.object(tasks_module, "get_redis_client", return_value=rc):
+            result = monitor_jobs.run()
+
+        assert result["stale_jobs_found"] == 1
+        # Must update the job hash to failed
+        hset_mappings = [
+            c[1].get("mapping") or c[0][1]
+            for c in rc.hset.call_args_list
+        ]
+        assert any(m.get("status") == "failed" for m in hset_mappings)
+
+    def test_fresh_running_job_is_not_touched(self):
+        """Jobs updated recently must not be marked stale."""
+        rc = _make_redis_mock()
+        rc.keys.return_value = ["job:fresh-job-99"]
+        rc.hgetall.return_value = self._fresh_job_data()
+        with patch.object(tasks_module, "get_redis_client", return_value=rc):
+            result = monitor_jobs.run()
+
+        assert result["stale_jobs_found"] == 0
+        rc.hset.assert_not_called()
+
+    def test_returns_checked_jobs_count(self):
+        """monitor_jobs must report how many job keys were inspected."""
+        rc = _make_redis_mock()
+        rc.keys.return_value = ["job:a", "job:b", "job:c"]
+        rc.hgetall.return_value = {"status": "completed"}
+        with patch.object(tasks_module, "get_redis_client", return_value=rc):
+            result = monitor_jobs.run()
+
+        assert result["checked_jobs"] == 3
+
+    def test_results_sub_keys_excluded_from_monitor_scan(self):
+        """Keys ending in :results must not be counted as job keys."""
+        rc = _make_redis_mock()
+        rc.keys.return_value = ["job:x", "job:x:results"]
+        rc.hgetall.return_value = {"status": "completed"}
+        with patch.object(tasks_module, "get_redis_client", return_value=rc):
+            result = monitor_jobs.run()
+
+        # Only "job:x" is a real job key
+        assert result["checked_jobs"] == 1
+
+
+# ===========================================================================
+# 10. run_analysis_task — redis key shape during happy path
+# ===========================================================================
+
+class TestRunAnalysisTaskRedisKeyShape:
+    def _invoke(self, rc):
+        with patch.object(tasks_module, "get_redis_client", return_value=rc), \
+             patch.object(tasks_module, "_fire_webhooks_sync"), \
+             patch.object(tasks_module, "cleanup_job") as mock_cleanup:
+            mock_cleanup.apply_async = MagicMock()
+            run_analysis_task.run(
+                JOB_ID, CLIENT_NAME, CONNECTION_CONFIG, PERIOD, ANALYSIS_CONFIG
+            )
+
+    def test_running_hset_includes_task_id(self):
+        """The first (running) hset must store the Celery task_id."""
+        rc = _make_redis_mock()
+        self._invoke(rc)
+        first_mapping = rc.hset.call_args_list[0][1].get("mapping") or \
+                        rc.hset.call_args_list[0][0][1]
+        assert "task_id" in first_mapping
+
+    def test_running_hset_includes_started_at(self):
+        """The first (running) hset must store a started_at timestamp."""
+        rc = _make_redis_mock()
+        self._invoke(rc)
+        first_mapping = rc.hset.call_args_list[0][1].get("mapping") or \
+                        rc.hset.call_args_list[0][0][1]
+        assert "started_at" in first_mapping
+
+    def test_completed_hset_includes_completed_at(self):
+        """The last (completed) hset must store a completed_at timestamp."""
+        rc = _make_redis_mock()
+        self._invoke(rc)
+        last_mapping = rc.hset.call_args_list[-1][1].get("mapping") or \
+                       rc.hset.call_args_list[-1][0][1]
+        assert "completed_at" in last_mapping
+
+    def test_cleanup_job_scheduled_after_success(self):
+        """cleanup_job.apply_async must be called once on success."""
+        rc = _make_redis_mock()
+        with patch.object(tasks_module, "get_redis_client", return_value=rc), \
+             patch.object(tasks_module, "_fire_webhooks_sync"), \
+             patch.object(tasks_module, "cleanup_job") as mock_cleanup:
+            mock_cleanup.apply_async = MagicMock()
+            run_analysis_task.run(
+                JOB_ID, CLIENT_NAME, CONNECTION_CONFIG, PERIOD, ANALYSIS_CONFIG
+            )
+        mock_cleanup.apply_async.assert_called_once()
+        call_kwargs = mock_cleanup.apply_async.call_args
+        assert call_kwargs[1].get("countdown") == 86400 or \
+               (call_kwargs[0] and call_kwargs[0][-1] == 86400)
+
+
+# ===========================================================================
+# 11. Additional Celery app configuration checks
+# ===========================================================================
+
+class TestCeleryAppConfigExtra:
+    def test_accept_content_is_json(self):
+        assert celery_app.conf.accept_content == ["json"]
+
+    def test_enable_utc_is_true(self):
+        assert celery_app.conf.enable_utc is True
+
+    def test_task_track_started_is_true(self):
+        assert celery_app.conf.task_track_started is True
+
+    def test_worker_max_tasks_per_child(self):
+        assert celery_app.conf.worker_max_tasks_per_child == 10
+
+    def test_beat_schedule_contains_health_check(self):
+        assert "health-check" in celery_app.conf.beat_schedule
+
+    def test_beat_schedule_contains_monitor_jobs(self):
+        assert "monitor-jobs" in celery_app.conf.beat_schedule
+
+    def test_cleanup_schedule_is_every_6_hours(self):
+        schedule = celery_app.conf.beat_schedule["cleanup-expired-jobs"]["schedule"]
+        assert schedule == 6 * 3600

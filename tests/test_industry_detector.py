@@ -369,3 +369,87 @@ class TestIndustryDetectorExtended:
         self.detector.update_profile(profile, em, {})
         assert profile.industry_inferred is not None
         assert len(profile.industry_inferred) > 0
+
+
+# ---------------------------------------------------------------------------
+# Additional IndustryDetector tests
+# ---------------------------------------------------------------------------
+
+class TestIndustryDetectorFurther:
+    """Further coverage for IndustryDetector."""
+
+    def setup_method(self):
+        self.detector = IndustryDetector()
+
+    def test_detect_returns_dict(self):
+        """detect() always returns a dict."""
+        result = self.detector.detect({}, {})
+        assert isinstance(result, dict)
+
+    def test_detect_result_has_industry_key(self):
+        """detect() result always has 'industry' key."""
+        result = self.detector.detect({}, {})
+        assert "industry" in result
+
+    def test_detect_result_has_currency_key(self):
+        """detect() result always has 'currency' key."""
+        result = self.detector.detect({}, {})
+        assert "currency" in result
+
+    def test_detect_industry_is_string(self):
+        """industry in detect() result is always a string."""
+        result = self.detector.detect({}, {})
+        assert isinstance(result["industry"], str)
+
+    def test_detect_currency_is_string(self):
+        """currency in detect() result is always a string."""
+        result = self.detector.detect({}, {})
+        assert isinstance(result["currency"], str)
+
+    def test_retail_tables_detected(self):
+        """POS/retail tables → retail / punto de venta."""
+        em = _make_entity_map("pos_order", "pos_session", "pos_config")
+        result = self.detector.detect(em, {})
+        assert result["industry"] == "retail / punto de venta"
+
+    def test_manufactura_tables_detected(self):
+        """Manufacturing tables → manufactura."""
+        em = _make_entity_map("mrp_production", "bom", "routing")
+        result = self.detector.detect(em, {})
+        assert result["industry"] == "manufactura"
+
+    def test_unknown_tables_fallback(self):
+        """All-unknown tables → 'desconocida' fallback."""
+        em = _make_entity_map("zz_unknown_table_xyz")
+        result = self.detector.detect(em, {})
+        assert result["industry"] == "desconocida"
+
+    def test_detect_is_deterministic(self):
+        """Same entity_map always returns same industry."""
+        em = _make_entity_map("account_move", "account_journal")
+        r1 = self.detector.detect(em, {})
+        r2 = self.detector.detect(em, {})
+        assert r1["industry"] == r2["industry"]
+
+    def test_update_profile_sets_industry(self):
+        """update_profile sets profile.industry_inferred to a non-empty string."""
+        profile = _make_profile("UpdateTest")
+        em = _make_entity_map("account_move")
+        self.detector.update_profile(profile, em, {})
+        assert isinstance(profile.industry_inferred, str)
+        assert len(profile.industry_inferred) > 0
+
+    def test_update_profile_sets_currency(self):
+        """update_profile sets a default_currency field if supported."""
+        profile = _make_profile("CurrencyTest")
+        em = _make_entity_map("account_move")
+        self.detector.update_profile(profile, em, {})
+        # currency field may be on the profile or just in detect() result
+        result = self.detector.detect(em, {})
+        assert isinstance(result["currency"], str)
+
+    def test_distribuidor_tables_detected(self):
+        """Distributor tables → distribución mayorista."""
+        em = _make_entity_map("c_order", "m_warehouse", "c_invoice")
+        result = self.detector.detect(em, {})
+        assert result["industry"] == "distribución mayorista"

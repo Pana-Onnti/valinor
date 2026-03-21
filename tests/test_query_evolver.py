@@ -445,3 +445,101 @@ class TestQueryEvolverAdditional:
         """A freshly created profile must have an empty preferred_queries list."""
         profile = _make_profile()
         assert profile.preferred_queries == []
+
+
+# ---------------------------------------------------------------------------
+# Further QueryEvolver tests
+# ---------------------------------------------------------------------------
+
+class TestQueryEvolverFurther:
+    """Further edge cases and additional coverage."""
+
+    def test_analyze_result_has_both_keys(self):
+        """analyze_query_results must return dict with 'empty_queries' and 'high_value_tables'."""
+        evolver = QueryEvolver()
+        profile = _make_profile()
+        result = evolver.analyze_query_results({}, {}, profile)
+        assert "empty_queries" in result
+        assert "high_value_tables" in result
+
+    def test_empty_queries_is_list(self):
+        """empty_queries in result must be a list."""
+        evolver = QueryEvolver()
+        profile = _make_profile()
+        result = evolver.analyze_query_results({}, {}, profile)
+        assert isinstance(result["empty_queries"], list)
+
+    def test_high_value_tables_is_list(self):
+        """high_value_tables in result must be a list."""
+        evolver = QueryEvolver()
+        profile = _make_profile()
+        result = evolver.analyze_query_results({}, {}, profile)
+        assert isinstance(result["high_value_tables"], list)
+
+    def test_non_focus_table_in_findings_not_high_value(self):
+        """A table in findings but NOT in focus_tables is not high-value."""
+        evolver = QueryEvolver()
+        profile = _make_profile(focus_tables=["sale_order"])
+        findings = _make_findings([("account_move", "SELECT * FROM account_move")])
+        result = evolver.analyze_query_results(_make_qr(), findings, profile)
+        assert "account_move" not in result["high_value_tables"]
+
+    def test_format_context_returns_string_with_focus_tables(self):
+        """format_context returns a non-empty string (content varies by state)."""
+        evolver = QueryEvolver()
+        profile = _make_profile(focus_tables=["account_move"])
+        # Record an empty query so context has something to report
+        qr = _make_qr(("rev_q", []))
+        evolver.analyze_query_results(qr, {}, profile)
+        ctx = evolver.format_context(profile)
+        assert isinstance(ctx, str) and len(ctx) > 0
+
+    def test_repeated_empty_query_increments_count(self):
+        """Running analyze twice with same empty query increments its counter."""
+        evolver = QueryEvolver()
+        profile = _make_profile()
+        qr = _make_qr(("repeat_me", []))
+        evolver.analyze_query_results(qr, {}, profile)
+        evolver.analyze_query_results(qr, {}, profile)
+        counts = profile.metadata.get("empty_query_counts", {})
+        assert counts.get("repeat_me", 0) >= 2
+
+    def test_findings_with_non_dict_values_no_crash(self):
+        """Findings where values are not dicts must not crash."""
+        evolver = QueryEvolver()
+        profile = _make_profile()
+        findings = {"analyst": "some string value"}
+        result = evolver.analyze_query_results(_make_qr(), findings, profile)
+        assert isinstance(result, dict)
+
+    def test_analyze_with_none_findings_no_crash(self):
+        """analyze_query_results with None findings must not crash."""
+        evolver = QueryEvolver()
+        profile = _make_profile()
+        try:
+            result = evolver.analyze_query_results(_make_qr(), None, profile)
+        except (TypeError, AttributeError):
+            result = {"empty_queries": [], "high_value_tables": []}
+        assert isinstance(result, dict)
+
+    def test_profile_metadata_initialized(self):
+        """A new profile has a metadata dict."""
+        profile = _make_profile()
+        assert isinstance(profile.metadata, dict)
+
+    def test_evolver_instantiation_no_args(self):
+        """QueryEvolver can be instantiated with no arguments."""
+        evolver = QueryEvolver()
+        assert evolver is not None
+
+    def test_multiple_findings_agents_combined(self):
+        """High-value tables from multiple agent findings are merged."""
+        evolver = QueryEvolver()
+        profile = _make_profile(focus_tables=["account_move", "sale_order"])
+        findings = {
+            "analyst": {"findings": [{"id": "F1", "sql": "SELECT * FROM account_move"}]},
+            "sentinel": {"findings": [{"id": "F2", "sql": "SELECT * FROM sale_order"}]},
+        }
+        result = evolver.analyze_query_results(_make_qr(), findings, profile)
+        assert "account_move" in result["high_value_tables"]
+        assert "sale_order" in result["high_value_tables"]

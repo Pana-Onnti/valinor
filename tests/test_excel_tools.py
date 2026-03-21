@@ -278,3 +278,187 @@ class TestCsvToSqlite:
             "table_name": "data",
         })))
         assert result["source"] == csv_file
+
+
+# ===========================================================================
+# Additional tests — untested behaviors
+# ===========================================================================
+
+class TestExcelToSqliteExtra:
+
+    def test_source_path_in_result(self, excel_file):
+        """excel_to_sqlite must echo back the original file path as 'source'."""
+        result = parse_result(run(excel_to_sqlite({
+            "file_path": excel_file,
+            "client_name": "extra_source_client",
+        })))
+        assert result["source"] == excel_file
+
+    def test_tables_count_matches_sheet_count(self, excel_file):
+        """The 'tables' list must have one entry per sheet in the workbook."""
+        result = parse_result(run(excel_to_sqlite({
+            "file_path": excel_file,
+            "client_name": "extra_count_client",
+        })))
+        # Fixture creates exactly 2 sheets
+        assert len(result["tables"]) == 2
+
+    def test_dash_and_dot_in_sheet_name_normalized(self, tmp_path):
+        """Sheet names with dashes and dots must be normalized to underscores."""
+        openpyxl = pytest.importorskip("openpyxl")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "My-Sheet.V2"
+        ws.append(["col_a", "col_b"])
+        ws.append([1, 2])
+        path = tmp_path / "dash_dot.xlsx"
+        wb.save(str(path))
+
+        result = parse_result(run(excel_to_sqlite({
+            "file_path": str(path),
+            "client_name": "extra_dash_dot_client",
+        })))
+        table_names = [t["table"] for t in result["tables"]]
+        assert "my_sheet_v2" in table_names
+
+    def test_single_sheet_workbook(self, tmp_path):
+        """A workbook with only one sheet should produce exactly one table."""
+        openpyxl = pytest.importorskip("openpyxl")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "OnlySheet"
+        ws.append(["x", "y"])
+        ws.append([10, 20])
+        path = tmp_path / "single_sheet.xlsx"
+        wb.save(str(path))
+
+        result = parse_result(run(excel_to_sqlite({
+            "file_path": str(path),
+            "client_name": "extra_single_sheet_client",
+        })))
+        assert len(result["tables"]) == 1
+        assert result["tables"][0]["table"] == "onlysheet"
+
+    def test_data_values_stored_correctly(self, excel_file):
+        """Querying the SQLite DB should return the exact cell values written."""
+        result = parse_result(run(excel_to_sqlite({
+            "file_path": excel_file,
+            "client_name": "extra_values_client",
+        })))
+        db_path = result["sqlite_path"]
+        conn = sqlite3.connect(db_path)
+        # Row 1 in the fixture: id=1, amount=100.0, customer="Customer 1"
+        row = conn.execute(
+            "SELECT amount, customer FROM sales_data WHERE id = 1"
+        ).fetchone()
+        conn.close()
+        assert row[0] == 100.0
+        assert row[1] == "Customer 1"
+
+    def test_second_call_same_client_overwrites_table(self, tmp_path):
+        """Calling excel_to_sqlite twice with same client_name replaces old data."""
+        openpyxl = pytest.importorskip("openpyxl")
+
+        def make_wb(value, path):
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Info"
+            ws.append(["val"])
+            ws.append([value])
+            wb.save(str(path))
+
+        path1 = tmp_path / "v1.xlsx"
+        path2 = tmp_path / "v2.xlsx"
+        make_wb(42, path1)
+        make_wb(99, path2)
+
+        run(excel_to_sqlite({"file_path": str(path1), "client_name": "extra_overwrite_excel"}))
+        run(excel_to_sqlite({"file_path": str(path2), "client_name": "extra_overwrite_excel"}))
+
+        db_path = f"/tmp/valinor/extra_overwrite_excel.db"
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute("SELECT val FROM info").fetchall()
+        conn.close()
+        # Only one row, and it is the second write's value
+        assert len(rows) == 1
+        assert rows[0][0] == 99
+
+    def test_sqlite_path_contains_client_name(self, excel_file):
+        """The returned sqlite_path must include the client_name segment."""
+        result = parse_result(run(excel_to_sqlite({
+            "file_path": excel_file,
+            "client_name": "my_special_client",
+        })))
+        assert "my_special_client" in result["sqlite_path"]
+
+
+class TestCsvToSqliteExtra:
+
+    def test_data_values_stored_correctly(self, csv_file):
+        """Querying the SQLite DB should return the exact cell values written."""
+        result = parse_result(run(csv_to_sqlite({
+            "file_path": csv_file,
+            "client_name": "extra_csv_values_client",
+            "table_name": "entities",
+        })))
+        db_path = result["sqlite_path"]
+        conn = sqlite3.connect(db_path)
+        # Row 1 in the fixture: id=1, name="Entity 1", revenue=500.0, region="Region1"
+        row = conn.execute(
+            "SELECT name, revenue FROM entities WHERE id = 1"
+        ).fetchone()
+        conn.close()
+        assert row[0] == "Entity 1"
+        assert row[1] == 500.0
+
+    def test_sqlite_path_contains_client_name(self, csv_file):
+        """The returned sqlite_path must include the client_name segment."""
+        result = parse_result(run(csv_to_sqlite({
+            "file_path": csv_file,
+            "client_name": "csv_named_client",
+            "table_name": "data",
+        })))
+        assert "csv_named_client" in result["sqlite_path"]
+
+    def test_single_row_csv(self, tmp_path):
+        """A CSV with one header row and one data row should convert without error."""
+        path = tmp_path / "one_row.csv"
+        path.write_text("alpha,beta\n7,hello\n", encoding="utf-8")
+
+        result = parse_result(run(csv_to_sqlite({
+            "file_path": str(path),
+            "client_name": "extra_single_row_client",
+            "table_name": "tiny",
+        })))
+        assert result["status"] == "converted"
+        assert result["rows"] == 1
+        assert "alpha" in result["columns"]
+        assert "beta" in result["columns"]
+
+    def test_second_call_same_client_overwrites_table(self, tmp_path):
+        """Calling csv_to_sqlite twice with same client_name replaces old table data."""
+        path1 = tmp_path / "first.csv"
+        path2 = tmp_path / "second.csv"
+        path1.write_text("n\n1\n2\n", encoding="utf-8")
+        path2.write_text("n\n9\n", encoding="utf-8")
+
+        run(csv_to_sqlite({"file_path": str(path1), "client_name": "extra_overwrite_csv", "table_name": "nums"}))
+        run(csv_to_sqlite({"file_path": str(path2), "client_name": "extra_overwrite_csv", "table_name": "nums"}))
+
+        db_path = "/tmp/valinor/extra_overwrite_csv.db"
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute("SELECT n FROM nums").fetchall()
+        conn.close()
+        # Only the second write's single row should remain
+        assert len(rows) == 1
+        assert rows[0][0] == 9
+
+    def test_connection_string_matches_sqlite_path(self, csv_file):
+        """connection_string must be 'sqlite:///' prepended to sqlite_path."""
+        result = parse_result(run(csv_to_sqlite({
+            "file_path": csv_file,
+            "client_name": "extra_connstr_client",
+            "table_name": "data",
+        })))
+        expected = "sqlite:///" + result["sqlite_path"]
+        assert result["connection_string"] == expected

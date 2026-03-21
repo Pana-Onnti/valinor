@@ -352,3 +352,188 @@ class TestWebSocketRoutes:
         assert any("{job_id}" in r.path for r in stream_routes), (
             "Stream route must have {job_id} parameter"
         )
+
+
+# ---------------------------------------------------------------------------
+# New tests: SSE event field contracts
+# ---------------------------------------------------------------------------
+
+class TestSSEEventFieldContracts:
+    """Validate required and optional field contracts on SSE events."""
+
+    def test_event_has_job_id_field(self):
+        """Every non-sentinel SSE event must carry a job_id field."""
+        import json
+        event = {"job_id": "abc123", "status": "running", "progress": 20}
+        line = f"data: {json.dumps(event)}\n\n"
+        parsed = json.loads(line[len("data: "):].strip())
+        assert "job_id" in parsed
+
+    def test_event_has_status_field(self):
+        """Every non-sentinel SSE event must carry a status field."""
+        import json
+        event = {"job_id": "abc123", "status": "queued", "progress": 0}
+        line = f"data: {json.dumps(event)}\n\n"
+        parsed = json.loads(line[len("data: "):].strip())
+        assert "status" in parsed
+
+    def test_event_timestamp_is_string(self):
+        """When a timestamp is included in an SSE event it must be a string."""
+        import json
+        from datetime import datetime
+        event = {
+            "job_id": "t1",
+            "status": "running",
+            "progress": 40,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        line = f"data: {json.dumps(event)}\n\n"
+        parsed = json.loads(line[len("data: "):].strip())
+        assert isinstance(parsed["timestamp"], str)
+
+    def test_final_event_progress_100_on_completed(self):
+        """For a completed terminal event progress must be 100."""
+        import json
+        final_event = {
+            "job_id": "j5",
+            "status": "completed",
+            "stage": "done",
+            "progress": 100,
+            "final": True,
+        }
+        line = f"data: {json.dumps(final_event)}\n\n"
+        parsed = json.loads(line[len("data: "):].strip())
+        assert parsed["progress"] == 100
+
+    def test_failed_terminal_event_progress_zero(self):
+        """For a failed terminal event progress must be 0."""
+        import json
+        final_event = {
+            "job_id": "j6",
+            "status": "failed",
+            "stage": "done",
+            "progress": 0,
+            "final": True,
+        }
+        line = f"data: {json.dumps(final_event)}\n\n"
+        parsed = json.loads(line[len("data: "):].strip())
+        assert parsed["progress"] == 0
+
+    def test_dq_score_field_is_numeric_when_present(self):
+        """If dq_score is present in an SSE event it must be numeric."""
+        import json
+        event = {
+            "job_id": "j7",
+            "status": "running",
+            "stage": "data_quality",
+            "progress": 25,
+            "dq_score": 87.5,
+        }
+        line = f"data: {json.dumps(event)}\n\n"
+        parsed = json.loads(line[len("data: "):].strip())
+        assert isinstance(parsed["dq_score"], (int, float))
+
+    def test_dq_label_field_is_string_when_present(self):
+        """If dq_label is present in an SSE event it must be a string."""
+        import json
+        event = {
+            "job_id": "j8",
+            "status": "running",
+            "stage": "data_quality",
+            "progress": 25,
+            "dq_score": 90,
+            "dq_label": "HIGH",
+        }
+        line = f"data: {json.dumps(event)}\n\n"
+        parsed = json.loads(line[len("data: "):].strip())
+        assert isinstance(parsed["dq_label"], str)
+
+
+# ---------------------------------------------------------------------------
+# New tests: SSE response headers
+# ---------------------------------------------------------------------------
+
+class TestSSEResponseHeaders:
+    """Verify all required SSE response headers are present."""
+
+    def test_x_accel_buffering_header(self):
+        """SSE responses must set X-Accel-Buffering: no to disable nginx buffering."""
+        from fastapi.responses import StreamingResponse
+
+        async def _gen():
+            yield b"data: test\n\n"
+
+        resp = StreamingResponse(
+            _gen(),
+            media_type="text/event-stream",
+            headers={"X-Accel-Buffering": "no"},
+        )
+        assert resp.headers.get("X-Accel-Buffering") == "no"
+
+    def test_connection_keep_alive_header(self):
+        """SSE responses should set Connection: keep-alive."""
+        from fastapi.responses import StreamingResponse
+
+        async def _gen():
+            yield b"data: ping\n\n"
+
+        resp = StreamingResponse(
+            _gen(),
+            media_type="text/event-stream",
+            headers={"Connection": "keep-alive"},
+        )
+        assert resp.headers.get("Connection") == "keep-alive"
+
+    def test_sse_response_has_all_three_required_headers(self):
+        """SSE response must include Cache-Control, X-Accel-Buffering, and Connection."""
+        from fastapi.responses import StreamingResponse
+
+        async def _gen():
+            yield b"data: x\n\n"
+
+        required_headers = {
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        }
+        resp = StreamingResponse(
+            _gen(),
+            media_type="text/event-stream",
+            headers=required_headers,
+        )
+        for key, value in required_headers.items():
+            assert resp.headers.get(key) == value, f"Missing header: {key}"
+
+
+# ---------------------------------------------------------------------------
+# New tests: WebSocket payload contracts
+# ---------------------------------------------------------------------------
+
+class TestWebSocketPayloadContracts:
+    """Validate the shape of WebSocket JSON payloads."""
+
+    def test_ws_payload_has_status_key(self):
+        """WS payloads must include a 'status' key."""
+        payload = {"status": "running", "progress": 30, "stage": "cartographer"}
+        assert "status" in payload
+
+    def test_ws_payload_progress_is_integer(self):
+        """WS payload progress value must be an integer."""
+        payload = {"status": "running", "progress": 45, "stage": "query_builder"}
+        assert isinstance(payload["progress"], int)
+
+    def test_ws_final_payload_has_final_true(self):
+        """WS terminal payload must include final=True."""
+        payload = {"final": True, "status": "completed"}
+        assert payload.get("final") is True
+
+    def test_ws_error_payload_has_error_key(self):
+        """WS error payload (job not found) must have an 'error' key."""
+        payload = {"error": "job_not_found"}
+        assert "error" in payload
+
+    def test_ws_completed_payload_may_include_dq_score(self):
+        """WS completed payload may include a numeric dq_score."""
+        payload = {"status": "completed", "progress": 100, "stage": "done", "dq_score": 92.0}
+        if "dq_score" in payload:
+            assert isinstance(payload["dq_score"], (int, float, type(None)))

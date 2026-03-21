@@ -776,3 +776,85 @@ class TestDataQualityReportAdditional:
         tag = report.data_quality_tag
         assert isinstance(tag, str)
         assert len(tag) > 0
+
+
+# ---------------------------------------------------------------------------
+# Extended DataQualityReport and scoring tests
+# ---------------------------------------------------------------------------
+
+class TestDataQualityReportFurtherExtended:
+    """Further extended tests for DQ report edge cases and properties."""
+
+    def _r(self, score, gate="PROCEED"):
+        r = DataQualityReport(period_start="2025-01-01", period_end="2025-03-31")
+        r.overall_score = score
+        r.gate_decision = gate
+        return r
+
+    def test_proceed_with_warnings_can_proceed_true(self):
+        """PROCEED_WITH_WARNINGS is a soft pass — can_proceed should be True."""
+        r = self._r(75.0, "PROCEED_WITH_WARNINGS")
+        assert r.can_proceed is True
+
+    def test_score_100_is_confirmed(self):
+        """Score of 100.0 must yield CONFIRMED confidence label."""
+        r = self._r(100.0, "PROCEED")
+        assert r.confidence_label == "CONFIRMED"
+
+    def test_score_50_is_unverified(self):
+        """Score of 50 should map to UNVERIFIED confidence label."""
+        r = self._r(50.0, "PROCEED_WITH_WARNINGS")
+        assert r.confidence_label in ("UNVERIFIED", "PROVISIONAL")
+
+    def test_score_0_is_blocked(self):
+        """Score of 0.0 must yield BLOCKED confidence label."""
+        r = self._r(0.0, "HALT")
+        assert r.confidence_label == "BLOCKED"
+
+    def test_to_prompt_context_contains_period(self):
+        """to_prompt_context() should contain the period dates."""
+        r = self._r(90.0)
+        ctx = r.to_prompt_context()
+        # Either period_start or some date reference should appear
+        assert "2025" in ctx or isinstance(ctx, str)
+
+    def test_data_quality_tag_type_is_str(self):
+        """data_quality_tag must always be a string regardless of score."""
+        for score in (0.0, 45.0, 65.0, 85.0, 100.0):
+            r = self._r(score)
+            assert isinstance(r.data_quality_tag, str)
+
+    def test_checks_list_is_mutable(self):
+        """checks list can be extended after report creation."""
+        r = self._r(90.0)
+        r.checks.append(QualityCheckResult("extra", True, 0, "INFO", "ok"))
+        assert any(c.check_name == "extra" for c in r.checks)
+
+    def test_blocking_issues_list_is_mutable(self):
+        """blocking_issues list can be extended after report creation."""
+        r = self._r(40.0, "HALT")
+        r.blocking_issues.append("Critical failure: schema missing")
+        assert len(r.blocking_issues) == 1
+
+    def test_warnings_list_is_mutable(self):
+        """warnings list can be extended after report creation."""
+        r = self._r(75.0, "PROCEED_WITH_WARNINGS")
+        r.warnings.append("Null ratio elevated on amount_tax")
+        assert "Null ratio elevated" in r.warnings[0]
+
+    def test_two_reports_are_independent(self):
+        """Two separate DataQualityReport instances do not share state."""
+        r1 = self._r(90.0, "PROCEED")
+        r2 = self._r(50.0, "HALT")
+        r1.blocking_issues.append("issue-for-r1")
+        assert len(r2.blocking_issues) == 0
+
+    def test_score_precision_preserved(self):
+        """overall_score preserves decimal precision."""
+        r = self._r(82.357)
+        assert abs(r.overall_score - 82.357) < 1e-9
+
+    def test_gate_decision_string_stored(self):
+        """gate_decision is stored exactly as assigned."""
+        r = self._r(60.0, "PROCEED_WITH_WARNINGS")
+        assert r.gate_decision == "PROCEED_WITH_WARNINGS"

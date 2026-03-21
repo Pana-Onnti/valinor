@@ -586,6 +586,105 @@ class TestSSHTunnelRetryExtended(unittest.TestCase):
 
 
 # ===========================================================================
+# Additional ZeroTrustValidator tests — DB config edge cases
+# ===========================================================================
+
+class TestZeroTrustValidatorDBConfig(unittest.TestCase):
+    """Further tests for validate_db_config edge cases."""
+
+    def test_valid_postgresql_config(self):
+        """A complete postgresql config must pass."""
+        result = ZeroTrustValidator.validate_db_config(_db_cfg())
+        self.assertTrue(result)
+
+    def test_valid_mysql_config(self):
+        """A complete mysql config must pass."""
+        result = ZeroTrustValidator.validate_db_config(_db_cfg(type="mysql"))
+        self.assertTrue(result)
+
+    def test_missing_host_key_fails(self):
+        """DB config without 'host' key → False."""
+        cfg = _db_cfg()
+        del cfg["host"]
+        result = ZeroTrustValidator.validate_db_config(cfg)
+        self.assertFalse(result)
+
+    def test_missing_port_key_fails(self):
+        """DB config without 'port' key → False."""
+        cfg = _db_cfg()
+        del cfg["port"]
+        result = ZeroTrustValidator.validate_db_config(cfg)
+        self.assertFalse(result)
+
+    def test_missing_connection_string_key_fails(self):
+        """DB config without 'connection_string' key → False."""
+        cfg = _db_cfg()
+        del cfg["connection_string"]
+        result = ZeroTrustValidator.validate_db_config(cfg)
+        self.assertFalse(result)
+
+    def test_port_at_max_valid_value(self):
+        """Port at 65535 should be accepted."""
+        result = ZeroTrustValidator.validate_db_config(_db_cfg(port=65535))
+        self.assertTrue(result)
+
+    def test_port_above_max_fails(self):
+        """Port above 65535 should be rejected."""
+        result = ZeroTrustValidator.validate_db_config(_db_cfg(port=65536))
+        self.assertFalse(result)
+
+    def test_port_negative_fails(self):
+        """Negative port → False."""
+        result = ZeroTrustValidator.validate_db_config(_db_cfg(port=-1))
+        self.assertFalse(result)
+
+    def test_port_1_valid(self):
+        """Port 1 is within the valid range."""
+        result = ZeroTrustValidator.validate_db_config(_db_cfg(port=1))
+        self.assertTrue(result)
+
+
+class TestZeroTrustValidatorSSHConfigExtra(unittest.TestCase):
+    """Further edge-case tests for validate_ssh_config."""
+
+    @patch("shared.ssh_tunnel.os.stat")
+    @patch("shared.ssh_tunnel.os.path.exists", return_value=True)
+    def test_port_22_accepted(self, mock_exists, mock_stat):
+        """Standard SSH port 22 must be accepted."""
+        stat_result = MagicMock()
+        stat_result.st_mode = 0o100600
+        mock_stat.return_value = stat_result
+        result = ZeroTrustValidator.validate_ssh_config(_ssh_cfg(port=22))
+        self.assertTrue(result)
+
+    @patch("shared.ssh_tunnel.os.stat")
+    @patch("shared.ssh_tunnel.os.path.exists", return_value=True)
+    def test_non_standard_port_accepted(self, mock_exists, mock_stat):
+        """Non-standard SSH port (e.g. 2222) should be accepted."""
+        stat_result = MagicMock()
+        stat_result.st_mode = 0o100600
+        mock_stat.return_value = stat_result
+        result = ZeroTrustValidator.validate_ssh_config(_ssh_cfg(port=2222))
+        self.assertTrue(result)
+
+    @patch("shared.ssh_tunnel.os.path.exists", return_value=False)
+    def test_key_not_found_fails(self, mock_exists):
+        """Key file not found → False."""
+        result = ZeroTrustValidator.validate_ssh_config(_ssh_cfg())
+        self.assertFalse(result)
+
+    @patch("shared.ssh_tunnel.os.stat")
+    @patch("shared.ssh_tunnel.os.path.exists", return_value=True)
+    def test_world_readable_key_fails(self, mock_exists, mock_stat):
+        """Key file with world-readable permissions (0o644) → False."""
+        stat_result = MagicMock()
+        stat_result.st_mode = 0o100644  # world-readable
+        mock_stat.return_value = stat_result
+        result = ZeroTrustValidator.validate_ssh_config(_ssh_cfg())
+        self.assertFalse(result)
+
+
+# ===========================================================================
 # Entry point
 # ===========================================================================
 

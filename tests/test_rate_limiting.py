@@ -514,3 +514,115 @@ class TestContentTypeValidation:
         """GET /api/version must respond with application/json content-type."""
         response = await client.get("/api/version")
         assert "application/json" in response.headers.get("content-type", "")
+
+
+# ---------------------------------------------------------------------------
+# 9. Additional validation scenarios — missing required fields
+# ---------------------------------------------------------------------------
+
+
+class TestAdditionalValidationScenarios:
+    @pytest.mark.asyncio
+    async def test_post_analyze_missing_client_name_accepted(self, client):
+        """client_name is optional; omitting it must not return a 5xx error."""
+        payload = {
+            "db_config": {
+                "host": "db.example.com",
+                "port": 5432,
+                "name": "testdb",
+                "type": "postgresql",
+                "user": "user",
+                "password": "secret",
+            }
+        }
+        response = await client.post("/api/analyze", json=payload)
+        # client_name is Optional — must not crash the server
+        assert response.status_code < 500
+
+    @pytest.mark.asyncio
+    async def test_post_analyze_numeric_field_as_string_returns_error(self, client):
+        """Providing db_config.port as a non-numeric string must return 422."""
+        payload = {
+            "client_name": "test-client",
+            "db_config": {
+                "host": "db.example.com",
+                "port": "not-a-number",
+                "name": "testdb",
+                "type": "postgresql",
+                "user": "user",
+                "password": "secret",
+            },
+        }
+        response = await client.post("/api/analyze", json=payload)
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_post_analyze_malformed_json_returns_error(self, client):
+        """Sending syntactically invalid JSON must not return 2xx."""
+        response = await client.post(
+            "/api/analyze",
+            content=b'{"client_name": "test", "db_config": {broken}',
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code in (400, 422)
+
+    @pytest.mark.asyncio
+    async def test_post_analyze_empty_string_body_returns_error(self, client):
+        """Sending a completely empty body with JSON content-type must return an error."""
+        response = await client.post(
+            "/api/analyze",
+            content=b"",
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code in (400, 422)
+
+    @pytest.mark.asyncio
+    async def test_post_analyze_null_db_config_returns_422(self, client):
+        """Passing null for db_config must return 422 (required object)."""
+        payload = {"client_name": "test-client", "db_config": None}
+        response = await client.post("/api/analyze", json=payload)
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_post_analyze_extra_unknown_fields_accepted_or_rejected(self, client):
+        """Extra fields in the payload must not cause a 5xx server error."""
+        payload = {**VALID_ANALYSIS_PAYLOAD, "unexpected_field": "should-be-ignored"}
+        response = await client.post("/api/analyze", json=payload)
+        # Must be 200/202 (accepted) or 4xx (rejected), never a 5xx crash
+        assert response.status_code < 500
+
+    @pytest.mark.asyncio
+    async def test_get_method_on_post_only_endpoint_returns_405(self, client):
+        """GET /api/analyze (a POST-only endpoint) must return 405 Method Not Allowed."""
+        response = await client.get("/api/analyze")
+        assert response.status_code == 405
+
+    @pytest.mark.asyncio
+    async def test_put_method_on_analyze_returns_405(self, client):
+        """PUT /api/analyze must return 405 Method Not Allowed."""
+        response = await client.put("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
+        assert response.status_code == 405
+
+    @pytest.mark.asyncio
+    async def test_delete_method_on_analyze_returns_405(self, client):
+        """DELETE /api/analyze must return 405 Method Not Allowed."""
+        response = await client.delete("/api/analyze")
+        assert response.status_code == 405
+
+    @pytest.mark.asyncio
+    async def test_post_analyze_client_name_empty_string_no_server_error(self, client):
+        """An empty client_name string must not cause a 5xx server error."""
+        payload = {
+            "client_name": "",
+            "db_config": {
+                "host": "db.example.com",
+                "port": 5432,
+                "name": "testdb",
+                "type": "postgresql",
+                "user": "user",
+                "password": "secret",
+            },
+        }
+        response = await client.post("/api/analyze", json=payload)
+        # client_name is optional — server must not crash regardless of the value
+        assert response.status_code < 500

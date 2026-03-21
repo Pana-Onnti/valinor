@@ -830,3 +830,364 @@ class TestRunCartographer:
         assert "tenant_id" in prompt_text
         assert "1000000" in prompt_text
         assert "currency" in prompt_text
+
+
+# ---------------------------------------------------------------------------
+# 10. execute_query tool — read-only SQL execution (untested in existing suite)
+# ---------------------------------------------------------------------------
+
+class TestExecuteQueryTool:
+    """Tests for the execute_query MCP tool."""
+
+    def _execute(self, engine, sql, max_rows=None):
+        from valinor.tools.db_tools import execute_query
+
+        args = {
+            "connection_string": _sqlite_url(engine),
+            "sql": sql,
+        }
+        if max_rows is not None:
+            args["max_rows"] = max_rows
+        result = _run(execute_query(args))
+        payload = json.loads(result["content"][0]["text"])
+        return payload
+
+    def test_select_returns_rows_and_columns(self, business_engine):
+        payload = self._execute(business_engine, "SELECT * FROM c_bpartner")
+
+        assert payload["status"] == "success"
+        assert "rows" in payload
+        assert "columns" in payload
+        assert len(payload["rows"]) == 5  # 5 partners seeded
+
+    def test_select_row_count_matches(self, business_engine):
+        payload = self._execute(business_engine, "SELECT * FROM c_invoice")
+
+        assert payload["row_count"] == 60  # 40 + 20 invoices
+
+    def test_insert_is_blocked(self, business_engine):
+        payload = self._execute(
+            business_engine,
+            "INSERT INTO c_bpartner VALUES (99, 'Evil', 'Y', 'Y')",
+        )
+
+        assert "error" in payload
+        assert "INSERT" in payload["error"].upper() or "blocked" in payload["error"].lower()
+
+    def test_delete_is_blocked(self, business_engine):
+        payload = self._execute(business_engine, "DELETE FROM c_bpartner")
+
+        assert "error" in payload
+
+    def test_drop_is_blocked(self, business_engine):
+        payload = self._execute(business_engine, "DROP TABLE c_bpartner")
+
+        assert "error" in payload
+
+    def test_max_rows_truncates_result(self, business_engine):
+        payload = self._execute(business_engine, "SELECT * FROM c_invoice", max_rows=5)
+
+        assert payload["row_count"] == 5
+        assert payload["truncated"] is True
+
+    def test_no_truncation_when_rows_below_limit(self, business_engine):
+        payload = self._execute(business_engine, "SELECT * FROM c_bpartner", max_rows=100)
+
+        assert payload["truncated"] is False
+
+    def test_bad_sql_returns_error_status(self, business_engine):
+        payload = self._execute(business_engine, "SELECT * FROM totally_missing_table_xyz")
+
+        assert payload.get("status") == "error" or "error" in payload
+
+
+# ---------------------------------------------------------------------------
+# 11. Additional _prescan_filter_candidates edge cases
+# ---------------------------------------------------------------------------
+
+class TestPrescanEdgeCases:
+    """Edge-case coverage for _prescan_filter_candidates."""
+
+    def test_discriminator_col_cap_per_table(self, business_engine):
+        """At most 4 discriminator columns should be probed per table."""
+        from valinor.agents.cartographer import _prescan_filter_candidates
+
+        config = {"connection_string": _sqlite_url(business_engine)}
+        result = _run(_prescan_filter_candidates(config))
+
+        hints = result["candidate_hints"]
+        for _table, cols in hints.items():
+            assert len(cols) <= 4, (
+                f"Expected at most 4 discriminator cols per table, got {len(cols)}"
+            )
+
+    def test_values_limited_to_ten_per_column(self, business_engine):
+        """probe returns at most 10 values per discriminator column."""
+        from valinor.agents.cartographer import _prescan_filter_candidates
+
+        config = {"connection_string": _sqlite_url(business_engine)}
+        result = _run(_prescan_filter_candidates(config))
+
+        hints = result["candidate_hints"]
+        for _table, cols in hints.items():
+            for _col, values in cols.items():
+                assert len(values) <= 10, (
+                    f"Expected at most 10 values, got {len(values)}"
+                )
+
+    def test_error_dict_still_has_candidate_hints_key(self):
+        """Even on connection failure the returned dict must include candidate_hints."""
+        from valinor.agents.cartographer import _prescan_filter_candidates
+
+        # Intentionally broken URL
+        config = {"connection_string": "sqlite:////no/such/path/db.sqlite3_INVALID"}
+        result = _run(_prescan_filter_candidates(config))
+
+        # The function documents it returns {"error": ..., "candidate_hints": {}} on failure
+        assert "candidate_hints" in result
+
+
+# ---------------------------------------------------------------------------
+# 12. _format_phase1_hints — additional coverage
+# ---------------------------------------------------------------------------
+
+class TestFormatPhase1HintsExtra:
+    """Extra tests for _format_phase1_hints edge cases."""
+
+    def test_multiple_tables_all_appear_in_output(self):
+        from valinor.agents.cartographer import _format_phase1_hints
+
+        prescan = {
+            "candidate_hints": {
+                "c_invoice": {
+                    "issotrx": [{"value": "Y", "count": 100}],
+                },
+                "fin_payment_schedule": {
+                    "isreceipt": [{"value": "Y", "count": 50}],
+                },
+            }
+        }
+        output = _format_phase1_hints(prescan)
+
+        assert "c_invoice" in output
+        assert "fin_payment_schedule" in output
+        assert "issotrx" in output
+        assert "isreceipt" in output
+
+    def test_values_capped_at_five_in_formatted_output(self):
+        """Only the top 5 values should appear in the formatted hint line."""
+        from valinor.agents.cartographer import _format_phase1_hints
+
+        # Use clearly distinct sentinel values so substring collisions are impossible.
+        # Counts chosen so none is a substring of another value label.
+        values = [
+            {"value": "AAAA", "count": 900},
+            {"value": "BBBB", "count": 800},
+            {"value": "CCCC", "count": 700},
+            {"value": "DDDD", "count": 600},
+            {"value": "EEEE", "count": 500},
+            {"value": "FFFF", "count": 400},  # rank 6 — must be excluded
+            {"value": "GGGG", "count": 300},  # rank 7 — must be excluded
+            {"value": "HHHH", "count": 200},  # rank 8 — must be excluded
+        ]
+        prescan = {
+            "candidate_hints": {
+                "some_table": {
+                    "some_col": values,
+                }
+            }
+        }
+        output = _format_phase1_hints(prescan)
+
+        # First 5 sentinel values must appear; ranks 6-8 must NOT
+        assert "AAAA" in output
+        assert "EEEE" in output
+        assert "FFFF" not in output
+        assert "GGGG" not in output
+        assert "HHHH" not in output
+
+
+# ---------------------------------------------------------------------------
+# 13. _format_calibration_feedback — missing-key robustness
+# ---------------------------------------------------------------------------
+
+class TestFormatCalibrationFeedbackExtra:
+    """Robustness tests for _format_calibration_feedback."""
+
+    def test_missing_entity_key_does_not_raise(self):
+        from valinor.agents.cartographer import _format_calibration_feedback
+
+        # feedback dict has no 'entity' key
+        failures = [{"feedback": "count is zero"}]
+        # Must not raise; fallback is '?'
+        output = _format_calibration_feedback(failures)
+        assert "?" in output or "count is zero" in output
+
+    def test_missing_feedback_key_does_not_raise(self):
+        from valinor.agents.cartographer import _format_calibration_feedback
+
+        failures = [{"entity": "invoices"}]
+        output = _format_calibration_feedback(failures)
+        assert "invoices" in output
+
+
+# ---------------------------------------------------------------------------
+# 14. introspect_schema — additional field coverage
+# ---------------------------------------------------------------------------
+
+class TestIntrospectSchemaExtra:
+    """Additional field coverage for introspect_schema."""
+
+    def test_column_types_are_strings(self, business_engine):
+        from valinor.tools.db_tools import introspect_schema
+
+        args = {
+            "connection_string": _sqlite_url(business_engine),
+            "table_name": "c_invoice",
+            "schema": "main",
+        }
+        result = _run(introspect_schema(args))
+        payload = json.loads(result["content"][0]["text"])
+
+        for col in payload["columns"]:
+            assert isinstance(col["type"], str), (
+                f"Expected type to be a string, got {type(col['type'])}"
+            )
+
+    def test_primary_key_info_present(self, business_engine):
+        from valinor.tools.db_tools import introspect_schema
+
+        args = {
+            "connection_string": _sqlite_url(business_engine),
+            "table_name": "c_bpartner",
+            "schema": "main",
+        }
+        result = _run(introspect_schema(args))
+        payload = json.loads(result["content"][0]["text"])
+
+        assert "primary_key" in payload
+
+    def test_foreign_keys_list_present(self, business_engine):
+        from valinor.tools.db_tools import introspect_schema
+
+        args = {
+            "connection_string": _sqlite_url(business_engine),
+            "table_name": "c_invoice",
+            "schema": "main",
+        }
+        result = _run(introspect_schema(args))
+        payload = json.loads(result["content"][0]["text"])
+
+        assert "foreign_keys" in payload
+        assert isinstance(payload["foreign_keys"], list)
+
+
+# ---------------------------------------------------------------------------
+# 15. probe_column_values — response envelope fields
+# ---------------------------------------------------------------------------
+
+class TestProbeColumnValuesExtra:
+    """Envelope field coverage for probe_column_values."""
+
+    def test_response_includes_column_field(self, business_engine):
+        from valinor.tools.db_tools import probe_column_values
+
+        args = {
+            "connection_string": _sqlite_url(business_engine),
+            "table_name": "c_invoice",
+            "column_name": "docstatus",
+            "schema": "main",
+        }
+        result = _run(probe_column_values(args))
+        payload = json.loads(result["content"][0]["text"])
+
+        assert payload.get("column") == "docstatus"
+
+    def test_response_includes_note_field(self, business_engine):
+        from valinor.tools.db_tools import probe_column_values
+
+        args = {
+            "connection_string": _sqlite_url(business_engine),
+            "table_name": "c_invoice",
+            "column_name": "issotrx",
+            "schema": "main",
+        }
+        result = _run(probe_column_values(args))
+        payload = json.loads(result["content"][0]["text"])
+
+        assert "note" in payload
+        assert isinstance(payload["note"], str)
+
+    def test_response_includes_schema_field(self, business_engine):
+        from valinor.tools.db_tools import probe_column_values
+
+        args = {
+            "connection_string": _sqlite_url(business_engine),
+            "table_name": "c_invoice",
+            "column_name": "issotrx",
+            "schema": "main",
+        }
+        result = _run(probe_column_values(args))
+        payload = json.loads(result["content"][0]["text"])
+
+        assert payload.get("schema") == "main"
+
+
+# ---------------------------------------------------------------------------
+# 16. classify_entity — additional classification paths and fields
+# ---------------------------------------------------------------------------
+
+class TestClassifyEntityExtra:
+    """Extra coverage for classify_entity classification paths and output fields."""
+
+    def _classify(self, table_name, columns, row_count):
+        from valinor.tools.db_tools import classify_entity
+
+        args = {
+            "table_name": table_name,
+            "columns": json.dumps(columns),
+            "sample_data": "[]",
+            "row_count": row_count,
+        }
+        result = _run(classify_entity(args))
+        return json.loads(result["content"][0]["text"])
+
+    def test_master_path_moderate_rows_no_amounts(self):
+        """row_count > 50 with no amount columns → MASTER."""
+        columns = [{"name": "id"}, {"name": "name"}, {"name": "email"}, {"name": "phone"}]
+        result = self._classify("generic_entity", columns, row_count=200)
+
+        assert result["classification"] == "MASTER"
+        assert result["confidence"] >= 0.7
+
+    def test_result_contains_note_field(self):
+        """Every classify_entity response must include a 'note' field."""
+        columns = [{"name": "id"}, {"name": "name"}]
+        result = self._classify("any_table", columns, row_count=5)
+
+        assert "note" in result
+
+    def test_reasoning_is_a_list(self):
+        """The 'reasoning' field must always be a list."""
+        columns = [{"name": "id"}, {"name": "total"}, {"name": "created_at"}]
+        result = self._classify("some_table", columns, row_count=1000)
+
+        assert isinstance(result["reasoning"], list)
+
+    def test_config_name_hint_adds_reasoning(self):
+        """Tables with 'config' in name get a CONFIG name-hint reasoning entry."""
+        columns = [{"name": "id"}, {"name": "key"}, {"name": "value"}]
+        result = self._classify("app_config", columns, row_count=5)
+
+        # Name hint for config should be mentioned in reasoning or classification
+        reasoning_text = " ".join(result["reasoning"]).lower()
+        assert "config" in reasoning_text or result["classification"] == "CONFIG"
+
+    def test_transactional_name_hint_boosts_confidence_above_base(self):
+        """'invoice' in table name should push confidence above base CONFIG level."""
+        # A table with no date/amount cols but named 'invoice' — name hint applies
+        columns = [{"name": "id"}, {"name": "ref"}]
+        result_with_hint = self._classify("c_invoice", columns, row_count=20)
+        result_without_hint = self._classify("some_table", columns, row_count=20)
+
+        assert result_with_hint["confidence"] > result_without_hint["confidence"]

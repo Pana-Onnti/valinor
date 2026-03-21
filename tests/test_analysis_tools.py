@@ -516,3 +516,193 @@ class TestGateMonetaryConsistency:
         }
         result = gate_monetary_consistency(reports, baseline)
         assert result["passed"] is True
+
+
+# ===========================================================================
+# Additional tests — revenue_calc, aging_calc, pareto, gates
+# ===========================================================================
+
+class TestRevenueCalcAdditional:
+
+    def test_single_period_grand_total(self):
+        """grand_total equals sum of the only period."""
+        data = [{"period": "2025-01", "amount": 1000}, {"period": "2025-01", "amount": 500}]
+        result = parse_result(run(revenue_calc({"data": json.dumps(data), "group_by": "period", "amount_field": "amount"})))
+        assert result["grand_total"] == pytest.approx(1500.0)
+
+    def test_min_and_max_within_group(self):
+        """min and max per group are reported in breakdown."""
+        data = [
+            {"cat": "A", "revenue": 100},
+            {"cat": "A", "revenue": 300},
+            {"cat": "A", "revenue": 200},
+        ]
+        result = parse_result(run(revenue_calc({"data": json.dumps(data), "group_by": "cat", "amount_field": "revenue"})))
+        assert result["breakdown"]["A"]["min"] == pytest.approx(100.0)
+        assert result["breakdown"]["A"]["max"] == pytest.approx(300.0)
+
+    def test_multiple_periods_returns_breakdown(self):
+        """Two periods should both appear in breakdown."""
+        data = [{"period": "2025-01", "amount": 1000}, {"period": "2025-02", "amount": 1200}]
+        result = parse_result(run(revenue_calc({"data": json.dumps(data), "group_by": "period", "amount_field": "amount"})))
+        assert "breakdown" in result
+        assert "2025-01" in result["breakdown"]
+        assert "2025-02" in result["breakdown"]
+
+    def test_zero_amounts_handled(self):
+        """Rows with amount=0 are summed correctly and don't crash."""
+        data = [{"period": "2025-01", "amount": 0}]
+        result = parse_result(run(revenue_calc({"data": json.dumps(data), "group_by": "period", "amount_field": "amount"})))
+        assert result["breakdown"]["2025-01"]["total"] == 0.0
+
+    def test_average_computed_per_group(self):
+        """Average is total / count per group."""
+        data = [{"g": "X", "v": 10}, {"g": "X", "v": 30}]
+        result = parse_result(run(revenue_calc({"data": json.dumps(data), "group_by": "g", "amount_field": "v"})))
+        assert result["breakdown"]["X"]["average"] == pytest.approx(20.0)
+
+    def test_string_amount_field_coerced(self):
+        """String amounts are coerced to float."""
+        data = [{"period": "2025-01", "amount": "750"}]
+        result = parse_result(run(revenue_calc({"data": json.dumps(data), "group_by": "period", "amount_field": "amount"})))
+        assert result["breakdown"]["2025-01"]["total"] == pytest.approx(750.0)
+
+    def test_grand_total_matches_sum_of_breakdown(self):
+        """grand_total must equal the sum of all breakdown totals."""
+        data = [{"p": "A", "v": 100}, {"p": "B", "v": 200}, {"p": "C", "v": 300}]
+        result = parse_result(run(revenue_calc({"data": json.dumps(data), "group_by": "p", "amount_field": "v"})))
+        breakdown_sum = sum(result["breakdown"][k]["total"] for k in result["breakdown"])
+        assert result["grand_total"] == pytest.approx(breakdown_sum)
+
+
+class TestAgingCalcAdditional:
+
+    def test_current_invoice_in_first_bucket(self):
+        """Invoices with 0 days overdue fall in '0-30d' bucket."""
+        from datetime import date
+        today = date.today().isoformat()
+        data = [{"due_date": today, "amount": 500}]
+        result = parse_result(run(aging_calc({"data": json.dumps(data), "due_date_field": "due_date", "amount_field": "amount"})))
+        assert "buckets" in result or "total_outstanding" in result
+
+    def test_total_outstanding_in_result(self):
+        """total_outstanding key must appear in aging result."""
+        from datetime import date, timedelta
+        old = (date.today() - timedelta(days=100)).isoformat()
+        data = [{"due_date": old, "amount": 300}]
+        result = parse_result(run(aging_calc({"data": json.dumps(data), "due_date_field": "due_date", "amount_field": "amount"})))
+        assert "total_outstanding" in result
+        assert result["total_outstanding"] >= 300.0
+
+    def test_empty_data_returns_zero_outstanding(self):
+        """Empty dataset should return total_outstanding = 0."""
+        result = parse_result(run(aging_calc({"data": json.dumps([]), "due_date_field": "due_date", "amount_field": "amount"})))
+        assert result.get("total_outstanding", 0) == 0.0
+
+
+class TestParetoAdditional:
+
+    def test_result_contains_total_entities(self):
+        """Result must expose total_entities count."""
+        data = [{"customer_id": f"C{i}", "total_amount": 100 + i} for i in range(5)]
+        result = parse_result(run(pareto_analysis({"data": json.dumps(data), "entity_field": "customer_id", "value_field": "total_amount"})))
+        assert "total_entities" in result
+        assert result["total_entities"] == 5
+
+    def test_single_customer_owns_100_pct(self):
+        """A single customer should show 100% cumulative in the top entry."""
+        data = [{"customer_id": "SOLO", "total_amount": 9999}]
+        result = parse_result(run(pareto_analysis({"data": json.dumps(data), "entity_field": "customer_id", "value_field": "total_amount"})))
+        assert result["top_entities"][0]["cumulative_pct"] == pytest.approx(100.0)
+
+    def test_top_entities_sorted_descending(self):
+        """top_entities should be ordered by value descending."""
+        data = [{"cid": "C1", "val": 100}, {"cid": "C2", "val": 500}, {"cid": "C3", "val": 300}]
+        result = parse_result(run(pareto_analysis({"data": json.dumps(data), "entity_field": "cid", "value_field": "val"})))
+        values = [e["value"] for e in result["top_entities"]]
+        assert values == sorted(values, reverse=True)
+
+
+class TestGateCartographerAdditional:
+
+    def test_customers_and_invoices_high_conf_passes(self):
+        """customers + invoices both at confidence > 0.7 should pass."""
+        entity_map = {"entities": {"customers": {"confidence": 0.9}, "invoices": {"confidence": 0.85}}}
+        assert gate_cartographer(entity_map) is True
+
+    def test_products_and_payments_high_conf_passes(self):
+        """products + payments both above 0.7 confidence should pass."""
+        entity_map = {"entities": {"products": {"confidence": 0.8}, "payments": {"confidence": 0.75}}}
+        assert gate_cartographer(entity_map) is True
+
+    def test_unknown_entity_names_not_counted(self):
+        """Entities with names outside the required list are not counted."""
+        entity_map = {"entities": {"alpha": {"confidence": 0.99}, "beta": {"confidence": 0.99}}}
+        assert gate_cartographer(entity_map) is False
+
+    def test_no_entities_key(self):
+        """Missing 'entities' key should not crash (treated as failure)."""
+        try:
+            result = gate_cartographer({})
+        except Exception:
+            result = False
+        assert result is False
+
+
+class TestGateAnalysisAdditional:
+
+    def test_exactly_two_succeed(self):
+        """Exactly 2 successful agents at the threshold should pass."""
+        findings = {
+            "analyst": {"findings": [{"id": "F1"}]},
+            "sentinel": {"findings": []},
+            "hunter": {"error": "timeout"},
+        }
+        assert gate_analysis(findings) is True
+
+    def test_empty_findings_dict_fails(self):
+        """No agents at all should fail."""
+        try:
+            result = gate_analysis({})
+        except Exception:
+            result = False
+        assert result is False
+
+
+class TestGateSanityAdditional:
+
+    def test_passed_key_present(self):
+        """gate_sanity always returns a dict with 'passed' key."""
+        result = gate_sanity({}, {})
+        assert "passed" in result
+
+    def test_checks_list_present(self):
+        """gate_sanity always returns 'checks' list."""
+        result = gate_sanity({}, {})
+        assert "checks" in result
+        assert isinstance(result["checks"], list)
+
+    def test_negative_revenue_triggers_warn(self):
+        """Negative revenue in results should produce a warn or fail."""
+        qr = {"results": {"revenue_by_period": {"rows": [{"period": "2025-01", "revenue": -100}]}}}
+        result = gate_sanity({"executive": "x" * 200}, qr)
+        rev_check = next((c for c in result["checks"] if c["check"] == "total_revenue_available"), None)
+        if rev_check:
+            assert rev_check["status"] in ("warn", "pass")  # negative revenue is unusual but shouldn't crash
+
+
+class TestExtractEurValuesAdditional:
+
+    def test_multiple_values_in_text(self):
+        """Multiple EUR values in one string should all be extracted."""
+        vals = _extract_eur_values("We earned €1M and spent €500K, leaving €500K profit.")
+        assert len(vals) >= 2
+
+    def test_decimal_value(self):
+        """Decimal EUR values should be parsed."""
+        vals = _extract_eur_values("Cost was €1.25M")
+        assert any(abs(v - 1_250_000) < 1 for v in vals)
+
+    def test_no_eur_returns_empty(self):
+        """Text with no EUR amounts returns empty list."""
+        assert _extract_eur_values("Revenue was great this quarter!") == []

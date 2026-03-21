@@ -293,3 +293,198 @@ class TestSendDigest:
                 html_body="<p>irrelevant</p>",
             )
         assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Additional tests — edge cases and boundary conditions
+# ---------------------------------------------------------------------------
+
+
+class TestDQScoreBoundaryValues:
+    """Boundary values right on the DQ score thresholds."""
+
+    def setup_method(self):
+        self.builder = EmailDigestBuilder()
+        self.profile = make_profile()
+
+    def test_dq_score_exactly_85_is_green(self):
+        """Score of exactly 85.0 should use the green colour."""
+        html = self.builder.build_html(self.profile, make_run_results(dq_score=85.0), make_delta())
+        assert "#27ae60" in html
+
+    def test_dq_score_exactly_65_is_yellow(self):
+        """Score of exactly 65.0 should use the yellow colour (65 <= score < 85)."""
+        html = self.builder.build_html(self.profile, make_run_results(dq_score=65.0), make_delta())
+        assert "#f39c12" in html
+
+    def test_dq_score_zero_is_red(self):
+        """Score of 0.0 must produce the red badge."""
+        html = self.builder.build_html(self.profile, make_run_results(dq_score=0.0), make_delta())
+        assert "#c0392b" in html
+
+    def test_dq_score_100_is_green(self):
+        """A perfect score of 100.0 must produce the green badge."""
+        html = self.builder.build_html(self.profile, make_run_results(dq_score=100.0), make_delta())
+        assert "#27ae60" in html
+
+
+class TestKPITableRendering:
+    """Tests for the _build_kpi_table helper inside EmailDigestBuilder."""
+
+    def setup_method(self):
+        self.builder = EmailDigestBuilder()
+
+    def test_kpi_table_rendered_when_baseline_present(self):
+        """When baseline_history has data, 'KPIs Principales' heading should appear."""
+        profile = make_profile(baseline_history={
+            "revenue": [{"period": "Q1", "value": 1000}, {"period": "Q2", "value": 1200}]
+        })
+        html = self.builder.build_html(profile, make_run_results(), make_delta())
+        assert "KPIs Principales" in html
+
+    def test_kpi_table_shows_kpi_key(self):
+        """The KPI key name must appear inside the rendered table."""
+        profile = make_profile(baseline_history={
+            "churn_rate": [{"period": "Q1", "value": 5.2}]
+        })
+        html = self.builder.build_html(profile, make_run_results(), make_delta())
+        assert "churn_rate" in html
+
+    def test_kpi_table_absent_when_no_baseline(self):
+        """Without baseline history the 'KPIs Principales' heading must not appear."""
+        profile = make_profile(baseline_history={})
+        html = self.builder.build_html(profile, make_run_results(), make_delta())
+        assert "KPIs Principales" not in html
+
+    def test_kpi_table_scalar_values_rendered(self):
+        """Scalar (non-dict) history entries should still render without crashing."""
+        profile = make_profile(baseline_history={"revenue": [100, 200, 300]})
+        html = self.builder.build_html(profile, make_run_results(), make_delta())
+        assert isinstance(html, str)
+        assert "revenue" in html
+
+
+class TestBuildHtmlSpecialCasesExtra:
+    """Additional edge-case tests for build_html."""
+
+    def setup_method(self):
+        self.builder = EmailDigestBuilder()
+        self.profile = make_profile()
+
+    def test_finding_with_only_id_no_title_renders(self):
+        """A finding dict that has only 'id' (no 'title') must not crash."""
+        findings = [{"id": "F-NO-TITLE", "severity": "HIGH"}]
+        html = self.builder.build_html(self.profile, make_run_results(findings=findings), make_delta())
+        assert "F-NO-TITLE" in html
+
+    def test_finding_severity_unknown_renders(self):
+        """An unrecognised severity string must not crash; title should appear in the summary."""
+        findings = [{"id": "F-UNK", "title": "Unknown sev", "severity": "UNKNOWN"}]
+        html = self.builder.build_html(self.profile, make_run_results(findings=findings), make_delta())
+        assert "Unknown sev" in html
+
+    def test_resolved_section_absent_message_when_empty(self):
+        """When there are no resolved findings the 'ningún' message must appear."""
+        html = self.builder.build_html(self.profile, make_run_results(), make_delta(resolved=[]))
+        assert "Ningún hallazgo resuelto" in html
+
+
+# ===========================================================================
+# Additional tests
+# ===========================================================================
+
+class TestBuildSubjectAdditional:
+    """Additional build_subject tests."""
+
+    def setup_method(self):
+        self.builder = EmailDigestBuilder()
+
+    def test_subject_contains_client_name(self):
+        """Subject line must include the client name."""
+        subject = self.builder.build_subject("TestCorp", make_delta(), 90.0)
+        assert "TestCorp" in subject
+
+    def test_subject_is_non_empty_string(self):
+        subject = self.builder.build_subject("TestCorp", make_delta(), 90.0)
+        assert isinstance(subject, str) and len(subject) > 0
+
+    def test_subject_zero_findings(self):
+        """Subject with zero findings should not crash."""
+        subject = self.builder.build_subject("TestCorp", make_delta(new=[]), 90.0)
+        assert isinstance(subject, str)
+
+    def test_subject_critical_finding_has_urgent_indicator(self):
+        """Critical findings should produce a more urgent subject."""
+        findings = [{"id": "F1", "title": "Big issue", "severity": "CRITICAL"}]
+        subject = self.builder.build_subject("TestCorp", make_delta(new=findings), 90.0)
+        assert isinstance(subject, str) and len(subject) > 0
+
+
+class TestBuildHtmlAdditional:
+    """Additional build_html coverage."""
+
+    def setup_method(self):
+        self.builder = EmailDigestBuilder()
+        self.profile = make_profile()
+
+    def test_multiple_findings_all_rendered(self):
+        """All finding titles should appear in the HTML."""
+        findings = [
+            {"id": "F1", "title": "Revenue drop", "severity": "HIGH"},
+            {"id": "F2", "title": "Margin squeeze", "severity": "MEDIUM"},
+            {"id": "F3", "title": "Customer churn", "severity": "LOW"},
+        ]
+        html = self.builder.build_html(self.profile, make_run_results(findings=findings), make_delta())
+        for f in findings:
+            assert f["title"] in html
+
+    def test_critical_severity_colour_present(self):
+        """CRITICAL severity should use the red colour."""
+        findings = [{"id": "F1", "title": "Critical issue", "severity": "CRITICAL"}]
+        html = self.builder.build_html(self.profile, make_run_results(findings=findings), make_delta())
+        assert "#c0392b" in html
+
+    def test_info_severity_colour_present(self):
+        """INFO severity should use the blue colour."""
+        findings = [{"id": "F1", "title": "Info note", "severity": "INFO"}]
+        html = self.builder.build_html(self.profile, make_run_results(findings=findings), make_delta())
+        assert "#2980b9" in html
+
+    def test_new_findings_in_delta_shown(self):
+        """New findings listed in the delta should appear in the HTML."""
+        new_f = [{"id": "FN1", "title": "New critical alert", "severity": "HIGH"}]
+        html = self.builder.build_html(self.profile, make_run_results(), make_delta(new=new_f))
+        assert "New critical alert" in html
+
+    def test_resolved_findings_in_delta_shown(self):
+        """Resolved findings listed in the delta should appear in the HTML."""
+        resolved_f = [{"id": "FR1", "title": "Old resolved issue", "severity": "MEDIUM"}]
+        html = self.builder.build_html(self.profile, make_run_results(), make_delta(resolved=resolved_f))
+        assert "Old resolved issue" in html
+
+    def test_dq_score_displayed_in_html(self):
+        """The DQ score value should appear in the rendered HTML."""
+        html = self.builder.build_html(self.profile, make_run_results(dq_score=78.5), make_delta())
+        assert "78" in html
+
+    def test_output_is_valid_html_fragment(self):
+        """HTML output must start with <!DOCTYPE html>."""
+        html = self.builder.build_html(self.profile, make_run_results(), make_delta())
+        assert html.strip().startswith("<!DOCTYPE html>")
+
+    def test_empty_client_name_no_crash(self):
+        """An empty client name string must not raise."""
+        profile = make_profile(client_name="")
+        html = self.builder.build_html(profile, make_run_results(), make_delta())
+        assert isinstance(html, str)
+
+    def test_dq_score_mid_range_yellow(self):
+        """Score in 65-85 range should produce yellow badge colour."""
+        html = self.builder.build_html(self.profile, make_run_results(dq_score=75.0), make_delta())
+        assert "#f39c12" in html
+
+    def test_high_finding_colour(self):
+        """HIGH severity badge should use the orange colour."""
+        findings = [{"id": "F1", "title": "High issue", "severity": "HIGH"}]
+        html = self.builder.build_html(self.profile, make_run_results(findings=findings), make_delta())
+        assert "#e67e22" in html

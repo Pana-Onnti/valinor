@@ -561,3 +561,261 @@ class TestProfileStoreFallbackOnDbFailure:
         pool = self._run(store._get_pool())
         assert pool is None
         assert store._use_db is False
+
+
+# ---------------------------------------------------------------------------
+# TestClientProfileExtraFields — additional ClientProfile behaviours
+# ---------------------------------------------------------------------------
+
+class TestClientProfileExtraFields:
+    """Tests for fields and methods not yet covered by the main suites."""
+
+    def test_false_positives_list_operations(self):
+        """false_positives starts empty and accepts string entries."""
+        profile = ClientProfile.new("FP Corp")
+        assert profile.false_positives == []
+        profile.false_positives.append("F100")
+        profile.false_positives.append("F200")
+        assert len(profile.false_positives) == 2
+        assert "F100" in profile.false_positives
+
+    def test_preferred_queries_store_dicts(self):
+        """preferred_queries accepts dict entries and preserves order."""
+        profile = ClientProfile.new("Query Corp")
+        q1 = {"sql": "SELECT COUNT(*) FROM orders", "label": "order_count"}
+        q2 = {"sql": "SELECT SUM(amount) FROM invoices", "label": "invoice_total"}
+        profile.preferred_queries.append(q1)
+        profile.preferred_queries.append(q2)
+        assert len(profile.preferred_queries) == 2
+        assert profile.preferred_queries[0]["label"] == "order_count"
+        assert profile.preferred_queries[1]["label"] == "invoice_total"
+
+    def test_focus_tables_list_append_and_contains(self):
+        """focus_tables is a mutable list that supports contains-checks."""
+        profile = ClientProfile.new("Focus Corp")
+        assert profile.focus_tables == []
+        profile.focus_tables.extend(["orders", "invoices", "customers"])
+        assert "invoices" in profile.focus_tables
+        assert len(profile.focus_tables) == 3
+
+    def test_table_weights_mapping(self):
+        """table_weights stores float values keyed by table name."""
+        profile = ClientProfile.new("Weight Corp")
+        profile.table_weights["orders"] = 0.9
+        profile.table_weights["customers"] = 0.5
+        assert profile.table_weights["orders"] == 0.9
+        assert profile.table_weights["customers"] == 0.5
+
+    def test_baseline_history_accepts_lists(self):
+        """baseline_history maps a label to a list of KPI data-points."""
+        profile = ClientProfile.new("Baseline Corp")
+        profile.baseline_history["revenue"] = [
+            {"period": "2025-01", "value": "1000000"},
+            {"period": "2025-02", "value": "1050000"},
+        ]
+        assert len(profile.baseline_history["revenue"]) == 2
+        assert profile.baseline_history["revenue"][1]["period"] == "2025-02"
+
+    def test_resolved_findings_separate_from_known(self):
+        """Resolving a finding moves it from known_findings to resolved_findings."""
+        profile = ClientProfile.new("Resolved Corp")
+        finding = {
+            "id": "F001",
+            "title": "Stale invoices",
+            "severity": "LOW",
+            "agent": "sentinel",
+            "first_seen": "2025-01-01T00:00:00",
+            "last_seen": "2025-01-10T00:00:00",
+            "runs_open": 3,
+        }
+        profile.known_findings["F001"] = finding
+        profile.resolved_findings["F001"] = profile.known_findings.pop("F001")
+
+        assert "F001" not in profile.known_findings
+        assert "F001" in profile.resolved_findings
+        assert profile.resolved_findings["F001"]["severity"] == "LOW"
+
+    def test_from_dict_ignores_unknown_keys(self):
+        """ClientProfile.from_dict silently ignores keys not in __dataclass_fields__."""
+        d = ClientProfile.new("Safe Corp").to_dict()
+        d["unknown_future_field"] = "ignored"
+        restored = ClientProfile.from_dict(d)
+        assert restored.client_name == "Safe Corp"
+        assert not hasattr(restored, "unknown_future_field")
+
+    def test_last_run_date_none_by_default(self):
+        """A new profile has last_run_date == None."""
+        profile = ClientProfile.new("No Run Corp")
+        assert profile.last_run_date is None
+
+    def test_run_history_stores_summaries(self):
+        """run_history accumulates per-run summary dicts."""
+        profile = ClientProfile.new("History Corp")
+        for i in range(3):
+            profile.run_history.append({"run_id": f"job_{i}", "status": "success"})
+        profile.run_count = 3
+        assert profile.run_count == 3
+        assert len(profile.run_history) == 3
+        assert profile.run_history[2]["run_id"] == "job_2"
+
+
+# ---------------------------------------------------------------------------
+# TestFindingRecordAndKPIDataPoint — auxiliary dataclasses
+# ---------------------------------------------------------------------------
+
+class TestFindingRecordAndKPIDataPoint:
+    """Smoke tests for FindingRecord and KPIDataPoint dataclasses."""
+
+    def test_finding_record_default_runs_open(self):
+        """FindingRecord defaults runs_open to 1."""
+        from memory.client_profile import FindingRecord
+        fr = FindingRecord(
+            id="F010",
+            title="Late payments",
+            severity="HIGH",
+            agent="analyst",
+            first_seen="2025-03-01T00:00:00",
+            last_seen="2025-03-01T00:00:00",
+        )
+        assert fr.runs_open == 1
+        assert fr.severity == "HIGH"
+
+    def test_kpi_data_point_nullable_numeric(self):
+        """KPIDataPoint accepts None for numeric_value."""
+        from memory.client_profile import KPIDataPoint
+        kpi = KPIDataPoint(
+            period="2025-Q1",
+            label="Revenue",
+            value="N/A",
+            numeric_value=None,
+            run_date="2025-04-01T00:00:00",
+        )
+        assert kpi.numeric_value is None
+        assert kpi.value == "N/A"
+
+
+# ---------------------------------------------------------------------------
+# TestClientRefinementEdgeCases — additional ClientRefinement behaviours
+# ---------------------------------------------------------------------------
+
+class TestClientRefinementEdgeCases:
+    """Edge cases for ClientRefinement not covered by TestClientRefinement."""
+
+    def test_suppress_ids_populated(self):
+        """suppress_ids holds a list of finding IDs to ignore on next run."""
+        ref = ClientRefinement(suppress_ids=["F001", "F002", "F003"])
+        assert len(ref.suppress_ids) == 3
+        assert "F002" in ref.suppress_ids
+
+    def test_generated_at_stored(self):
+        """generated_at preserves the ISO timestamp."""
+        ts = "2025-06-15T12:00:00"
+        ref = ClientRefinement(generated_at=ts)
+        assert ref.generated_at == ts
+
+    def test_multiple_query_hints(self):
+        """query_hints accepts multiple strings."""
+        ref = ClientRefinement(query_hints=["focus on AR", "ignore test accounts", "use EUR"])
+        assert len(ref.query_hints) == 3
+        assert "use EUR" in ref.query_hints
+
+    def test_get_refinement_roundtrip_via_to_dict(self):
+        """A ClientRefinement stored as dict on a profile is reconstructed correctly."""
+        import dataclasses
+        profile = ClientProfile.new("Full Refinement Corp")
+        original_ref = ClientRefinement(
+            table_weights={"invoices": 0.95},
+            query_hints=["check duplicates"],
+            focus_areas=["billing"],
+            suppress_ids=["F005"],
+            context_block="Focus on billing anomalies.",
+            generated_at="2025-07-01T00:00:00",
+        )
+        profile.refinement = dataclasses.asdict(original_ref)
+        restored = profile.get_refinement()
+        assert restored.table_weights == {"invoices": 0.95}
+        assert restored.focus_areas == ["billing"]
+        assert restored.suppress_ids == ["F005"]
+        assert restored.generated_at == "2025-07-01T00:00:00"
+
+
+# ---------------------------------------------------------------------------
+# TestDetectSchemaDriftEdgeCases — additional drift scenarios
+# ---------------------------------------------------------------------------
+
+class TestDetectSchemaDriftEdgeCases:
+    """Additional edge cases for detect_schema_drift not covered above."""
+
+    def test_new_tables_only_triggers_drift(self):
+        """Only additions (no removals) above the 10% threshold counts as drift."""
+        # 5 base tables + 1 added = 20% → drift
+        base = {"entities": {f"t{i}": {} for i in range(5)}}
+        extended = {"entities": {f"t{i}": {} for i in range(6)}}
+        assert detect_schema_drift(base, extended) is True
+
+    def test_new_tables_below_threshold_no_drift(self):
+        """Adding 1 table to a 20-table map (5%) does not trigger drift."""
+        base = {"entities": {f"t{i}": {} for i in range(20)}}
+        extended = {"entities": {f"t{i}": {} for i in range(21)}}
+        assert detect_schema_drift(base, extended) is False
+
+    def test_completely_different_schemas_is_drift(self):
+        """Two fully disjoint entity sets produce maximum drift."""
+        base = {"entities": {"a": {}, "b": {}, "c": {}}}
+        new = {"entities": {"x": {}, "y": {}, "z": {}}}
+        # 3 removed + 3 added = 6 / 3 = 200% drift
+        assert detect_schema_drift(base, new) is True
+
+    def test_single_table_cached_any_change_is_drift(self):
+        """With a single cached table, removing it is 100% drift."""
+        base = {"entities": {"only_table": {}}}
+        reduced = {"entities": {}}
+        assert detect_schema_drift(base, reduced) is True
+
+
+# ---------------------------------------------------------------------------
+# TestProfileStoreWithProfile — context manager
+# ---------------------------------------------------------------------------
+
+class TestProfileStoreWithProfile:
+    """Tests for the with_profile() async context manager."""
+
+    def _run(self, coro):
+        return asyncio.get_event_loop().run_until_complete(coro)
+
+    def test_with_profile_creates_and_auto_saves(self):
+        """with_profile() creates a new profile, yields it, and auto-saves on exit."""
+        tmp = _make_tmp_dir()
+        store = _tmp_store(tmp)
+
+        async def _use():
+            async with store.with_profile("Context Corp") as profile:
+                profile.run_count = 42
+                profile.industry_inferred = "finance"
+
+        self._run(_use())
+
+        loaded = self._run(store.load("Context Corp"))
+        assert loaded is not None
+        assert loaded.run_count == 42
+        assert loaded.industry_inferred == "finance"
+
+    def test_with_profile_loads_existing_and_auto_saves(self):
+        """with_profile() loads an existing profile and persists mutations."""
+        tmp = _make_tmp_dir()
+        store = _tmp_store(tmp)
+
+        # Pre-populate a profile
+        pre = ClientProfile.new("Existing Context Corp")
+        pre.run_count = 5
+        self._run(store.save(pre))
+
+        async def _increment():
+            async with store.with_profile("Existing Context Corp") as profile:
+                profile.run_count += 1
+
+        self._run(_increment())
+
+        loaded = self._run(store.load("Existing Context Corp"))
+        assert loaded is not None
+        assert loaded.run_count == 6

@@ -367,3 +367,109 @@ def test_anomaly_pattern_field_types():
         assert isinstance(p.category, str), f"Pattern '{p.id}' category not str"
         assert isinstance(p.sql_template, str), f"Pattern '{p.id}' sql_template not str"
         assert isinstance(p.erp_tables, list), f"Pattern '{p.id}' erp_tables not list"
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage
+# ---------------------------------------------------------------------------
+
+def test_all_pattern_ids_are_unique():
+    """No two patterns should share the same id."""
+    ids = [p.id for p in PATTERNS]
+    assert len(ids) == len(set(ids)), "Duplicate pattern ids found"
+
+
+def test_all_pattern_names_non_empty():
+    """Every pattern must have a non-empty name."""
+    for p in PATTERNS:
+        assert p.name.strip() != "", f"Pattern '{p.id}' has empty name"
+
+
+def test_all_pattern_severities_valid():
+    """All severity values must be one of CRITICAL, HIGH, MEDIUM, LOW."""
+    valid = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
+    for p in PATTERNS:
+        assert p.severity in valid, f"Pattern '{p.id}' has unexpected severity '{p.severity}'"
+
+
+def test_all_pattern_categories_valid():
+    """All categories must be one of the declared set."""
+    valid = {"fraud_risk", "financial", "operational"}
+    for p in PATTERNS:
+        assert p.category in valid, f"Pattern '{p.id}' has unexpected category '{p.category}'"
+
+
+def test_all_patterns_have_non_empty_sql_template():
+    """sql_template must be non-empty for every pattern."""
+    for p in PATTERNS:
+        assert p.sql_template.strip() != "", f"Pattern '{p.id}' has empty sql_template"
+
+
+def test_all_patterns_have_at_least_one_erp_table():
+    """Every pattern must declare at least one ERP table."""
+    for p in PATTERNS:
+        assert len(p.erp_tables) >= 1, f"Pattern '{p.id}' has no erp_tables"
+
+
+def test_all_pattern_descriptions_non_empty():
+    """description field must be non-empty for every pattern."""
+    for p in PATTERNS:
+        assert p.description.strip() != "", f"Pattern '{p.id}' has empty description"
+
+
+def test_all_pattern_interpretations_non_empty():
+    """interpretation field must be non-empty for every pattern."""
+    for p in PATTERNS:
+        assert p.interpretation.strip() != "", f"Pattern '{p.id}' has empty interpretation"
+
+
+def test_get_patterns_by_severity_critical_high():
+    """get_patterns_by_severity returns only CRITICAL or HIGH when requested."""
+    for sev in ("CRITICAL", "HIGH"):
+        result = get_patterns_by_severity(sev)
+        for p in result:
+            assert p.severity == sev, f"Severity mismatch for pattern '{p.id}'"
+
+
+def test_get_patterns_by_category_returns_subset():
+    """get_patterns_by_category('fraud_risk') returns a subset of PATTERNS."""
+    fraud = get_patterns_by_category("fraud_risk")
+    all_ids = {p.id for p in PATTERNS}
+    for p in fraud:
+        assert p.id in all_ids
+
+
+def test_ghost_vendor_pattern_exists():
+    """ghost_vendor pattern must be present."""
+    p = next((x for x in PATTERNS if x.id == "ghost_vendor"), None)
+    assert p is not None, "ghost_vendor pattern must exist"
+    assert p.category == "fraud_risk"
+
+
+def test_get_patterns_for_tables_empty_list():
+    """Passing an empty table list returns no patterns (every pattern needs ≥1 table)."""
+    result = get_patterns_for_tables([])
+    assert result == []
+
+
+def test_build_sentinel_context_empty_list():
+    """build_sentinel_context with an empty list must not raise and returns a string."""
+    ctx = build_sentinel_context([])
+    assert isinstance(ctx, str)
+
+
+def test_build_sentinel_context_includes_high_severity_indicator():
+    """Context built from a CRITICAL pattern should mention CRITICAL severity."""
+    critical = [p for p in PATTERNS if p.severity == "CRITICAL"]
+    if critical:
+        ctx = build_sentinel_context(critical)
+        assert "CRITICAL" in ctx or critical[0].id in ctx
+
+
+def test_all_erp_tables_are_lowercase():
+    """ERP table names should be lowercase (no uppercase letters)."""
+    for p in PATTERNS:
+        for tbl in p.erp_tables:
+            assert tbl == tbl.lower(), (
+                f"Pattern '{p.id}' has non-lowercase table '{tbl}'"
+            )

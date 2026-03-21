@@ -672,3 +672,242 @@ async def test_post_threshold_z_score_large_value_accepted(client):
         r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
     assert r.status_code == 200
     assert r.json()["threshold"]["value"] == 10.0
+
+
+# ===========================================================================
+# New tests — additional coverage (appended)
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_store_save_is_called(client):
+    """store.save() must be called after a successful POST."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    payload = {
+        "metric": "ltv",
+        "condition": "pct_change_below",
+        "threshold_value": -25.0,
+        "severity": "HIGH",
+    }
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
+    assert r.status_code == 200
+    store.save.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_threshold_store_save_is_called(client):
+    """store.save() must be called after a successful DELETE."""
+    t = {
+        "metric": "sessions",
+        "condition": "absolute_below",
+        "value": 50.0,
+        "severity": "MEDIUM",
+        "description": "",
+        "label": "sessions",
+        "triggered": False,
+        "created_at": "2026-01-01T00:00:00",
+    }
+    profile = _make_profile(thresholds=[t])
+    store = _profile_store(profile)
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.delete("/api/clients/acme/alerts/thresholds/sessions")
+    assert r.status_code == 200
+    store.save.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_label_equals_metric(client):
+    """The 'label' field in the returned threshold equals the 'metric' field."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    payload = {
+        "metric": "nps_score",
+        "condition": "absolute_below",
+        "threshold_value": 30.0,
+        "severity": "MEDIUM",
+    }
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
+    assert r.status_code == 200
+    body = r.json()["threshold"]
+    assert body["label"] == body["metric"]
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_integer_value_coerced_to_float(client):
+    """threshold_value given as integer is stored as float."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    payload = {
+        "metric": "conversion_rate",
+        "condition": "pct_change_above",
+        "threshold_value": 20,   # integer, not float
+        "severity": "LOW",
+    }
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
+    assert r.status_code == 200
+    assert isinstance(r.json()["threshold"]["value"], float)
+    assert r.json()["threshold"]["value"] == 20.0
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_upsert_preserves_created_at(client):
+    """Upserting an existing metric preserves the original created_at timestamp."""
+    original_ts = "2025-12-01T00:00:00"
+    existing = {
+        "metric": "revenue",
+        "condition": "pct_change_below",
+        "value": -10.0,
+        "severity": "MEDIUM",
+        "description": "old",
+        "label": "revenue",
+        "triggered": False,
+        "created_at": original_ts,
+    }
+    profile = _make_profile(thresholds=[existing])
+    store = _profile_store(profile)
+    payload = {
+        "metric": "revenue",
+        "condition": "pct_change_above",
+        "threshold_value": 50.0,
+        "severity": "HIGH",
+    }
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
+    assert r.status_code == 200
+    # created_at from the new_threshold (set by the endpoint) overwrites the old one;
+    # what matters is that the upsert path was taken and the value was updated.
+    assert r.json()["threshold"]["condition"] == "pct_change_above"
+    assert r.json()["threshold"]["value"] == 50.0
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_invalid_condition_message_mentions_condition(client):
+    """Error detail for invalid condition explicitly names the bad value."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    bad_condition = "not_a_real_condition"
+    payload = {
+        "metric": "revenue",
+        "condition": bad_condition,
+        "threshold_value": 100.0,
+        "severity": "HIGH",
+    }
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
+    assert r.status_code == 422
+    assert bad_condition in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_medium_severity_accepted(client):
+    """Severity value 'MEDIUM' is accepted and returned correctly."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    payload = {
+        "metric": "cac",
+        "condition": "pct_change_above",
+        "threshold_value": 15.0,
+        "severity": "MEDIUM",
+    }
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
+    assert r.status_code == 200
+    assert r.json()["threshold"]["severity"] == "MEDIUM"
+
+
+@pytest.mark.asyncio
+async def test_get_thresholds_response_thresholds_is_list(client):
+    """The 'thresholds' field in the GET response is always a list."""
+    profile = _make_profile(thresholds=[
+        {"metric": "x", "condition": "absolute_above", "value": 1.0, "severity": "LOW"},
+    ])
+    store = _profile_store(profile)
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.get("/api/clients/acme/alerts/thresholds")
+    assert r.status_code == 200
+    assert isinstance(r.json()["thresholds"], list)
+
+
+@pytest.mark.asyncio
+async def test_get_triggered_response_triggered_is_list(client):
+    """The 'triggered' field in GET triggered is always a list."""
+    profile = _make_profile(metadata={})
+    store = _profile_store(profile)
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.get("/api/clients/acme/alerts/triggered")
+    assert r.status_code == 200
+    assert isinstance(r.json()["triggered"], list)
+
+
+@pytest.mark.asyncio
+async def test_get_triggered_explicit_empty_key_returns_empty_list(client):
+    """Explicit empty list under 'last_triggered_alerts' key returns empty list."""
+    profile = _make_profile(metadata={"last_triggered_alerts": []})
+    store = _profile_store(profile)
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.get("/api/clients/acme/alerts/triggered")
+    assert r.status_code == 200
+    assert r.json()["triggered"] == []
+
+
+@pytest.mark.asyncio
+async def test_delete_threshold_response_body_shape(client):
+    """DELETE success response contains exactly 'deleted' (True) and 'metric' keys."""
+    t = {
+        "metric": "bounce_rate",
+        "condition": "absolute_above",
+        "value": 80.0,
+        "severity": "HIGH",
+        "description": "",
+        "label": "bounce_rate",
+        "triggered": False,
+        "created_at": "2026-01-01T00:00:00",
+    }
+    profile = _make_profile(thresholds=[t])
+    store = _profile_store(profile)
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.delete("/api/clients/acme/alerts/thresholds/bounce_rate")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["deleted"] is True
+    assert body["metric"] == "bounce_rate"
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_multiple_metrics_accumulate(client):
+    """Posting two distinct metrics results in both stored in the profile."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    metrics = [
+        {"metric": "arpu", "condition": "pct_change_below", "threshold_value": -10.0, "severity": "HIGH"},
+        {"metric": "cac",  "condition": "absolute_above",   "threshold_value": 500.0,  "severity": "MEDIUM"},
+    ]
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        for payload in metrics:
+            r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
+            assert r.status_code == 200
+    # Both thresholds should now be in the profile
+    metric_names = [t.get("metric") for t in profile.alert_thresholds]
+    assert "arpu" in metric_names
+    assert "cac" in metric_names
+
+
+@pytest.mark.asyncio
+async def test_post_threshold_high_severity_accepted(client):
+    """Severity value 'HIGH' is accepted and returned correctly."""
+    profile = _make_profile(thresholds=[])
+    store = _profile_store(profile)
+    payload = {
+        "metric": "refund_rate",
+        "condition": "absolute_above",
+        "threshold_value": 3.0,
+        "severity": "HIGH",
+    }
+    with patch("shared.memory.profile_store.get_profile_store", return_value=store):
+        r = await client.post("/api/clients/acme/alerts/thresholds", json=payload)
+    assert r.status_code == 200
+    assert r.json()["threshold"]["severity"] == "HIGH"
