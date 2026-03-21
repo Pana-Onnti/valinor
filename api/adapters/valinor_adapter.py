@@ -473,9 +473,20 @@ RETURN ONLY THE JSON OBJECT."""
 
             results["data_quality"] = {
                 "score": dq_report.overall_score,
-                "decision": dq_report.gate_decision,
+                "label": dq_report.confidence_label,
+                "confidence_label": dq_report.confidence_label,  # backward-compat alias
                 "tag": dq_report.data_quality_tag,
-                "confidence_label": dq_report.confidence_label,
+                "gate_decision": dq_report.gate_decision,
+                "decision": dq_report.gate_decision,  # backward-compat alias
+                "checks": [
+                    {
+                        "name": c.check_name if hasattr(c, "check_name") else str(c),
+                        "passed": getattr(c, "passed", True),
+                        "severity": getattr(c, "severity", ""),
+                        "score_impact": getattr(c, "score_impact", 0),
+                    }
+                    for c in dq_report.checks
+                ],
                 "warnings": dq_report.warnings[:5],
                 "blocking_issues": dq_report.blocking_issues,
             }

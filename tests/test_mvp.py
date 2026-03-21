@@ -210,94 +210,82 @@ class TestValinorAdapter:
     
     def setup_method(self):
         self.progress_updates = []
-        
+
         async def mock_progress(stage, progress, message):
             self.progress_updates.append({
                 "stage": stage,
                 "progress": progress,
                 "message": message
             })
-        
+
         self.adapter = ValinorAdapter(progress_callback=mock_progress)
-    
+
+        # Replace internal storage with AsyncMocks so no real I/O happens and the
+        # adapter's except-block (which also calls store_job_results) works correctly.
+        mock_storage = AsyncMock()
+        mock_storage.store_job_metadata = AsyncMock(return_value=True)
+        mock_storage.store_job_results = AsyncMock(return_value=True)
+        mock_storage.get_client_memory = AsyncMock(return_value=None)
+        mock_storage.store_client_memory = AsyncMock(return_value=True)
+        self.adapter.metadata_storage = mock_storage
+
     @pytest.mark.asyncio
-    @patch('api.adapters.valinor_adapter.create_ssh_tunnel')
-    @patch('api.adapters.valinor_adapter.run_cartographer')
-    @patch('api.adapters.valinor_adapter.build_queries')
-    @patch('api.adapters.valinor_adapter.execute_queries')
-    @patch('api.adapters.valinor_adapter.run_analysis_agents')
-    @patch('api.adapters.valinor_adapter.narrate_executive')
-    @patch('api.adapters.valinor_adapter.deliver_reports')
-    @patch('shared.ssh_tunnel.ZeroTrustValidator.validate_ssh_config', return_value=True)
-    @patch('shared.ssh_tunnel.ZeroTrustValidator.validate_db_config', return_value=True)
-    async def test_run_analysis_success(self, mock_validate_db, mock_validate_ssh,
-                                      mock_deliver, mock_narrate, mock_agents,
-                                      mock_execute, mock_build, mock_cartographer, mock_tunnel):
-        """Test successful analysis run."""
-        
-        # Mock SSH tunnel context manager
-        mock_tunnel.return_value.__enter__.return_value = "postgresql://user:pass@localhost:5432/test"
-        mock_tunnel.return_value.__exit__.return_value = None
-        
-        # Mock cartographer
-        mock_cartographer.return_value = {
-            "entities": {
-                "customers": {"row_count": 1000},
-                "invoices": {"row_count": 5000}
-            }
-        }
-        
-        # Mock query builder
-        mock_build.return_value = {
-            "queries": ["SELECT * FROM customers", "SELECT * FROM invoices"],
-            "skipped": []
-        }
-        
-        # Mock query execution
-        mock_execute.return_value = {
-            "results": [{"data": "customer_data"}, {"data": "invoice_data"}],
-            "errors": []
-        }
-        
-        # Mock analysis agents
-        mock_agents.return_value = {
-            "customer_agent": {"findings": [{"type": "insight", "message": "test finding"}]},
-            "financial_agent": {"findings": [{"type": "warning", "message": "test warning"}]}
-        }
-        
-        # Mock narrators
-        mock_narrate.return_value = {
-            "executive_summary": "Test executive summary",
-            "ceo_report": "Test CEO report"
-        }
-        
-        # Mock deliver
-        mock_deliver.return_value = True
-        
-        # Test configuration
-        connection_config = {
-            "ssh_config": {
-                "host": "test.example.com",
-                "username": "testuser",
-                "private_key_path": "/test/key"
+    async def test_run_analysis_success(self):
+        """Test successful analysis run with all external calls mocked."""
+
+        pipeline_result = {
+            "stages": {
+                "cartographer": {"entities_found": 2, "success": True},
+                "query_builder": {"queries_built": 2, "success": True},
+                "analysis_agents": {"agents_completed": ["analyst"], "success": True},
+                "narrators": {"reports_generated": 1, "success": True},
             },
-            "db_config": {
-                "host": "localhost",
-                "port": 5432,
-                "name": "testdb",
-                "type": "postgres",
-                "connection_string": "postgresql://user:pass@{host}:{port}/{database}"
-            }
+            "findings": {
+                "customer_agent": {"findings": [{"type": "insight", "message": "test finding"}]},
+            },
+            "reports": {"executive": "Test executive summary"},
+            "run_delta": {},
         }
-        
-        # Run analysis
-        results = await self.adapter.run_analysis(
-            job_id="test-job-001",
-            client_name="test_client",
-            connection_config=connection_config,
-            period="Q1-2025"
-        )
-        
+
+        async def _mock_pipeline(*args, **kwargs):
+            return pipeline_result
+
+        # Patch validator to accept any config, and the SSH tunnel + pipeline to avoid
+        # real network/DB calls.
+        _stat_mock = Mock()
+        _stat_mock.st_mode = 0o600
+        with patch('shared.ssh_tunnel.ZeroTrustValidator.validate_ssh_config', return_value=True), \
+             patch('shared.ssh_tunnel.ZeroTrustValidator.validate_db_config', return_value=True), \
+             patch('api.adapters.valinor_adapter.create_ssh_tunnel') as mock_tunnel:
+
+            mock_tunnel.return_value.__enter__ = Mock(
+                return_value="postgresql://user:pass@localhost:5432/testdb"
+            )
+            mock_tunnel.return_value.__exit__ = Mock(return_value=False)
+            self.adapter._run_pipeline_with_progress = _mock_pipeline
+
+            connection_config = {
+                "ssh_config": {
+                    "host": "test.example.com",
+                    "username": "testuser",
+                    "private_key_path": "/test/key"
+                },
+                "db_config": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "name": "testdb",
+                    "type": "postgres",
+                    "connection_string": "postgresql://user:pass@localhost:5432/testdb"
+                }
+            }
+
+            results = await self.adapter.run_analysis(
+                job_id="test-job-001",
+                client_name="test_client",
+                connection_config=connection_config,
+                period="Q1-2025"
+            )
+
         # Verify results
         assert results["job_id"] == "test-job-001"
         assert results["status"] == "completed"
@@ -305,7 +293,7 @@ class TestValinorAdapter:
         assert "findings" in results
         assert "reports" in results
         assert results["execution_time_seconds"] > 0
-        
+
         # Verify progress updates were called
         assert len(self.progress_updates) > 0
         assert any(update["stage"] == "validating" for update in self.progress_updates)

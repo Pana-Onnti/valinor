@@ -27,6 +27,9 @@ from valinor.quality.provenance import ProvenanceRegistry, FindingProvenance
 from valinor.quality.anomaly_detector import AnomalyDetector
 from valinor.agents.narrators.quality_certifier import certify_report
 from memory.segmentation_engine import SegmentationEngine
+from memory.profile_extractor import ProfileExtractor
+from memory.client_profile import ClientProfile
+from memory.adaptive_context_builder import build_adaptive_context
 
 
 # ---------------------------------------------------------------------------
@@ -817,3 +820,204 @@ class TestQualityCertifierIntegration:
         )
         assert isinstance(certified, str)
         assert len(certified) >= len(self._SAMPLE_REPORT)
+
+
+# ---------------------------------------------------------------------------
+# TestProfileExtractorIntegration
+# ---------------------------------------------------------------------------
+
+class TestProfileExtractorIntegration:
+    """
+    Test ProfileExtractor.update_from_run() with synthetic finding dicts and
+    a fresh ClientProfile, verifying delta computation, run_history cap,
+    severity escalation, KPI extraction, and resolved-finding migration.
+    """
+
+    def _make_profile(self, name: str = "TestCorp") -> ClientProfile:
+        return ClientProfile.new(name)
+
+    def _make_findings(self, ids_with_severity) -> dict:
+        """
+        Build a findings dict in the format expected by update_from_run().
+        ids_with_severity: list of (finding_id, severity, title) tuples.
+        """
+        findings_list = [
+            {"id": fid, "severity": sev, "title": title}
+            for fid, sev, title in ids_with_severity
+        ]
+        return {"analyst": {"findings": findings_list}}
+
+    def test_new_vs_existing_findings(self):
+        """update_from_run() correctly classifies brand-new vs existing findings."""
+        extractor = ProfileExtractor()
+        profile = self._make_profile()
+
+        # First run — all three are new
+        findings_run1 = self._make_findings([
+            ("F001", "HIGH", "High AR overdue"),
+            ("F002", "MEDIUM", "Duplicate invoices"),
+        ])
+        delta1 = extractor.update_from_run(
+            profile, findings_run1, {}, {}, period="2025-01"
+        )
+        assert set(delta1["new"]) == {"F001", "F002"}
+        assert delta1["persists"] == []
+
+        # Second run — F001 and F002 persist, F003 is new
+        findings_run2 = self._make_findings([
+            ("F001", "HIGH", "High AR overdue"),
+            ("F002", "MEDIUM", "Duplicate invoices"),
+            ("F003", "LOW", "Minor rounding gap"),
+        ])
+        delta2 = extractor.update_from_run(
+            profile, findings_run2, {}, {}, period="2025-02"
+        )
+        assert "F003" in delta2["new"]
+        assert "F001" in delta2["persists"] or "F001" in delta2["worsened"] or "F001" in delta2["improved"]
+        assert "F002" in delta2["persists"] or "F002" in delta2["worsened"] or "F002" in delta2["improved"]
+
+    def test_runs_open_increments_on_persistent_finding(self):
+        """runs_open counter increments each time a finding reappears."""
+        extractor = ProfileExtractor()
+        profile = self._make_profile()
+        findings = self._make_findings([("F001", "MEDIUM", "Persistent issue")])
+
+        for period_idx in range(1, 4):
+            extractor.update_from_run(
+                profile, findings, {}, {}, period=f"2025-0{period_idx}"
+            )
+
+        rec = profile.known_findings["F001"]
+        assert rec["runs_open"] == 3
+
+    def test_resolved_findings_move_on_disappearance(self):
+        """A finding absent from the current run is moved to resolved_findings."""
+        extractor = ProfileExtractor()
+        profile = self._make_profile()
+
+        # Run 1: F001 appears
+        extractor.update_from_run(
+            profile,
+            self._make_findings([("F001", "HIGH", "Issue A")]),
+            {}, {}, period="2025-01",
+        )
+        assert "F001" in profile.known_findings
+
+        # Run 2: F001 absent — should be resolved
+        extractor.update_from_run(
+            profile, self._make_findings([]), {}, {}, period="2025-02"
+        )
+        assert "F001" not in profile.known_findings
+        assert "F001" in profile.resolved_findings
+        assert "resolved_at" in profile.resolved_findings["F001"]
+
+    def test_severity_escalation_at_runs_open_5(self):
+        """Findings open for >= 5 consecutive runs are auto-escalated one severity level."""
+        extractor = ProfileExtractor()
+        profile = self._make_profile()
+        findings = self._make_findings([("F001", "LOW", "Stale finding")])
+
+        # Simulate 5 consecutive runs
+        for i in range(1, 6):
+            extractor.update_from_run(
+                profile, findings, {}, {}, period=f"2025-{i:02d}"
+            )
+
+        rec = profile.known_findings["F001"]
+        # After 5 runs, LOW should have been escalated to MEDIUM
+        assert rec["severity"] in ("MEDIUM", "HIGH", "CRITICAL")
+        assert rec.get("auto_escalated") is True
+
+    def test_kpi_extraction_from_report_markdown(self):
+        """KPIs found in executive report markdown are stored in baseline_history."""
+        extractor = ProfileExtractor()
+        profile = self._make_profile()
+
+        report_md = (
+            "## Resumen Ejecutivo\n\n"
+            "**Facturación Total**: $12.3M en el periodo.\n"
+            "**Cobranza Pendiente**: ARS 4.5M (32%)\n"
+            "**Margen Bruto**: 45%\n"
+        )
+        extractor.update_from_run(
+            profile, {}, {}, {"executive": report_md}, period="2025-01"
+        )
+
+        # At least one KPI should have been extracted
+        assert len(profile.baseline_history) >= 1
+        # The "Facturación Total" KPI should be present
+        assert "Facturación Total" in profile.baseline_history
+
+    def test_run_history_capped_at_20(self):
+        """run_history never exceeds 20 entries regardless of how many runs complete."""
+        extractor = ProfileExtractor()
+        profile = self._make_profile()
+        findings = self._make_findings([])
+
+        for i in range(1, 26):  # 25 runs
+            extractor.update_from_run(
+                profile, findings, {}, {}, period=f"2025-{i:02d}"
+            )
+
+        assert len(profile.run_history) == 20
+
+
+# ---------------------------------------------------------------------------
+# TestAdaptiveContextBuilderIntegration
+# ---------------------------------------------------------------------------
+
+class TestAdaptiveContextBuilderIntegration:
+    """
+    Test build_adaptive_context() with various ClientProfile states:
+    fresh profile, populated profile with baseline history, and empty profile.
+    """
+
+    def _make_profile(self, name: str = "Acme Corp") -> ClientProfile:
+        return ClientProfile.new(name)
+
+    def test_build_adaptive_context_returns_non_empty_string(self):
+        """build_adaptive_context(profile) must return a non-empty string."""
+        profile = self._make_profile()
+        result = build_adaptive_context(profile)
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+    def test_build_adaptive_context_includes_client_name(self):
+        """The returned context must contain the client's name."""
+        profile = self._make_profile("Omega Industries")
+        result = build_adaptive_context(profile)
+        assert "Omega Industries" in result
+
+    def test_build_adaptive_context_handles_empty_profile_gracefully(self):
+        """No exception is raised and a non-empty string is returned for a minimal profile."""
+        profile = ClientProfile(client_name="Empty Client")
+        # Ensure all optional fields are at their defaults
+        assert profile.baseline_history == {}
+        assert profile.known_findings == {}
+        assert profile.run_history == []
+
+        try:
+            result = build_adaptive_context(profile)
+        except Exception as exc:
+            pytest.fail(f"build_adaptive_context raised an exception on empty profile: {exc}")
+
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+    def test_build_adaptive_context_includes_baseline_history(self):
+        """When baseline_history is populated, the context block mentions those KPIs."""
+        profile = self._make_profile("Revenue Corp")
+        profile.baseline_history = {
+            "Facturación Total": [
+                {
+                    "period": "2025-01",
+                    "label": "Facturación Total",
+                    "value": "$12.3M",
+                    "numeric_value": 12_300_000.0,
+                    "run_date": "2025-01-31T00:00:00",
+                }
+            ]
+        }
+        result = build_adaptive_context(profile)
+        assert "Facturación Total" in result
+        assert "$12.3M" in result

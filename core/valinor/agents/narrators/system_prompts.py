@@ -126,6 +126,20 @@ def build_executive_system_prompt(memory: dict) -> str:
     if benford_ctx:
         extra_sections.append(f"## ALERTA LEY DE BENFORD\n{benford_ctx}")
 
+    query_ctx = memory.get("query_evolution_context", "")
+    if query_ctx and isinstance(query_ctx, dict):
+        empty = query_ctx.get("empty_queries", [])
+        high_val = query_ctx.get("high_value_tables", [])
+        parts = []
+        if empty:
+            parts.append(f"Consultas sin resultados: {', '.join(empty[:5])}")
+        if high_val:
+            parts.append(f"Tablas de alto valor: {', '.join(high_val[:5])}")
+        if parts:
+            extra_sections.append("## EVOLUCIÓN DE CONSULTAS\n" + "\n".join(parts))
+    elif isinstance(query_ctx, str) and query_ctx:
+        extra_sections.append(f"## EVOLUCIÓN DE CONSULTAS\n{query_ctx}")
+
     run_history_summary = memory.get("run_history_summary", {})
     if isinstance(run_history_summary, dict):
         persistent_findings = run_history_summary.get("persistent_findings", [])

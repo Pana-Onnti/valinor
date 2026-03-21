@@ -408,6 +408,24 @@ async def start_analysis(
         client_name = request.client_name or request.db_config.get_db_name() or "unknown"
         period = request.period or "unspecified"
 
+        # Per-client monthly analysis limit: max 25 analyses per client per month
+        current_month = datetime.utcnow().strftime("%Y-%m")
+        monthly_key = f"monthly_limit:{client_name}:{current_month}"
+        monthly_count = await redis_client.incr(monthly_key)
+        if monthly_count == 1:
+            # First increment — set TTL of 33 days so the key auto-expires after the month
+            await redis_client.expire(monthly_key, 33 * 86400)
+        if monthly_count > 25:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "error": "monthly_limit_reached",
+                    "client": client_name,
+                    "limit": 25,
+                    "message": "Monthly analysis limit reached",
+                }
+            )
+
         # Per-client concurrent job limit: max 2 running jobs per client_name
         running_count = 0
         async for key in redis_client.scan_iter("job:*"):
