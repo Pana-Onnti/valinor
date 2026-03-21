@@ -139,10 +139,10 @@ docker-compose up  # Everything local
 - [x] Quality report page — resultados del DQ Gate
 - [x] Anomaly explorer — detalle de patrones detectados
 
-#### Phase 5: Deployment 📅
+#### Phase 5: Deployment 🔄
 - [ ] Cloudflare Workers
 - [ ] GitHub Actions workflows
-- [ ] Monitoring setup
+- [x] Monitoring setup — Prometheus + Grafana + Loki + Promtail corriendo en Docker
 
 #### Phase 6: Quality Pipeline ✅
 - [x] **DQ Check 1** — Row count vs baseline (schema drift guard)
@@ -160,12 +160,13 @@ docker-compose up  # Everything local
 ## 🔧 COMMON COMMANDS
 
 ```bash
-# Development
-docker compose up -d        # Start all services (detached)
-docker compose ps           # Ver estado de containers
-docker compose logs -f api  # Ver logs de la API
-docker compose down         # Detener servicios
-docker compose down -v      # Reset completo (borra volúmenes)
+# Development — arranque completo
+docker compose up -d                    # Start all services (detached)
+python3 scripts/claude_proxy.py &       # OBLIGATORIO: proxy del CLI de Claude (puerto 8099)
+docker compose ps                       # Ver estado de containers
+docker compose logs -f api              # Ver logs de la API en tiempo real
+docker compose down                     # Detener servicios
+docker compose down -v                  # Reset completo (borra volúmenes)
 
 # Rebuild tras cambios en requirements o Dockerfiles
 docker compose build api worker
@@ -185,19 +186,29 @@ python shared/ssh_tunnel.py test --host client.com --key ~/.ssh/id_rsa
 
 # Verificar salud del sistema
 curl http://localhost:8000/health
+curl http://localhost:8099/health       # Verificar proxy Claude CLI
 ```
 
 ## 🔌 PUERTOS EN USO (DOCKER)
 
 Los puertos del host fueron ajustados porque 5432 y 6379 están ocupados por servicios locales:
 
-| Servicio   | Puerto Host | Puerto Container |
-|------------|-------------|-----------------|
-| API        | 8000        | 8000            |
-| Frontend   | 3000        | 3000            |
-| PostgreSQL | **5450**    | 5432            |
-| Redis      | **6380**    | 6379            |
-| Prometheus | 9090        | 9090            |
+| Servicio    | Puerto Host | Puerto Container | URL                              |
+|-------------|-------------|-----------------|----------------------------------|
+| API         | 8000        | 8000            | http://localhost:8000/docs       |
+| Frontend    | 3000        | 3000            | http://localhost:3000            |
+| PostgreSQL  | **5450**    | 5432            | (valinor metadata DB)            |
+| Redis       | **6380**    | 6379            |                                  |
+| Prometheus  | 9090        | 9090            | http://localhost:9090            |
+| Grafana     | 3001        | 3000            | http://localhost:3001 (admin/valinor) |
+| Loki        | 3100        | 3100            | (log backend, no UI directa)     |
+| Promtail    | 9080        | 9080            | http://localhost:9080/targets    |
+| Claude Proxy| 8099        | —               | http://localhost:8099/health     |
+
+**IMPORTANTE — DB del cliente (gloria/Openbravo):**
+- Host: `localhost` (NO `host.docker.internal`) — la API corre con `network_mode: host`
+- Puerto: `5432` (NO `5444`) — postgres local del host
+- Usuario: `tad` / Password: `tad` / DB: `gloria`
 
 ## 📦 DEPENDENCIAS CLAVE (ESTADO ACTUAL)
 
@@ -222,6 +233,22 @@ La suite llegó a 2481 tests. Hay duplicados. La próxima vez que se toque un m�
 4. No agregar tests en masa de nuevo sin este criterio.
 
 ## ⚠️ KNOWN ISSUES & SOLUTIONS
+
+### Issue: "Claude CLI not available locally and proxy not reachable"
+**Causa**: El proxy del CLI de Claude no está corriendo en el host.
+**Solution**: `python3 scripts/claude_proxy.py &` — debe correr en el host (no en Docker). Verificar: `curl http://localhost:8099/health`. El proxy usa la sesión autenticada del browser (Plan Max), no API key.
+
+### Issue: Análisis falla con "Connection refused" a la DB del cliente
+**Causa**: El adapter tenía lógica que remapeaba `localhost:5432` → `host.docker.internal:5444`. Ya fue removida (commit actual).
+**Solution**: Usar siempre `localhost` como host en el form. La API corre con `network_mode: host`, así que `localhost` dentro del contenedor ES el localhost del host. **Nunca usar `host.docker.internal` para la DB del cliente.**
+
+### Issue: Worker crashea con "No module named 'api'"
+**Causa**: `Dockerfile.worker` no copiaba el directorio `api/`. Ya corregido en `docker-compose.yml` (volumen `./api:/app/api`).
+**Solution**: Ya resuelto. Si vuelve a pasar, verificar que `./api:/app/api` esté en los volúmenes del worker.
+
+### Issue: Logs no aparecen en Grafana/Loki
+**Causa**: El docker_sd_configs de Promtail usa Docker API v1.42 pero el daemon exige mínimo v1.44.
+**Solution**: Promtail usa lectura directa de archivos (`/var/lib/docker/containers/*/*.log`) con `user: root`. El tag del servicio viene del log-opt `tag: "{{.Name}}"` configurado en cada servicio del compose.
 
 ### Issue: Supabase auto-pause after 7 days
 **Solution**: Upgrade to Pro ($25/mes) when annoying
