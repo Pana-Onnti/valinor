@@ -752,17 +752,35 @@ async def get_clients_summary():
     """Aggregated summary of all clients for operator dashboard."""
     import sys, os, glob as _glob, json as _json
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
 
-    profile_dir = "/tmp/valinor_profiles"
-    os.makedirs(profile_dir, exist_ok=True)
-
+    # Load all client names first (from list_clients), then load each profile
+    # This ensures we read from DB when available, not just local files
+    store = get_profile_store()
     all_profiles_data = []
-    for path in _glob.glob(os.path.join(profile_dir, "*.json")):
-        try:
-            data = _json.loads(open(path).read())
-            all_profiles_data.append(data)
-        except Exception:
-            pass
+
+    # Try DB first via asyncpg pool
+    try:
+        pool = await store._get_pool()
+        if pool:
+            async with pool.acquire() as conn:
+                rows = await conn.fetch("SELECT profile FROM client_profiles")
+                for row in rows:
+                    try:
+                        all_profiles_data.append(_json.loads(row["profile"]))
+                    except Exception:
+                        pass
+        else:
+            raise Exception("no pool")
+    except Exception:
+        # Fallback: local JSON files
+        profile_dir = "/tmp/valinor_profiles"
+        os.makedirs(profile_dir, exist_ok=True)
+        for path in _glob.glob(os.path.join(profile_dir, "*.json")):
+            try:
+                all_profiles_data.append(_json.loads(open(path).read()))
+            except Exception:
+                pass
 
     total_critical = sum(
         sum(1 for f in p.get("known_findings", {}).values() if isinstance(f, dict) and f.get("severity") == "CRITICAL")
