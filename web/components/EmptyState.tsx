@@ -1,27 +1,70 @@
+import { T } from '@/components/d4c/tokens';
+
 interface EmptyStateProps {
-  icon?: string;
+  symbol?: string;   // unicode symbol, not emoji
   title: string;
   description?: string;
   action?: { label: string; onClick: () => void };
 }
 
 export default function EmptyState({
-  icon = '📭',
+  symbol = '◌',
   title,
   description,
   action,
 }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="text-4xl mb-4">{icon}</div>
-      <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: `${T.space.xxl} ${T.space.lg}`,
+      textAlign: 'center',
+    }}>
+      <div style={{
+        fontSize: 32,
+        color: T.text.tertiary,
+        marginBottom: T.space.md,
+        fontFamily: T.font.mono,
+      }}>
+        {symbol}
+      </div>
+      <h3 style={{
+        fontSize: 16,
+        fontWeight: 600,
+        color: T.text.primary,
+        margin: 0,
+        fontFamily: T.font.display,
+      }}>
+        {title}
+      </h3>
       {description && (
-        <p className="mt-1 text-sm text-gray-500 max-w-sm">{description}</p>
+        <p style={{
+          marginTop: T.space.xs,
+          fontSize: 13,
+          color: T.text.secondary,
+          maxWidth: 360,
+          lineHeight: 1.5,
+        }}>
+          {description}
+        </p>
       )}
       {action && (
         <button
           onClick={action.onClick}
-          className="mt-4 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm"
+          style={{
+            marginTop: T.space.md,
+            padding: `${T.space.sm} ${T.space.md}`,
+            backgroundColor: T.accent.teal,
+            color: T.text.inverse,
+            border: 'none',
+            borderRadius: T.radius.sm,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontFamily: T.font.display,
+          }}
         >
           {action.label}
         </button>

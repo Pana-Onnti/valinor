@@ -2,20 +2,55 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { T } from '@/components/d4c/tokens';
 
 interface NavItem {
   href: string;
   label: string;
-  icon: string;
+  icon: string;   // unicode symbol — no emojis
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/dashboard',     label: 'Dashboard',      icon: '📊' },
-  { href: '/clients',       label: 'Clients',         icon: '🏢' },
-  { href: '/new-analysis',  label: 'New Analysis',    icon: '🔍' },
-  { href: '/onboarding',    label: 'Onboarding',      icon: '🚀' },
-  { href: '/docs',          label: 'Docs',            icon: '📖' },
+  { href: '/dashboard',    label: 'Dashboard',     icon: '⊡' },
+  { href: '/clients',      label: 'Clients',        icon: '◫' },
+  { href: '/new-analysis', label: 'New Analysis',   icon: '⊕' },
+  { href: '/onboarding',   label: 'Onboarding',     icon: '◇' },
+  { href: '/docs',         label: 'Docs',           icon: '☰' },
 ];
+
+const sidebarStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  backgroundColor: T.bg.card,
+  borderRight: T.border.card,
+  height: '100vh',
+  position: 'sticky',
+  top: 0,
+  width: '64px',
+  flexShrink: 0,
+};
+
+const brandStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: T.space.sm,
+  padding: `${T.space.lg} ${T.space.md}`,
+  borderBottom: T.border.card,
+};
+
+const navStyle: React.CSSProperties = {
+  flex: 1,
+  padding: `${T.space.sm} ${T.space.sm}`,
+  overflowY: 'auto',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '2px',
+};
+
+const footerStyle: React.CSSProperties = {
+  padding: `${T.space.md} ${T.space.md}`,
+  borderTop: T.border.card,
+};
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -24,17 +59,23 @@ export default function Sidebar() {
     pathname === href || (href !== '/' && pathname.startsWith(href));
 
   return (
-    <aside className="flex flex-col bg-gray-900 text-gray-100 h-screen sticky top-0 w-14 md:w-64 shrink-0 transition-all duration-200">
+    <aside style={sidebarStyle}>
       {/* Brand */}
-      <div className="flex items-center gap-3 px-3 md:px-5 py-5 border-b border-gray-700">
-        <span className="text-2xl leading-none shrink-0">📈</span>
-        <span className="hidden md:block text-lg font-bold tracking-tight text-white">
-          Valinor
+      <div style={brandStyle}>
+        <span style={{
+          fontFamily: T.font.mono,
+          fontSize: 16,
+          fontWeight: 700,
+          color: T.accent.teal,
+          flexShrink: 0,
+          letterSpacing: '-0.02em',
+        }}>
+          D4
         </span>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-2 md:px-3 py-4 space-y-1 overflow-y-auto">
+      <nav style={navStyle}>
         {NAV_ITEMS.map(({ href, label, icon }) => {
           const active = isActive(href);
           return (
@@ -42,29 +83,28 @@ export default function Sidebar() {
               key={href}
               href={href}
               title={label}
-              className={`
-                flex items-center gap-3 rounded-lg px-2 md:px-3 py-2.5 text-sm font-medium
-                transition-colors duration-150
-                ${active
-                  ? 'bg-violet-600 text-white'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-                }
-              `}
+              className={`d4c-nav-link${active ? ' active' : ''}`}
             >
-              <span className="text-base leading-none shrink-0">{icon}</span>
-              <span className="hidden md:block">{label}</span>
+              <span style={{ fontSize: 16, lineHeight: 1, flexShrink: 0, width: 20, textAlign: 'center' }}>
+                {icon}
+              </span>
             </Link>
           );
         })}
       </nav>
 
       {/* Footer */}
-      <div className="px-3 md:px-5 py-4 border-t border-gray-700">
-        <p className="hidden md:block text-xs text-gray-500 leading-snug">
-          <span className="block font-medium text-gray-400">Delta 4C</span>
-          v2.0.0
+      <div style={footerStyle}>
+        <p style={{
+          fontFamily: T.font.mono,
+          fontSize: 9,
+          color: T.text.tertiary,
+          margin: 0,
+          textAlign: 'center',
+          letterSpacing: '0.05em',
+        }}>
+          v2
         </p>
-        <p className="md:hidden text-xs text-gray-600 text-center">v2</p>
       </div>
     </aside>
   );

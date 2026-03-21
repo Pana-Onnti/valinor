@@ -1,43 +1,54 @@
+import { T } from '@/components/d4c/tokens';
+
 interface SkeletonCardProps {
   lines?: number;
   hasHeader?: boolean;
   hasStats?: boolean;
-  className?: string;
+  style?: React.CSSProperties;
 }
+
+const shimmer: React.CSSProperties = {
+  backgroundColor: T.bg.elevated,
+  borderRadius: 4,
+  animation: 'pulse 1.5s ease-in-out infinite',
+};
+
+const LINE_WIDTHS = ['100%', '80%', '60%', '67%', '50%'];
 
 export default function SkeletonCard({
   lines = 3,
   hasHeader = true,
   hasStats = false,
-  className = '',
+  style,
 }: SkeletonCardProps) {
-  const lineWidths = ['w-full', 'w-4/5', 'w-3/5', 'w-2/3', 'w-1/2'];
-
   return (
-    <div className={`rounded-xl border border-gray-200 bg-white p-6 animate-pulse ${className}`}>
+    <div style={{
+      backgroundColor: T.bg.card,
+      border: T.border.card,
+      borderRadius: T.radius.md,
+      padding: T.space.lg,
+      ...style,
+    }}>
       {hasHeader && (
-        <div className="mb-4">
-          <div className="h-4 w-2/3 bg-gray-200 rounded" />
+        <div style={{ marginBottom: T.space.md }}>
+          <div style={{ ...shimmer, height: 14, width: '67%' }} />
         </div>
       )}
 
       {hasStats && (
-        <div className="flex gap-4 mb-4">
+        <div style={{ display: 'flex', gap: T.space.md, marginBottom: T.space.md }}>
           {[0, 1, 2].map((i) => (
-            <div key={i} className="flex flex-col items-center gap-1.5">
-              <div className="h-8 w-16 bg-gray-200 rounded" />
-              <div className="h-2.5 w-12 bg-gray-200 rounded" />
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <div style={{ ...shimmer, height: 32, width: 64 }} />
+              <div style={{ ...shimmer, height: 10, width: 48 }} />
             </div>
           ))}
         </div>
       )}
 
-      <div className="space-y-2">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {Array.from({ length: lines }).map((_, i) => (
-          <div
-            key={i}
-            className={`h-3 bg-gray-200 rounded ${lineWidths[i % lineWidths.length]}`}
-          />
+          <div key={i} style={{ ...shimmer, height: 12, width: LINE_WIDTHS[i % LINE_WIDTHS.length] }} />
         ))}
       </div>
     </div>
