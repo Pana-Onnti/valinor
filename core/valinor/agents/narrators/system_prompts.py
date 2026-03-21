@@ -99,9 +99,29 @@ def build_executive_system_prompt(memory: dict) -> str:
     if isinstance(run_history, dict) and run_history.get("currency"):
         currency_str = run_history["currency"]
 
-    return EXECUTIVE_SYSTEM_PROMPT.format(
+    # Build supplementary context sections
+    extra_sections = []
+
+    currency_ctx = memory.get("currency_context", "")
+    if currency_ctx:
+        extra_sections.append(f"## CONTEXTO DE MONEDA\n{currency_ctx}")
+
+    seg_ctx = memory.get("segmentation_context", "")
+    if seg_ctx:
+        extra_sections.append(f"## SEGMENTACIÓN DE CLIENTES (DATOS ACTUALES)\n{seg_ctx}")
+
+    anomaly_ctx = memory.get("statistical_anomalies", "")
+    if anomaly_ctx:
+        extra_sections.append(f"## ANOMALÍAS ESTADÍSTICAS DETECTADAS\n{anomaly_ctx}")
+
+    extra_block = "\n\n".join(extra_sections)
+    if extra_block:
+        extra_block = "\n\n" + extra_block
+
+    base_prompt = EXECUTIVE_SYSTEM_PROMPT.format(
         output_ko=OUTPUT_KO_PRINCIPLES,
         dq_instruction=DATA_QUALITY_INSTRUCTION.format(dq_context=dq_context),
         factor_instruction=FACTOR_MODEL_INSTRUCTION.format(factor_context=factor_context),
         currency=currency_str,
     )
+    return base_prompt + extra_block
