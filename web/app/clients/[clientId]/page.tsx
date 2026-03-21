@@ -250,6 +250,7 @@ function TabNav({ clientId, pathname }: { clientId: string; pathname: string }) 
     { label: 'Resumen',       href: `/clients/${clientId}` },
     { label: 'Historial',     href: `/clients/${clientId}/history` },
     { label: 'Hallazgos',     href: `/clients/${clientId}/findings` },
+    { label: 'Reportes',      href: `/clients/${clientId}/reports` },
     { label: 'Alertas',       href: `/clients/${clientId}/alerts` },
     { label: 'Costos',        href: `/clients/${clientId}/costs` },
     { label: 'KPIs',          href: `/clients/${clientId}/kpis` },
@@ -419,15 +420,81 @@ export default function ClientOverviewPage() {
         </motion.div>
 
         {/* ---------------------------------------------------------------- */}
+        {/* Quick stats row                                                   */}
+        {/* ---------------------------------------------------------------- */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {/* Total findings */}
+          <Link
+            href={`/clients/${clientId}/findings`}
+            className="group bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 px-5 py-4 shadow-sm hover:border-violet-200 dark:hover:border-violet-800 transition-colors"
+          >
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">Total Hallazgos</p>
+            <p className="text-2xl font-bold tabular-nums text-gray-900 dark:text-white">
+              {totalFindings}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {Object.keys(profile.known_findings).length} activos
+            </p>
+          </Link>
+
+          {/* Critical count */}
+          <Link
+            href={`/clients/${clientId}/findings`}
+            className="group bg-red-50 dark:bg-red-900/20 rounded-2xl border border-red-200 dark:border-red-800 px-5 py-4 shadow-sm hover:border-red-300 dark:hover:border-red-700 transition-colors"
+          >
+            <p className="text-xs font-semibold text-red-400 uppercase tracking-widest mb-1">Críticos</p>
+            <p className="text-2xl font-bold tabular-nums text-red-600 dark:text-red-400">
+              {Object.values(profile.known_findings).filter((f: any) => f.severity === 'critical').length}
+            </p>
+            <p className="text-xs text-red-400 mt-0.5">Requieren atención</p>
+          </Link>
+
+          {/* DQ score */}
+          <div className={`rounded-2xl border px-5 py-4 shadow-sm ${
+            latestDQScore === null
+              ? 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800'
+              : latestDQScore >= 90
+              ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
+              : latestDQScore >= 75
+              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+              : 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800'
+          }`}>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">Score DQ</p>
+            <p className={`text-2xl font-bold tabular-nums ${
+              latestDQScore === null ? 'text-gray-400 dark:text-gray-500' :
+              latestDQScore >= 90 ? 'text-emerald-600 dark:text-emerald-400' :
+              latestDQScore >= 75 ? 'text-amber-600 dark:text-amber-400' :
+              'text-orange-600 dark:text-orange-400'
+            }`}>
+              {latestDQScore !== null ? latestDQScore : '—'}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {latestDQScore === null ? 'Sin datos' : latestDQScore >= 90 ? 'Excelente' : latestDQScore >= 75 ? 'Aceptable' : 'Revisar'}
+            </p>
+          </div>
+
+          {/* Last run date */}
+          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 px-5 py-4 shadow-sm">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">Último Run</p>
+            <p className="text-sm font-bold text-gray-900 dark:text-white leading-snug">
+              {profile.last_run_date
+                ? new Date(profile.last_run_date).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })
+                : '—'}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">{profile.run_count} run{profile.run_count !== 1 ? 's' : ''} totales</p>
+          </div>
+        </div>
+
+        {/* ---------------------------------------------------------------- */}
         {/* Quick action buttons                                              */}
         {/* ---------------------------------------------------------------- */}
         <div className="flex flex-wrap gap-3">
           <Link
-            href="/new-analysis"
+            href={`/new-analysis?client=${encodeURIComponent(clientId)}`}
             className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors"
           >
             <PlayCircle className="h-4 w-4" />
-            Nuevo análisis
+            Ejecutar análisis
           </Link>
           <Link
             href={`/clients/${clientId}/history`}
@@ -446,7 +513,7 @@ export default function ClientOverviewPage() {
         </div>
 
         {/* ---------------------------------------------------------------- */}
-        {/* Stat cards: DQ score / total findings / total runs                */}
+        {/* Stat cards: DQ trend / total findings / total runs               */}
         {/* ---------------------------------------------------------------- */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatCard
@@ -573,11 +640,11 @@ export default function ClientOverviewPage() {
               </p>
             </div>
             <Link
-              href="/new-analysis"
+              href={`/new-analysis?client=${encodeURIComponent(clientId)}`}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors"
             >
               <PlayCircle className="h-4 w-4" />
-              Nuevo análisis
+              Ejecutar análisis
             </Link>
           </motion.div>
         )}
