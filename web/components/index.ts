@@ -1,13 +1,21 @@
+// Default exports
 export { default as AnalysisForm } from './AnalysisForm'
 export { default as AnalysisProgress } from './AnalysisProgress'
 export { default as ConnectionStatusBadge } from './ConnectionStatusBadge'
-export { default as DeltaPanel } from './DeltaPanel'
-export { default as DemoMode } from './DemoMode'
-export { default as DQScoreBadge } from './DQScoreBadge'
 export { default as EmptyState } from './EmptyState'
 export { default as ErrorBoundary } from './ErrorBoundary'
-export { default as FindingTimeline } from './FindingTimeline'
-export { default as KPITrendChart } from './KPITrendChart'
-export { default as ProvenanceBadge } from './ProvenanceBadge'
 export { default as ResultsDisplay } from './ResultsDisplay'
 export { default as SkeletonCard } from './SkeletonCard'
+
+// Named exports
+export { DQScoreBadge } from './DQScoreBadge'
+export type { DQScoreBadgeProps } from './DQScoreBadge'
+export { ProvenanceBadge } from './ProvenanceBadge'
+export type { ProvenanceBadgeProps } from './ProvenanceBadge'
+export { DeltaPanel } from './DeltaPanel'
+export type { FindingDelta } from './DeltaPanel'
+export { FindingTimeline } from './FindingTimeline'
+export { KPITrendChart } from './KPITrendChart'
+
+// DemoMode — multiple named exports
+export { DemoModeButton, DemoModeWrapper, DEMO_JOB_ID } from './DemoMode'
