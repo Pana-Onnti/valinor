@@ -213,6 +213,14 @@ Versiones relajadas en requirements.txt para compatibilidad con claude-agent-sdk
 - `cachetools>=5.5.0`
 - `supabase>=2.0.0`
 
+## 🧹 TEST SUITE HYGIENE
+
+La suite llegó a 2481 tests. Hay duplicados. La próxima vez que se toque un módulo:
+1. **Pasar `/simplify`** sobre los test files del módulo — eliminar tests que verifican lo mismo con datos trivialmente distintos
+2. **Consolidar con `@pytest.mark.parametrize`** en lugar de repetir funciones casi idénticas
+3. **Priorizar**: integration tests > contract tests > unit triviales
+4. No agregar tests en masa de nuevo sin este criterio.
+
 ## ⚠️ KNOWN ISSUES & SOLUTIONS
 
 ### Issue: Supabase auto-pause after 7 days
@@ -235,17 +243,20 @@ Versiones relajadas en requirements.txt para compatibilidad con claude-agent-sdk
 - **Cost per Analysis**: < $10
 - **Customer Onboarding**: < 30 minutes
 
-## 🎯 NEXT ACTIONS
+## 🎯 NEXT ACTIONS (Phase 5 — lo que falta)
 
-1. **Immediate**: Setup Docker environment
-2. **This Week**: Migrate core to adapter pattern
-3. **Next Week**: API endpoints + queue system
-4. **Month 1**: MVP with 3 test clients
-5. **Month 2**: Production deployment
+1. **Cloudflare Workers** — deploy edge de la API (ver `deploy/`)
+2. **GitHub Actions workflows** — análisis como jobs asíncronos en CI
+3. **Supabase** — migrar metadata de PostgreSQL local a Supabase (free tier)
+4. **Monitoring** — Prometheus + Grafana en producción
+5. **Primeros 3 clientes reales** — validar pipeline con datos reales
+
+> Todo lo anterior (Docker, API, pipeline, tests, frontend) está completo. Ver `docs/AGENT_GUIDE.md` para onboarding del próximo agente.
 
 ## 📚 KEY DOCUMENTS
 
-- `docs/ARCHITECTURE.md`: Technical architecture
+- `docs/AGENT_GUIDE.md`: **Leer primero** — guía completa para el próximo agente
+- `docs/ARCHITECTURE.md`: Arquitectura técnica actualizada (Marzo 2026)
 - `docs/SSH_TUNNELING.md`: Security implementation
 - `docs/MIGRATION_PLAN.md`: Step-by-step migration
 - `docs/API_REFERENCE.md`: Endpoint documentation
