@@ -186,6 +186,11 @@ class ValinorAdapter:
             results["execution_time_seconds"] = execution_time
             results["status"] = "completed"
             results["completed_at"] = datetime.utcnow().isoformat()
+
+            # Cost estimation: base $8 + $2 per agent call (Sonnet ~2600 tokens/call)
+            _findings = results.get("findings", {})
+            _num_agents = len(_findings) if isinstance(_findings, dict) else 3
+            results["estimated_cost_usd"] = round(0.008 + (_num_agents * 0.002), 3)
             
             # Store results metadata (no client data)
             await self.metadata_storage.store_job_results(job_id, {
@@ -706,8 +711,59 @@ RETURN ONLY THE JSON OBJECT."""
             # Inject adaptive context from profile into memory
             memory = self.prompt_tuner.inject_into_memory(memory or {}, profile)
 
-            # Inject Data Quality Gate context into agent memory
-            memory["data_quality_context"] = dq_report.to_prompt_context()
+            # Inject Data Quality Gate context into agent memory.
+            # Build a rich summary that includes per-check pass/fail and critical
+            # recommendations so the narrator's DATA_QUALITY_INSTRUCTION template
+            # gets real, actionable data rather than just the brief default string.
+            def _build_dq_context(report) -> str:
+                lines = [
+                    "DATA QUALITY CONTEXT:",
+                    f"- DQ Score: {report.overall_score:.0f}/100 ({report.confidence_label})"
+                    f" — Tag: {report.data_quality_tag}",
+                    f"- Gate decision: {report.gate_decision}",
+                ]
+
+                # Per-check pass/fail breakdown
+                if report.checks:
+                    passed_checks = [c.check_name for c in report.checks if c.passed]
+                    failed_checks = [(c.check_name, c.severity) for c in report.checks if not c.passed]
+                    if passed_checks:
+                        lines.append(f"- Checks PASSED ({len(passed_checks)}): {', '.join(passed_checks)}")
+                    if failed_checks:
+                        failed_str = ", ".join(
+                            f"{name} [{sev}]" for name, sev in failed_checks
+                        )
+                        lines.append(f"- Checks FAILED ({len(failed_checks)}): {failed_str}")
+
+                # Critical / fatal recommendations
+                critical_recs = [
+                    c.recommendation
+                    for c in report.checks
+                    if not c.passed
+                    and c.severity in ("FATAL", "CRITICAL")
+                    and c.recommendation
+                ]
+                if critical_recs:
+                    lines.append("- Critical recommendations:")
+                    for rec in critical_recs[:5]:
+                        lines.append(f"    * {rec}")
+                elif report.warnings:
+                    warnings_str = "; ".join(report.warnings[:3])
+                    lines.append(f"- Warnings: {warnings_str}")
+
+                # Blocking issues
+                if report.blocking_issues:
+                    lines.append(
+                        "- BLOCKING ISSUES: " + "; ".join(report.blocking_issues)
+                    )
+
+                lines.append(
+                    "INSTRUCTION: Label findings as PROVISIONAL if derived from flagged data. "
+                    "Never present UNVERIFIED findings as facts in executive summary."
+                )
+                return "\n".join(lines)
+
+            memory["data_quality_context"] = _build_dq_context(dq_report)
 
             # Inject customer segmentation context if available
             if results.get("_segmentation_context"):
@@ -872,6 +928,16 @@ RETURN ONLY THE JSON OBJECT."""
                     )
             except Exception as _ae_err:
                 logger.warning("AlertEngine failed", error=str(_ae_err))
+
+            # Store estimated cost in profile metadata for aggregation
+            _profile_num_agents = len(findings) if isinstance(findings, dict) else 3
+            _estimated_cost = round(0.008 + (_profile_num_agents * 0.002), 3)
+            if not isinstance(getattr(profile, "metadata", None), dict):
+                profile.metadata = {}
+            profile.metadata["last_estimated_cost_usd"] = _estimated_cost
+            profile.metadata["total_estimated_cost_usd"] = round(
+                profile.metadata.get("total_estimated_cost_usd", 0.0) + _estimated_cost, 3
+            )
 
             await self.profile_store.save(profile)
 

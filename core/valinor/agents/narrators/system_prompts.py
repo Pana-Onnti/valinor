@@ -122,6 +122,10 @@ def build_executive_system_prompt(memory: dict) -> str:
     if cusum_ctx:
         extra_sections.append(f"## RUPTURA ESTRUCTURAL DETECTADA\n{cusum_ctx}")
 
+    benford_ctx = memory.get("benford_warning", "")
+    if benford_ctx:
+        extra_sections.append(f"## ALERTA LEY DE BENFORD\n{benford_ctx}")
+
     run_history_summary = memory.get("run_history_summary", {})
     if isinstance(run_history_summary, dict):
         persistent_findings = run_history_summary.get("persistent_findings", [])

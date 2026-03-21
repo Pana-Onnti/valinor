@@ -1146,6 +1146,55 @@ async def get_client_finding(client_name: str, finding_id: str):
     }
 
 
+@app.get("/api/clients/{client_name}/costs", tags=["Clients"])
+async def get_client_costs(client_name: str):
+    """
+    Return a cost summary for a client based on their run history.
+
+    Reads from profile.run_history. Each run contributes $8 (default) or
+    the value of its `estimated_cost_usd` field if present.
+    `runs_this_month` and `cost_this_month_usd` are computed from runs
+    whose `timestamp` field starts with the current YYYY-MM prefix.
+    """
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    _validate_client_name(client_name)
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {client_name}")
+
+    run_history: list = profile.run_history or []
+    current_month_prefix = datetime.utcnow().strftime("%Y-%m")
+
+    total_cost = 0.0
+    cost_this_month = 0.0
+    runs_this_month = 0
+
+    for run in run_history:
+        run_cost = float(run.get("estimated_cost_usd", 8.0))
+        total_cost += run_cost
+        ts = run.get("timestamp", "")
+        if isinstance(ts, str) and ts.startswith(current_month_prefix):
+            runs_this_month += 1
+            cost_this_month += run_cost
+
+    total_runs = len(run_history)
+    avg_cost = round(total_cost / total_runs, 2) if total_runs else 0.0
+
+    return {
+        "client_name": client_name,
+        "total_runs": total_runs,
+        "estimated_total_cost_usd": round(total_cost, 2),
+        "avg_cost_per_run_usd": avg_cost,
+        "runs_this_month": runs_this_month,
+        "cost_this_month_usd": round(cost_this_month, 2),
+    }
+
+
 @app.put("/api/clients/{client_name}/profile/false-positive")
 async def mark_false_positive(client_name: str, finding_id: str):
     """
