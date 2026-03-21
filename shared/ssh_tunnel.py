@@ -90,23 +90,55 @@ class SSHTunnelManager:
             else:
                 raise ValueError("SSH private key required for tunnel")
             
-            # Connect to SSH server
+            # Connect to SSH server with exponential backoff retry
             logger.info(
                 "Creating SSH tunnel",
                 job_id=job_id,
                 ssh_host=ssh_config['host'],
                 ssh_user=ssh_config['username']
             )
-            
-            ssh_client.connect(
-                hostname=ssh_config['host'],
-                port=ssh_config.get('port', 22),
-                username=ssh_config['username'],
-                pkey=private_key,
-                timeout=30,
-                banner_timeout=30,
-                auth_timeout=30
+
+            _retry_delays = [2, 5, 10]
+            _max_attempts = 3
+            _retryable = (
+                paramiko.ssh_exception.NoValidConnectionsError,
+                socket.timeout,
             )
+
+            for _attempt in range(1, _max_attempts + 1):
+                try:
+                    ssh_client.connect(
+                        hostname=ssh_config['host'],
+                        port=ssh_config.get('port', 22),
+                        username=ssh_config['username'],
+                        pkey=private_key,
+                        timeout=30,
+                        banner_timeout=30,
+                        auth_timeout=30
+                    )
+                    break  # Connection succeeded
+                except paramiko.AuthenticationException:
+                    # Do not retry authentication failures
+                    raise
+                except _retryable as exc:
+                    if _attempt == _max_attempts:
+                        logger.error(
+                            "SSH connection failed after all retries",
+                            job_id=job_id,
+                            attempt=_attempt,
+                            error=str(exc)
+                        )
+                        raise
+                    _delay = _retry_delays[_attempt - 1]
+                    logger.warning(
+                        "SSH connection attempt failed, retrying",
+                        job_id=job_id,
+                        attempt=_attempt,
+                        next_attempt=_attempt + 1,
+                        retry_delay_seconds=_delay,
+                        error=str(exc)
+                    )
+                    time.sleep(_delay)
             
             # Find free local port
             local_port = self.find_free_port()

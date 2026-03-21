@@ -106,6 +106,9 @@ class ClientProfile:
     # ── Webhooks ──────────────────────────────────────────────────────────────
     webhooks: List[Dict] = field(default_factory=list)  # registered webhook URLs
 
+    # ── Arbitrary metadata ────────────────────────────────────────────────────
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
     def get_refinement(self) -> ClientRefinement:
         if self.refinement:
             return ClientRefinement(**self.refinement)
