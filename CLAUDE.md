@@ -131,7 +131,12 @@ docker-compose up  # Everything local
 #### Phase 4: Frontend ✅
 - [x] Next.js dashboard con Tailwind CSS
 - [x] AnalysisForm — formulario de conexión DB + SSH
-- [x] AnalysisProgress — polling de estado del job
+  - Wizard 3 pasos: ERP → Conexión → Período/Confirmación
+  - Guard en `onSubmit`: solo ejecuta en step 2 (nunca salta pasos por Enter/bug)
+  - Selector de período con tabs: **Mes / Trimestre / Año**
+  - Períodos mensuales dinámicos (últimos 24 meses en español)
+  - Si se hizo "Probar conexión", los períodos se limitan al rango real de la DB (`data_from`/`data_to`)
+- [x] AnalysisProgress — polling de estado del job, muestra error real del backend
 - [x] ResultsDisplay — visualización de reportes
 - [x] Real-time updates via WebSocket
 - [x] Secure credential upload (form con campos password)
@@ -262,6 +267,14 @@ La suite llegó a 2481 tests. Hay duplicados. La próxima vez que se toque un m�
 ### Issue: SSH key management security
 **Solution**: Encrypted storage with TTL, never persist
 
+### Issue: "Invalid period format: 2025-04" al iniciar análisis mensual
+**Causa**: `parse_period()` en `core/valinor/config.py` y `shared/utils/date_utils.py` no reconocía el formato `YYYY-MM`. Igualmente `_validate_period()` en `api/main.py`.
+**Solution**: Ya resuelto en los tres lugares. Formatos válidos actuales: `2025-04` (mes), `Q1-2025` (trimestre), `H1-2025` (semestre), `2025` (año).
+
+### Issue: AnalysisForm salta directamente a "Análisis en progreso" sin mostrar paso 3
+**Causa**: Botones de selección de ERP sin `type="button"` dentro del `<form>` — hacían submit al clickear. Además, el `onSubmit` de react-hook-form podía dispararse por Enter en los inputs de Step 2.
+**Solution**: Ya resuelto. Todos los botones no-submit tienen `type="button"`. El handler `onSubmit` tiene guard `if (step !== 2) return` como primera línea.
+
 ## 📊 SUCCESS METRICS
 
 - **API Response Time**: < 200ms
@@ -275,10 +288,17 @@ La suite llegó a 2481 tests. Hay duplicados. La próxima vez que se toque un m�
 1. **Cloudflare Workers** — deploy edge de la API (ver `deploy/`)
 2. **GitHub Actions workflows** — análisis como jobs asíncronos en CI
 3. **Supabase** — migrar metadata de PostgreSQL local a Supabase (free tier)
-4. **Monitoring** — Prometheus + Grafana en producción
+4. **Monitoring en producción** — Prometheus + Grafana (ya funciona en Docker local)
 5. **Primeros 3 clientes reales** — validar pipeline con datos reales
 
-> Todo lo anterior (Docker, API, pipeline, tests, frontend) está completo. Ver `docs/AGENT_GUIDE.md` para onboarding del próximo agente.
+### Estado actual del formulario de análisis (`/new-analysis`)
+El wizard funciona end-to-end:
+1. Paso 1: Seleccionar ERP + nombre del cliente
+2. Paso 2: Credenciales DB + "Probar conexión" (devuelve ERP detectado, tablas, rango de fechas)
+3. Paso 3: Selector de período tabbed (Mes/Trimestre/Año), fechas limitadas al rango real de la DB
+4. Submit → análisis en background via Celery/BackgroundTasks
+
+> Todo lo anterior (Docker, API, pipeline, tests, frontend, monitoring) está completo. Ver `docs/AGENT_GUIDE.md` para onboarding del próximo agente.
 
 ## 📚 KEY DOCUMENTS
 
