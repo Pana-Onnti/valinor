@@ -123,6 +123,12 @@ class BrandedPDFGenerator:
             styles['footer']
         ))
 
+        # ── Triggered alerts section ──────────────────────────────────────────
+        triggered_alerts = results.get("triggered_alerts", [])
+        if triggered_alerts:
+            story.append(Spacer(1, 0.4*cm))
+            story.append(self._triggered_alerts_section(styles, triggered_alerts))
+
         # ── Provenance footer (last page) ─────────────────────────────────────
         if dq:
             story.append(Spacer(1, 0.4*cm))
@@ -213,6 +219,87 @@ class BrandedPDFGenerator:
 
     # ── Data Quality section ──────────────────────────────────────────────────
 
+    def _dq_score_bar(self, score: int, bar_width_pt: float = 340) -> Drawing:
+        """
+        Return a ReportLab Drawing that renders a coloured progress bar for
+        the DQ score, e.g.  ████████░░  84/100
+        """
+        _, bar_color = _dq_label_color(score)
+        bar_h = 10
+        drawing = Drawing(bar_width_pt, bar_h + 4)
+
+        # Background track
+        drawing.add(Rect(
+            0, 2, bar_width_pt * 0.72, bar_h,
+            fillColor=colors.HexColor('#E5E7EB'),
+            strokeColor=None,
+            rx=3, ry=3,
+        ))
+        # Filled portion
+        fill_w = max(4, bar_width_pt * 0.72 * score / 100)
+        drawing.add(Rect(
+            0, 2, fill_w, bar_h,
+            fillColor=bar_color,
+            strokeColor=None,
+            rx=3, ry=3,
+        ))
+        # Score label to the right of the bar
+        drawing.add(String(
+            bar_width_pt * 0.72 + 8, 3,
+            f'{score}/100',
+            fontName='Helvetica-Bold',
+            fontSize=9,
+            fillColor=colors.HexColor('#1F2937'),
+        ))
+        return drawing
+
+    def _dq_checks_table(self, checks: list) -> Table:
+        """
+        Build a compact table showing each DQ check: name, status, score impact.
+        Expected check dict keys: name (str), passed (bool), impact (int, optional).
+        """
+        header_style = ParagraphStyle('dqch', fontName='Helvetica-Bold', fontSize=7.5,
+                                       textColor=WHITE)
+        cell_style = ParagraphStyle('dqcc', fontName='Helvetica', fontSize=7.5,
+                                     textColor=BRAND_DARK)
+        ok_style = ParagraphStyle('dqco', fontName='Helvetica-Bold', fontSize=7.5,
+                                   textColor=DQ_GREEN)
+        fail_style = ParagraphStyle('dqcf', fontName='Helvetica-Bold', fontSize=7.5,
+                                     textColor=DQ_RED)
+
+        data = [
+            [Paragraph('<b>Verificación</b>', header_style),
+             Paragraph('<b>Estado</b>', header_style),
+             Paragraph('<b>Impacto</b>', header_style)],
+        ]
+        for chk in checks:
+            name = chk.get("name", chk.get("check", "—"))
+            passed = chk.get("passed", chk.get("status") in ("ok", "pass", "passed", True))
+            impact = chk.get("impact", chk.get("score_impact"))
+            status_para = Paragraph('✓ PASS' if passed else '✗ FAIL',
+                                    ok_style if passed else fail_style)
+            impact_text = f'−{abs(impact)}' if (impact is not None and not passed) else ('0' if impact is not None else '—')
+            data.append([
+                Paragraph(str(name), cell_style),
+                status_para,
+                Paragraph(impact_text, cell_style),
+            ])
+
+        t = Table(data, colWidths=['58%', '22%', '20%'])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4C1D95')),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F5F3FF')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1),
+             [colors.HexColor('#F5F3FF'), colors.HexColor('#EDE9FE')]),
+            ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#C4B5FD')),
+            ('INNERGRID', (0, 0), (-1, -1), 0.3, colors.HexColor('#DDD6FE')),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        return t
+
     def _data_quality_section(self, styles, dq: dict):
         """Build the CALIDAD DE DATOS box to show after the stats bar."""
         score = dq.get("score", 0)
@@ -221,7 +308,8 @@ class BrandedPDFGenerator:
         analysis_ts = dq.get("analysis_timestamp", datetime.utcnow().strftime('%Y-%m-%d %H:%M') + " UTC")
         reconciliation = dq.get("reconciliation", "")
         discrepancy = dq.get("discrepancy_pct")
-        warnings_count = len(dq.get("warnings", []))
+        warnings = dq.get("warnings", [])
+        checks = dq.get("checks", [])
 
         # Title row
         title_para = Paragraph(
@@ -255,15 +343,36 @@ class BrandedPDFGenerator:
                            textColor=BRAND_DARK)
         )
 
-        rows = [[title_para], [score_para], [ts_para], [rec_para]]
+        rows = [[title_para], [score_para], [self._dq_score_bar(score)], [ts_para], [rec_para]]
 
-        if warnings_count > 0:
-            warn_para = Paragraph(
-                f'<font color="#d97706">{warnings_count} advertencia{"s" if warnings_count > 1 else ""} menor{"es" if warnings_count > 1 else ""} — ver pie de página</font>',
-                ParagraphStyle('dq_warn', fontName='Helvetica', fontSize=8,
-                               textColor=DQ_AMBER)
+        # ── DQ checks table ───────────────────────────────────────────────────
+        if checks:
+            checks_label = Paragraph(
+                '<b>Verificaciones de calidad</b>',
+                ParagraphStyle('dq_chk_lbl', fontName='Helvetica-Bold', fontSize=8,
+                               textColor=BRAND_DARK, spaceBefore=4)
             )
-            rows.append([warn_para])
+            rows.append([checks_label])
+            rows.append([self._dq_checks_table(checks)])
+
+        # ── Warnings list ─────────────────────────────────────────────────────
+        if warnings:
+            warn_header = Paragraph(
+                f'<font color="#d97706"><b>Advertencias ({len(warnings)})</b></font>',
+                ParagraphStyle('dq_wh', fontName='Helvetica-Bold', fontSize=8,
+                               textColor=DQ_AMBER, spaceBefore=4)
+            )
+            rows.append([warn_header])
+            for w in warnings:
+                # Each warning may be a string or a dict with a 'message' key
+                msg = w if isinstance(w, str) else w.get("message", w.get("msg", str(w)))
+                severity = (w.get("severity", "").lower() if isinstance(w, dict) else "")
+                marker_color = "#ea580c" if severity == "high" else "#d97706"
+                rows.append([Paragraph(
+                    f'<font color="{marker_color}">▲</font> {self._md_inline(str(msg))}',
+                    ParagraphStyle('dq_wi', fontName='Helvetica', fontSize=8,
+                                   textColor=BRAND_DARK, leftIndent=8, spaceAfter=1)
+                )])
 
         t = Table(rows, colWidths=['100%'])
         t.setStyle(TableStyle([
@@ -365,6 +474,53 @@ class BrandedPDFGenerator:
             ('BOX', (0, 0), (-1, -1), 1, BRAND_GRAY),
             ('LINEABOVE', (0, 0), (-1, 0), 1.5, BRAND_GRAY),
             ('LINEBELOW', (0, -1), (-1, -1), 1.5, BRAND_GRAY),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ]))
+        return t
+
+    def _triggered_alerts_section(self, styles, alerts: list) -> Table:
+        """
+        Build the ALERTAS DISPARADAS block from a list of alert dicts.
+        Expected keys: threshold_label (str), computed_value (float),
+                       threshold_value (float), severity (str: CRITICAL|HIGH|…)
+        """
+        title_style = ParagraphStyle('alrt_title', fontName='Helvetica-Bold', fontSize=9,
+                                      textColor=BRAND_DARK)
+        rows = [[Paragraph('<b>ALERTAS DISPARADAS</b>', title_style)]]
+
+        for alert in alerts:
+            label = alert.get("threshold_label", alert.get("label", "—"))
+            computed = alert.get("computed_value", alert.get("value"))
+            threshold = alert.get("threshold_value", alert.get("threshold"))
+            severity = str(alert.get("severity", "HIGH")).upper()
+
+            if severity == "CRITICAL":
+                text_color = BRAND_RED
+                marker = "⚠"
+            else:
+                text_color = BRAND_ORANGE
+                marker = "⚠"
+
+            computed_str = f"{computed:.1f}" if isinstance(computed, (int, float)) else str(computed)
+            threshold_str = f"{threshold}" if threshold is not None else "—"
+
+            rows.append([Paragraph(
+                f'<font color="{"#DC2626" if severity == "CRITICAL" else "#EA580C"}">'
+                f'<b>{marker} {label}:</b> {computed_str} '
+                f'(umbral: {threshold_str})</font>',
+                ParagraphStyle('alrt_row', fontName='Helvetica', fontSize=8.5,
+                               textColor=text_color, spaceAfter=2, leftIndent=6)
+            )])
+
+        t = Table(rows, colWidths=['100%'])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#FEF2F2')),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#FFF7ED')),
+            ('BOX', (0, 0), (-1, -1), 1, BRAND_RED),
+            ('LINEBELOW', (0, 0), (-1, 0), 0.5, BRAND_RED),
             ('TOPPADDING', (0, 0), (-1, -1), 5),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
             ('LEFTPADDING', (0, 0), (-1, -1), 10),
