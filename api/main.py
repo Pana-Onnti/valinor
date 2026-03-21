@@ -1626,10 +1626,31 @@ async def system_metrics():
         except:
             pass
 
+    # Estimate cost from completed jobs (~$8 per analysis average)
+    estimated_cost_usd = round(status_counts["completed"] * 8.0, 2)
+
+    # Aggregate all-time avg DQ score across all profiles
+    all_dq_scores = []
+    try:
+        if pool:
+            import json as _json_m
+            async with pool.acquire() as conn:
+                rows = await conn.fetch("SELECT profile->>'dq_history' AS dqh FROM client_profiles")
+                for row in rows:
+                    hist = _json_m.loads(row["dqh"] or "[]")
+                    for e in (hist or []):
+                        if isinstance(e, dict) and "score" in e:
+                            all_dq_scores.append(e["score"])
+    except Exception:
+        pass
+    avg_dq = round(sum(all_dq_scores) / len(all_dq_scores), 1) if all_dq_scores else None
+
     return {
         "jobs": {**status_counts, "total": total_jobs},
         "success_rate_pct": round(success_rate, 1),
         "clients_with_profile": client_count,
+        "estimated_total_cost_usd": estimated_cost_usd,
+        "avg_dq_score_all_time": avg_dq,
         "timestamp": datetime.utcnow().isoformat(),
     }
 
