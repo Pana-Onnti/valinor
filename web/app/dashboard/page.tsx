@@ -111,16 +111,16 @@ function SystemHealthBar() {
       ) : metrics ? (
         <>
           <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-            Costo estimado: <strong>${metrics.total_cost_estimate.toFixed(2)}</strong>
+            Costo estimado: <strong>${(metrics.total_cost_estimate ?? 0).toFixed(2)}</strong>
           </span>
-          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${dqColor(metrics.avg_dq_score)}`}>
-            DQ avg: <strong>{Math.round(metrics.avg_dq_score)}/100</strong>
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${dqColor(metrics.avg_dq_score ?? 0)}`}>
+            DQ avg: <strong>{Math.round(metrics.avg_dq_score ?? 0)}/100</strong>
           </span>
-          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${successColor(metrics.success_rate)}`}>
-            Exito: <strong>{Math.round(metrics.success_rate)}%</strong>
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${successColor(metrics.success_rate ?? 0)}`}>
+            Exito: <strong>{Math.round(metrics.success_rate ?? 0)}%</strong>
           </span>
-          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${runningColor(metrics.running_jobs)}`}>
-            Jobs activos: <strong>{metrics.running_jobs}</strong>
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${runningColor(metrics.running_jobs ?? 0)}`}>
+            Jobs activos: <strong>{metrics.running_jobs ?? 0}</strong>
           </span>
         </>
       ) : (

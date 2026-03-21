@@ -162,6 +162,7 @@ function Step1ERPSelection({
         {ERP_OPTIONS.map(erp => (
           <button
             key={erp.id}
+            type="button"
             onClick={() => !erp.comingSoon && onSelect(erp.id, erp.db)}
             disabled={!!erp.comingSoon}
             className={`relative text-left p-4 rounded-2xl border-2 transition-all ${
@@ -368,6 +369,7 @@ function Step3Confirm({
   onPeriod,
   isLoading,
   error,
+  jobId,
 }: {
   clientName: string
   erpId: string
@@ -377,6 +379,7 @@ function Step3Confirm({
   onPeriod: (v: string) => void
   isLoading: boolean
   error: string | null
+  jobId: string | null
 }) {
   const erp = ERP_OPTIONS.find(e => e.id === erpId)
 
@@ -463,6 +466,15 @@ function Step3Confirm({
         <span>Tiempo estimado: 10-15 minutos según el tamaño de la base</span>
       </div>
 
+      {jobId && (
+        <div className="mt-3 flex items-center gap-2 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-xl px-4 py-2.5">
+          <Lock className="h-3.5 w-3.5 text-violet-400 flex-shrink-0" />
+          <span className="text-xs text-violet-600 dark:text-violet-400 font-mono">
+            Job ID: <strong>{jobId}</strong>
+          </span>
+        </div>
+      )}
+
       {error && (
         <div className="mt-3 flex items-start gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
           <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
@@ -481,6 +493,7 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
   const [period, setPeriod] = useState('Q1-2026')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pendingJobId, setPendingJobId] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<null | { success: boolean; latency_ms?: number; erp_detected?: string; error?: string; table_count?: number }>(null)
   const [testingConnection, setTestingConnection] = useState(false)
 
@@ -493,7 +506,7 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
     formState: { errors },
   } = useForm<ConnectionFormData>({
     resolver: zodResolver(ConnectionSchema),
-    defaultValues: { db_type: 'postgresql', db_port: 5432, use_ssh: false },
+    defaultValues: { db_type: 'postgresql', db_port: 5432, use_ssh: false, period: 'Q1-2026' },
   })
 
   const handleSelectERP = (id: string, db: string) => {
@@ -544,6 +557,7 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
       const payload: any = {
         client_name: clientName,
         period,
+        erp: selectedErp || null,
         db_config: {
           host: data.db_host,
           port: data.db_port,
@@ -561,6 +575,7 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
         }
       }
       const res = await axios.post(`${API_URL}/api/analyze`, payload)
+      setPendingJobId(res.data.job_id)
       onStartAnalysis(res.data.job_id)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Error al iniciar el análisis')
@@ -607,9 +622,10 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
                 dbHost={getValues('db_host') || ''}
                 dbName={getValues('db_name') || ''}
                 period={period}
-                onPeriod={setPeriod}
+                onPeriod={v => { setPeriod(v); setValue('period', v) }}
                 isLoading={isLoading}
                 error={error}
+                jobId={pendingJobId}
               />
             )}
           </AnimatePresence>

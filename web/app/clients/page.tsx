@@ -9,7 +9,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface ClientComparison {
-  client_name: string
+  client_name?: string
+  name?: string          // API returns "name" — normalised on render
   avg_dq_score: number
   dq_trend: string
   critical_findings: number
@@ -53,7 +54,7 @@ function TrendBadge({ trend }: { trend?: string }) {
       </span>
     )
   }
-  if (trend === 'declining') {
+  if (trend === 'declining' || trend === 'degrading') {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600">
         ↓ Bajando
@@ -84,12 +85,12 @@ function ClientCard({ client }: { client: ClientComparison }) {
   }
 
   return (
-    <Link href={`/clients/${encodeURIComponent(client.client_name)}`}>
+    <Link href={`/clients/${encodeURIComponent(client.client_name ?? (client as any).name)}`}>
       <div className="bg-white rounded-2xl border border-gray-100 hover:border-violet-300 hover:shadow-md transition-all p-5 cursor-pointer h-full flex flex-col gap-4">
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="font-semibold text-gray-900 truncate">{client.client_name}</h3>
+            <h3 className="font-semibold text-gray-900 truncate">{client.client_name ?? (client as any).name}</h3>
             {client.industry && (
               <p className="text-xs text-gray-400 mt-0.5 truncate">{client.industry}</p>
             )}
@@ -166,7 +167,10 @@ export default function ClientsPage() {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()
       })
-      .then((data: ClientComparison[]) => setClients(data || []))
+      .then((data: { clients: ClientComparison[] } | ClientComparison[]) => {
+        const list = Array.isArray(data) ? data : (data as { clients: ClientComparison[] }).clients || []
+        setClients(list)
+      })
       .catch(err => setError(err.message || 'Error cargando clientes'))
       .finally(() => setLoading(false))
   }, [])
@@ -219,7 +223,7 @@ export default function ClientsPage() {
             <EmptyClients />
           ) : (
             clients.map(client => (
-              <ClientCard key={client.client_name} client={client} />
+              <ClientCard key={client.client_name ?? (client as any).name} client={client} />
             ))
           )}
         </div>

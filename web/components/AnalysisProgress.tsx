@@ -49,6 +49,7 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
   const [progress, setProgress] = useState(0)
   const [dqScore, setDqScore] = useState<number | null>(null)
   const [dqLabel, setDqLabel] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   // Keep a stable ref to onComplete so the SSE/polling closures don't go stale
   const onCompleteRef = useRef(onComplete)
@@ -72,9 +73,9 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
       if (data.error || data.done) return
 
       const p = data.progress ?? 0
-      setProgress(p)
+      setProgress(Math.max(0, p))
       if (data.stage) {
-        const completedCount = Math.floor((p / 100) * PIPELINE_STEPS.length)
+        const completedCount = Math.floor((Math.max(0, p) / 100) * PIPELINE_STEPS.length)
         setSteps((prev) =>
           prev.map((s, i) => ({
             ...s,
@@ -83,7 +84,12 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
           }))
         )
       }
-      if (data.status) setStatus(data.status as 'running' | 'completed' | 'failed')
+      if (data.status) {
+        setStatus(data.status as 'running' | 'completed' | 'failed')
+        if (data.status === 'failed' && data.message) {
+          setErrorMessage(data.message.replace(/^Analysis failed:\s*/i, ''))
+        }
+      }
 
       if (data.dq_score !== undefined) {
         setDqScore(data.dq_score ?? null)
@@ -212,11 +218,17 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
     >
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-          Analysis in Progress
+          Análisis en progreso
         </h2>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
-          Job ID: <span className="font-mono">{analysisId}</span>
-        </p>
+        <div
+          className="flex items-center gap-2 mb-6 px-3 py-2 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl cursor-pointer group"
+          onClick={() => navigator.clipboard.writeText(analysisId)}
+          title="Copiar Job ID"
+        >
+          <span className="text-xs text-gray-400 uppercase tracking-wide font-medium flex-shrink-0">Job ID</span>
+          <span className="font-mono text-xs text-gray-700 dark:text-gray-300 truncate flex-1">{analysisId}</span>
+          <span className="text-xs text-gray-400 group-hover:text-violet-500 transition-colors flex-shrink-0">📋</span>
+        </div>
 
         {/* Progress Bar */}
         <div className="mb-8">
@@ -284,8 +296,11 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
         </div>
 
         {status === 'failed' && (
-          <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg text-red-600 dark:text-red-400 text-sm">
-            Analysis failed. Please check your database credentials and try again.
+          <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+            <p className="text-sm font-semibold text-red-700 dark:text-red-400 mb-1">Análisis fallido</p>
+            <p className="text-xs text-red-600 dark:text-red-400 font-mono break-words">
+              {errorMessage || 'Error desconocido. Revisá las credenciales e intentá nuevamente.'}
+            </p>
           </div>
         )}
       </div>
