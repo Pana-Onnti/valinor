@@ -1,0 +1,29 @@
+#!/bin/bash
+# commit-msg hook — validates D4C commit convention
+# Install: cp commit-msg.hook .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg
+
+COMMIT_MSG_FILE=$1
+COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+
+# Check format: type(scope): message
+FIRST_LINE=$(head -1 "$COMMIT_MSG_FILE")
+if ! echo "$FIRST_LINE" | grep -qE "^(feat|fix|style|refactor|docs|chore|test)\(.+\): .+"; then
+  echo "❌ Commit message format invalid."
+  echo "Expected: <type>(<scope>): <message>"
+  echo "Got: $FIRST_LINE"
+  echo ""
+  echo "Types: feat | fix | style | refactor | docs | chore | test"
+  echo "Scopes: design-system | ko-report | demo | vaire | onboarding | portal | operator | swarm | api | infra"
+  exit 1
+fi
+
+# Check for Refs: footer
+if ! echo "$COMMIT_MSG" | grep -qE "Refs: (VAL|NAR|GRO)-[0-9]+"; then
+  echo "❌ Missing 'Refs: VAL-XX' footer."
+  echo "Every commit MUST reference a Linear issue."
+  echo ""
+  echo "Add a blank line and then: Refs: VAL-XX"
+  exit 1
+fi
+
+echo "✅ Commit format OK — $(echo "$COMMIT_MSG" | grep -oE 'Refs: [A-Z]+-[0-9]+')"
