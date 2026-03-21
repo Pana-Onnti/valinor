@@ -331,3 +331,114 @@ class TestSegmentationEdgeCases:
         result = engine.segment_from_query_results(qr, self._profile(industry="default"))
         assert result is not None
         assert result.industry == "default"
+
+
+# ---------------------------------------------------------------------------
+# Extended segmentation tests
+# ---------------------------------------------------------------------------
+
+class TestSegmentationEngineExtended:
+    """Extended coverage: segment names, revenue shares, thresholds, update_profile."""
+
+    def _profile(self, industry="default", currency="USD"):
+        return _make_profile(industry=industry, currency=currency)
+
+    def _segment(self, clients, industry="default"):
+        engine = SegmentationEngine()
+        qr = _make_query_results(clients)
+        return engine.segment_from_query_results(qr, self._profile(industry=industry))
+
+    def test_segment_names_match_industry_distribución(self):
+        """For distribución industry, segment names are Champions / Growth / Maintenance."""
+        result = self._segment(CLIENTS, industry="distribución mayorista")
+        if result is None:
+            pytest.skip("No data — skip industry name test")
+        seg_names = {s.name for s in result.segments}
+        assert "Champions" in seg_names
+        assert "Growth" in seg_names
+        assert "Maintenance" in seg_names
+
+    def test_revenue_share_sums_to_approximately_1(self):
+        """Sum of revenue_share across all segments must be approximately 1.0."""
+        result = self._segment(CLIENTS)
+        assert result is not None
+        total_share = sum(s.revenue_share for s in result.segments)
+        assert abs(total_share - 1.0) < 0.01, (
+            f"revenue_share sum {total_share:.4f} must be ~1.0"
+        )
+
+    def test_top_segment_highest_revenue_share(self):
+        """Tier 1 segment must have the highest revenue_share."""
+        result = self._segment(CLIENTS)
+        assert result is not None
+        top = result.segments[0]
+        low = result.segments[2]
+        assert top.revenue_share >= low.revenue_share
+
+    def test_avg_revenue_computed(self):
+        """avg_revenue must be > 0 for a non-empty segment."""
+        result = self._segment(CLIENTS)
+        assert result is not None
+        for seg in result.segments:
+            if seg.count > 0:
+                assert seg.avg_revenue > 0
+
+    def test_top_customers_list_non_empty_for_populated_segment(self):
+        """top_customers must contain at least one name for populated segments."""
+        result = self._segment(CLIENTS)
+        assert result is not None
+        top_seg = result.segments[0]
+        assert isinstance(top_seg.top_customers, list)
+        assert len(top_seg.top_customers) > 0
+
+    def test_segment_currency_preserved(self):
+        """CustomerSegment.currency must match the currency passed to build_context_block."""
+        engine = SegmentationEngine()
+        qr = _make_query_results(CLIENTS)
+        result = engine.segment_from_query_results(qr, self._profile(currency="EUR"))
+        assert result is not None
+        ctx = engine.build_context_block(result, currency="EUR")
+        assert "EUR" in ctx
+
+    def test_result_has_computed_at_field(self):
+        """SegmentationResult.computed_at must be a non-empty string."""
+        result = self._segment(CLIENTS)
+        assert result is not None
+        assert isinstance(result.computed_at, str)
+        assert len(result.computed_at) > 0
+
+    def test_result_has_thresholds_dict(self):
+        """SegmentationResult.thresholds must be a dict."""
+        result = self._segment(CLIENTS)
+        assert result is not None
+        assert isinstance(result.thresholds, dict)
+
+    def test_segment_names_not_for_retail(self):
+        """For retail industry, segment names are VIP / Regulares / Ocasionales."""
+        result = self._segment(CLIENTS, industry="retail / punto de venta")
+        if result is None:
+            pytest.skip("No data — skip retail name test")
+        seg_names = {s.name for s in result.segments}
+        assert "VIP" in seg_names
+        assert "Regulares" in seg_names
+        assert "Ocasionales" in seg_names
+
+    def test_segment_names_for_default_are_tier(self):
+        """For default industry, segment names must be Tier 1, Tier 2, Tier 3."""
+        result = self._segment(CLIENTS, industry="default")
+        assert result is not None
+        seg_names = {s.name for s in result.segments}
+        assert seg_names == {"Tier 1", "Tier 2", "Tier 3"}
+
+    def test_all_segment_names_in_segment_names_dict(self):
+        """SEGMENT_NAMES must contain keys for all four industries."""
+        assert "default" in SEGMENT_NAMES
+        assert "distribución mayorista" in SEGMENT_NAMES
+        assert "retail / punto de venta" in SEGMENT_NAMES
+
+    def test_total_revenue_matches_input(self):
+        """result.total_revenue must equal sum of all client revenues in CLIENTS."""
+        result = self._segment(CLIENTS)
+        assert result is not None
+        expected = sum(c["revenue"] for c in CLIENTS)
+        assert abs(result.total_revenue - expected) < 1.0

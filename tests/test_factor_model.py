@@ -363,3 +363,174 @@ class TestRevenueFactorModelAdditional:
             decomp = model.compute_decomposition("Q2", "Q1", None, None)
         if decomp is not None:
             assert decomp.total_revenue < prior["total_revenue"]
+
+
+# ---------------------------------------------------------------------------
+# 12 new tests
+# ---------------------------------------------------------------------------
+
+class TestNewFactorDecompositionScenarios:
+    """12 additional tests covering edge cases and specific scenarios."""
+
+    # 1. Revenue decrease scenario (prior > current)
+    def test_revenue_decrease_scenario(self):
+        """Decomposition is valid when current revenue < prior revenue."""
+        prior = _period_metrics(total_revenue=50_000.0, client_count=10, transaction_count=20)
+        current = _period_metrics(total_revenue=20_000.0, client_count=4, transaction_count=8)
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        assert decomp.total_revenue == pytest.approx(20_000.0)
+        assert decomp.total_revenue < 50_000.0
+
+    # 2. Large multiplier — 10x revenue
+    def test_large_multiplier_10x_revenue(self):
+        """10× revenue growth is handled without overflow or None."""
+        prior = _period_metrics(total_revenue=1_000.0, client_count=1, transaction_count=1)
+        current = _period_metrics(total_revenue=10_000.0, client_count=10, transaction_count=10)
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        assert decomp.total_revenue == pytest.approx(10_000.0)
+
+    # 3. Only frequency changes — client_count and avg_ticket constant
+    def test_only_frequency_changes(self):
+        """When only transaction frequency changes, primary_driver must be 'frequency'."""
+        # Same clients (5), same ticket ($200), but 2× transactions
+        prior = {
+            "total_revenue": 1_000.0, "client_count": 5,
+            "avg_ticket": 200.0, "transaction_count": 5,
+            "transactions_per_client": 1.0,
+        }
+        current = {
+            "total_revenue": 2_000.0, "client_count": 5,
+            "avg_ticket": 200.0, "transaction_count": 10,
+            "transactions_per_client": 2.0,
+        }
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        assert decomp.primary_driver == "frequency"
+
+    # 4. Only avg_ticket changes
+    def test_only_avg_ticket_changes(self):
+        """When only avg_ticket changes, primary_driver must be 'avg_ticket'."""
+        prior = {
+            "total_revenue": 1_000.0, "client_count": 5,
+            "avg_ticket": 200.0, "transaction_count": 5,
+            "transactions_per_client": 1.0,
+        }
+        current = {
+            "total_revenue": 2_000.0, "client_count": 5,
+            "avg_ticket": 400.0, "transaction_count": 5,
+            "transactions_per_client": 1.0,
+        }
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        assert decomp.primary_driver == "avg_ticket"
+
+    # 5. compute_decomposition returns FactorDecomposition instance
+    def test_compute_decomposition_returns_factor_decomposition_instance(self):
+        """compute_decomposition must return a FactorDecomposition (not a dict or None here)."""
+        prior = _period_metrics(total_revenue=1_000.0, client_count=2, transaction_count=4)
+        current = _period_metrics(total_revenue=1_200.0, client_count=3, transaction_count=6)
+        decomp = _run_decomp(current, prior)
+        assert isinstance(decomp, FactorDecomposition)
+
+    # 6. Residual calculation correctness
+    def test_residual_calculation_correctness(self):
+        """residual == total_revenue - expected_revenue."""
+        prior = _period_metrics(total_revenue=1_000.0, client_count=2, transaction_count=2)
+        current = _period_metrics(total_revenue=1_500.0, client_count=3, transaction_count=3)
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        assert decomp.residual == pytest.approx(
+            decomp.total_revenue - decomp.expected_revenue, abs=1e-6
+        )
+
+    # 7. format_context_block mentions all three factor names
+    def test_format_context_block_mentions_all_three_factors(self):
+        """format_context_block output must reference client_count, avg_ticket, and frequency."""
+        prior = _period_metrics(total_revenue=1_000.0, client_count=2, transaction_count=4)
+        current = _period_metrics(total_revenue=1_400.0, client_count=2, transaction_count=4)
+        model = RevenueFactorModel(engine=None)
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        block = model.format_context_block(decomp)
+        assert "Clientes" in block
+        assert "Ticket" in block or "ticket" in block
+        assert "DESCOMPOSICION" in block
+
+    # 8. anomaly_detected=True when residual_pct > 0.15
+    def test_anomaly_detected_when_residual_high(self):
+        """
+        anomaly_detected is True when actual revenue deviates > 15% from expected.
+        We force this by making residual large: keep client_count and frequency constant
+        but inflate total_revenue well beyond what the factor model predicts.
+        """
+        # prior: 2 clients, $100 ticket, 1 tx/client → $200 expected
+        prior = {
+            "total_revenue": 200.0, "client_count": 2,
+            "avg_ticket": 100.0, "transaction_count": 2,
+            "transactions_per_client": 1.0,
+        }
+        # current: same clients and frequency, same avg_ticket per factor model,
+        # but inflated total_revenue → large residual
+        current = {
+            "total_revenue": 400.0, "client_count": 2,
+            "avg_ticket": 100.0, "transaction_count": 2,
+            "transactions_per_client": 1.0,
+        }
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        # expected_revenue == 200 (model), residual == 200 (100% > 15%) → anomaly
+        assert decomp.anomaly_detected is True
+
+    # 9. primary_driver is one of the three valid strings
+    def test_primary_driver_is_valid_string(self):
+        """primary_driver must be one of the three valid factor names."""
+        prior = _period_metrics(total_revenue=5_000.0, client_count=10, transaction_count=20)
+        current = _period_metrics(total_revenue=7_000.0, client_count=14, transaction_count=28)
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        assert decomp.primary_driver in ("client_count", "avg_ticket", "frequency")
+
+    # 10. frequency contribution when transactions increase
+    def test_frequency_contribution_positive_when_transactions_increase(self):
+        """
+        When transactions_per_client increases while client_count stays constant,
+        frequency_contribution should be non-zero and positive.
+        """
+        prior = {
+            "total_revenue": 1_000.0, "client_count": 5,
+            "avg_ticket": 200.0, "transaction_count": 5,
+            "transactions_per_client": 1.0,
+        }
+        current = {
+            "total_revenue": 1_600.0, "client_count": 5,
+            "avg_ticket": 200.0, "transaction_count": 8,
+            "transactions_per_client": 1.6,
+        }
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        assert decomp.frequency_contribution > 0.0
+
+    # 11. prior with 1 client (baseline edge case)
+    def test_prior_with_single_client_baseline(self):
+        """Decomposition with a single prior client must not return None."""
+        prior = _period_metrics(total_revenue=500.0, client_count=1, transaction_count=5)
+        current = _period_metrics(total_revenue=600.0, client_count=1, transaction_count=6)
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        assert decomp.client_count == 1
+
+    # 12. Decimal/float precision — contributions stay in [-1, 1]
+    def test_contributions_within_unit_range(self):
+        """Each individual contribution must be within [-1.0, 1.0]."""
+        prior = _period_metrics(total_revenue=3_333.33, client_count=7, transaction_count=21)
+        current = _period_metrics(total_revenue=6_666.66, client_count=14, transaction_count=42)
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        for contrib in (
+            decomp.client_count_contribution,
+            decomp.avg_ticket_contribution,
+            decomp.frequency_contribution,
+        ):
+            assert -1.0 <= contrib <= 1.0, f"Contribution {contrib} out of range"

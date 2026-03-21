@@ -293,3 +293,85 @@ class TestCurrencyGuardAdditional:
         assert r.is_homogeneous is True
         assert r.dominant_currency == "EUR"
         assert r.safe_to_aggregate is True
+
+
+# ---------------------------------------------------------------------------
+# Extended CurrencyGuard tests
+# ---------------------------------------------------------------------------
+
+class TestCurrencyGuardExtended:
+    """Extended coverage for CurrencyGuard edge cases."""
+
+    def setup_method(self):
+        self.guard = CurrencyGuard()
+
+    def test_90_10_split_dominant_pct_correct(self):
+        """9 EUR rows + 1 USD row → dominant_pct ≈ 0.9."""
+        rows = make_rows("EUR", 100.0, 9) + make_rows("USD", 100.0, 1)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        assert result.dominant_currency == "EUR"
+        assert result.dominant_pct == pytest.approx(0.9)
+
+    def test_mixed_exposure_complements_dominant(self):
+        """dominant_pct + mixed_exposure_pct must sum to 1.0."""
+        rows = make_rows("EUR", 100.0, 7) + make_rows("USD", 100.0, 3)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        total = result.dominant_pct + result.mixed_exposure_pct
+        assert total == pytest.approx(1.0, abs=1e-6)
+
+    def test_three_currencies_detected_as_non_homogeneous(self):
+        """A result set with 3 different currencies must not be homogeneous."""
+        rows = (
+            make_rows("EUR", 100.0, 5) +
+            make_rows("USD", 100.0, 3) +
+            make_rows("GBP", 100.0, 2)
+        )
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        assert result.is_homogeneous is False
+        assert result.safe_to_aggregate is False
+
+    def test_dominant_pct_between_0_and_1(self):
+        """dominant_pct must always be in [0.0, 1.0] range."""
+        rows = make_rows("EUR", 200.0, 8) + make_rows("BRL", 100.0, 2)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        assert 0.0 <= result.dominant_pct <= 1.0
+
+    def test_mixed_exposure_pct_between_0_and_1(self):
+        """mixed_exposure_pct must always be in [0.0, 1.0] range."""
+        rows = make_rows("EUR", 100.0, 6) + make_rows("USD", 100.0, 4)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        assert 0.0 <= result.mixed_exposure_pct <= 1.0
+
+    def test_build_context_block_mentions_dominant_and_mixed(self):
+        """Context block for mixed-currency result mentions both EUR and USD."""
+        rows = make_rows("EUR", 100.0, 6) + make_rows("USD", 100.0, 4)
+        check = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        block = self.guard.build_currency_context_block(check)
+        assert "EUR" in block
+        assert "USD" in block
+
+    def test_safe_to_aggregate_false_when_mixed(self):
+        """safe_to_aggregate must be False for mixed-currency data."""
+        rows = make_rows("EUR", 100.0, 5) + make_rows("MXN", 100.0, 5)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        assert result.safe_to_aggregate is False
+
+    def test_recommendation_is_string(self):
+        """CurrencyCheckResult.recommendation must be a string (possibly empty)."""
+        rows = make_rows("USD", 100.0, 10)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        assert isinstance(result.recommendation, str)
+
+    def test_build_context_block_for_empty_data_no_crash(self):
+        """build_currency_context_block on empty-data result must not raise."""
+        result = self.guard.check_result_set([])
+        try:
+            block = self.guard.build_currency_context_block(result)
+        except Exception as exc:
+            pytest.fail(f"build_currency_context_block raised {exc!r} on empty data")
+        assert isinstance(block, str)
+
+    def test_dominant_currency_field_is_string(self):
+        """dominant_currency must always be a string (e.g. 'EUR', 'USD', or 'unknown')."""
+        result = self.guard.check_result_set([])
+        assert isinstance(result.dominant_currency, str)

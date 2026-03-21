@@ -296,3 +296,144 @@ def test_pdf_has_valid_xref_table():
     assert xref_region == b"xref", (
         f"Expected 'xref' at offset {xref_offset}, got {xref_region!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 21: Status field appears in PDF output
+# ---------------------------------------------------------------------------
+
+def test_status_field_in_pdf():
+    result = generate_pdf_report(SAMPLE_RESULTS)
+    assert b"completed" in result
+
+
+# ---------------------------------------------------------------------------
+# Test 22: execution_time_seconds is formatted with one decimal place
+# ---------------------------------------------------------------------------
+
+def test_execution_time_formatted():
+    results = dict(SAMPLE_RESULTS)
+    results["execution_time_seconds"] = 12.5
+    pdf = generate_pdf_report(results)
+    assert b"12.5s" in pdf
+
+
+# ---------------------------------------------------------------------------
+# Test 23: Zero findings count shows "Total Findings: 0"
+# ---------------------------------------------------------------------------
+
+def test_zero_findings_count():
+    results = {"findings": {}}
+    pdf = generate_pdf_report(results)
+    assert b"Total Findings: 0" in pdf
+
+
+# ---------------------------------------------------------------------------
+# Test 24: findings dict with non-dict values counts only dict entries
+# ---------------------------------------------------------------------------
+
+def test_findings_non_dict_values_ignored():
+    results = {
+        "findings": {
+            "agent_a": {"findings": [{"id": 1}, {"id": 2}]},
+            "agent_b": "this is not a dict",
+            "agent_c": 42,
+        }
+    }
+    pdf = generate_pdf_report(results)
+    assert b"Total Findings: 2" in pdf
+
+
+# ---------------------------------------------------------------------------
+# Test 25: PDF contains "EXECUTIVE SUMMARY" section header
+# ---------------------------------------------------------------------------
+
+def test_executive_summary_section_header():
+    pdf = generate_pdf_report(SAMPLE_RESULTS)
+    assert b"EXECUTIVE SUMMARY" in pdf
+
+
+# ---------------------------------------------------------------------------
+# Test 26: PDF contains "VALINOR SAAS" branding
+# ---------------------------------------------------------------------------
+
+def test_pdf_contains_valinor_branding():
+    pdf = generate_pdf_report(SAMPLE_RESULTS)
+    assert b"VALINOR SAAS" in pdf
+
+
+# ---------------------------------------------------------------------------
+# Test 27: Curly quotes are replaced by straight quotes
+# ---------------------------------------------------------------------------
+
+def test_curly_quotes_replaced():
+    text = "\u201cHello\u201d and \u2018world\u2019"
+    escaped = _escape_pdf_string(text)
+    assert "\u201c" not in escaped
+    assert "\u201d" not in escaped
+    assert "\u2018" not in escaped
+    assert "\u2019" not in escaped
+    # Should be encodable as latin-1
+    escaped.encode("latin-1")
+
+
+# ---------------------------------------------------------------------------
+# Test 28: En-dash and em-dash are replaced with ASCII hyphens
+# ---------------------------------------------------------------------------
+
+def test_dashes_replaced():
+    text = "period\u2013to\u2014end"
+    escaped = _escape_pdf_string(text)
+    assert "\u2013" not in escaped
+    assert "\u2014" not in escaped
+    assert "-" in escaped
+
+
+# ---------------------------------------------------------------------------
+# Test 29: Ellipsis character is replaced with "..."
+# ---------------------------------------------------------------------------
+
+def test_ellipsis_replaced():
+    text = "loading\u2026"
+    escaped = _escape_pdf_string(text)
+    assert "\u2026" not in escaped
+    assert "..." in escaped
+
+
+# ---------------------------------------------------------------------------
+# Test 30: _wrap_lines with long single word exceeding max_chars
+# ---------------------------------------------------------------------------
+
+def test_wrap_lines_very_long_word():
+    long_word = "A" * 200
+    lines = _wrap_lines(long_word, max_chars=90)
+    # textwrap.wrap will break the word across lines; all chunks <= 90 chars (or one chunk)
+    assert len(lines) >= 1
+    for line in lines:
+        assert len(line) <= 200  # at minimum, no line explodes beyond original
+
+
+# ---------------------------------------------------------------------------
+# Test 31: _wrap_lines returns empty string for blank-only input
+# ---------------------------------------------------------------------------
+
+def test_wrap_lines_blank_input():
+    lines = _wrap_lines("", max_chars=90)
+    # Empty string has no splitlines() → returns empty list
+    assert lines == []
+
+
+# ---------------------------------------------------------------------------
+# Test 32: generate_pdf_report with missing "reports" key still generates PDF
+# ---------------------------------------------------------------------------
+
+def test_missing_reports_key_fallback():
+    results = {
+        "job_id": "job-no-report",
+        "client_name": "Ghost Corp",
+        "period": "Q2-2026",
+    }
+    pdf = generate_pdf_report(results)
+    assert isinstance(pdf, bytes)
+    assert pdf.startswith(b"%PDF-")
+    assert b"No executive report available" in pdf

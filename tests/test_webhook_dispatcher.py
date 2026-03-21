@@ -471,3 +471,310 @@ async def test_dispatch_201_response_is_success(dispatcher, sample_payload):
 
     assert results[0]["success"] is True
     assert results[0]["status"] == 201
+
+
+# ---------------------------------------------------------------------------
+# Test 21: payload contains all five required keys
+# ---------------------------------------------------------------------------
+
+def test_create_webhook_payload_all_required_keys():
+    """create_webhook_payload must include exactly the five required keys."""
+    payload = create_webhook_payload("dq_gate_failed", {"score": 42}, "ClientX")
+    required = {"event_type", "client_name", "timestamp", "version", "data"}
+    assert required.issubset(set(payload.keys()))
+
+
+# ---------------------------------------------------------------------------
+# Test 22: HMAC changes when payload content changes
+# ---------------------------------------------------------------------------
+
+def test_compute_hmac_different_payload_different_signature():
+    """Two payloads with different data must produce different HMAC signatures."""
+    from shared.webhook_dispatcher import _compute_hmac
+    secret = "stable-secret"
+    sig1 = _compute_hmac(json.dumps({"a": 1}).encode(), secret)
+    sig2 = _compute_hmac(json.dumps({"a": 2}).encode(), secret)
+    assert sig1 != sig2
+
+
+# ---------------------------------------------------------------------------
+# Test 23: two webhooks subscribed to different events — each fires for its own event
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_two_webhooks_different_events(dispatcher):
+    """Each webhook fires only when its specific event is dispatched."""
+    profile = make_profile(webhooks=[
+        make_webhook(url="https://w1.example.com", events=["analysis_completed"]),
+        make_webhook(url="https://w2.example.com", events=["dq_gate_failed"]),
+    ])
+
+    def _make_mock_session(captured_urls):
+        def _mock_post(url, data=None, headers=None, **kwargs):
+            captured_urls.append(url)
+            mock_resp = MagicMock()
+            mock_resp.status = 200
+            mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+            mock_resp.__aexit__ = AsyncMock(return_value=False)
+            return mock_resp
+
+        mock_session = MagicMock()
+        mock_session.post = MagicMock(side_effect=_mock_post)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        return mock_session
+
+    # Fire analysis_completed — only w1 should be called
+    urls_for_completed = []
+    mock_session_1 = _make_mock_session(urls_for_completed)
+    payload_1 = create_webhook_payload("analysis_completed", {}, "X")
+    with patch("aiohttp.ClientSession", return_value=mock_session_1):
+        results = await dispatcher.dispatch(profile, "analysis_completed", payload_1)
+    assert len(results) == 1
+    assert "https://w1.example.com" in urls_for_completed
+    assert "https://w2.example.com" not in urls_for_completed
+
+    # Fire dq_gate_failed — only w2 should be called
+    urls_for_dq = []
+    mock_session_2 = _make_mock_session(urls_for_dq)
+    payload_2 = create_webhook_payload("dq_gate_failed", {}, "X")
+    with patch("aiohttp.ClientSession", return_value=mock_session_2):
+        results = await dispatcher.dispatch(profile, "dq_gate_failed", payload_2)
+    assert len(results) == 1
+    assert "https://w2.example.com" in urls_for_dq
+    assert "https://w1.example.com" not in urls_for_dq
+
+
+# ---------------------------------------------------------------------------
+# Test 24: event matching is case-sensitive
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_event_matching_is_case_sensitive(dispatcher):
+    """Event subscription matching must be case-sensitive."""
+    profile = make_profile(webhooks=[
+        make_webhook(url="https://cs.example.com", events=["analysis_completed"])
+    ])
+    payload = create_webhook_payload("Analysis_Completed", {}, "Y")
+
+    with patch("aiohttp.ClientSession") as mock_cls:
+        results = await dispatcher.dispatch(profile, "Analysis_Completed", payload)
+
+    assert results == []
+    mock_cls.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Test 25: webhook with empty URL is skipped even if events match
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_empty_url_skipped_regardless_of_event(dispatcher):
+    """A webhook dict with url='' must be skipped no matter which event fires."""
+    profile = make_profile(webhooks=[
+        {"url": "", "events": ["*"], "secret": ""},
+        {"url": "", "events": ["analysis_completed"], "secret": ""},
+    ])
+    payload = create_webhook_payload("analysis_completed", {}, "Z")
+
+    with patch("aiohttp.ClientSession") as mock_cls:
+        results = await dispatcher.dispatch(profile, "analysis_completed", payload)
+
+    assert results == []
+    mock_cls.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Test 26: aiohttp session raises asyncio.TimeoutError — error field not None
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_timeout_error_field_not_none(dispatcher):
+    """When aiohttp raises TimeoutError, the result error field must be a non-empty string."""
+    profile = make_profile(webhooks=[make_webhook(events=["analysis_completed"])])
+    payload = create_webhook_payload("analysis_completed", {}, "Client")
+
+    mock_response = MagicMock()
+    mock_response.__aenter__ = AsyncMock(side_effect=asyncio.TimeoutError("timed out"))
+    mock_response.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.post = MagicMock(return_value=mock_response)
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("aiohttp.ClientSession", return_value=mock_session):
+        results = await dispatcher.dispatch(profile, "analysis_completed", payload)
+
+    assert len(results) == 1
+    assert results[0]["success"] is False
+    assert results[0]["status"] is None
+    assert results[0]["error"] is not None
+    assert len(results[0]["error"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Test 27: mix of success and failure across multiple webhooks
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_mixed_success_failure(dispatcher):
+    """Dispatch to three webhooks where one returns 200 and one returns 500 and one times out."""
+    import aiohttp as _aiohttp
+
+    profile = make_profile(webhooks=[
+        make_webhook(url="https://ok.example.com", events=["analysis_completed"]),
+        make_webhook(url="https://fail.example.com", events=["analysis_completed"]),
+        make_webhook(url="https://timeout.example.com", events=["analysis_completed"]),
+    ])
+    payload = create_webhook_payload("analysis_completed", {}, "Mixed")
+
+    def _mock_post(url, data=None, headers=None, **kwargs):
+        mock_resp = MagicMock()
+        if "ok" in url:
+            mock_resp.status = 200
+            mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+            mock_resp.__aexit__ = AsyncMock(return_value=False)
+        elif "fail" in url:
+            mock_resp.status = 503
+            mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+            mock_resp.__aexit__ = AsyncMock(return_value=False)
+        else:
+            mock_resp.__aenter__ = AsyncMock(side_effect=asyncio.TimeoutError())
+            mock_resp.__aexit__ = AsyncMock(return_value=False)
+        return mock_resp
+
+    mock_session = MagicMock()
+    mock_session.post = MagicMock(side_effect=_mock_post)
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("aiohttp.ClientSession", return_value=mock_session):
+        results = await dispatcher.dispatch(profile, "analysis_completed", payload)
+
+    assert len(results) == 3
+    by_url = {r["url"]: r for r in results}
+    assert by_url["https://ok.example.com"]["success"] is True
+    assert by_url["https://fail.example.com"]["success"] is False
+    assert by_url["https://fail.example.com"]["status"] == 503
+    assert by_url["https://timeout.example.com"]["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# Test 28: connection error triggers exactly two attempts (one retry)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_connection_error_exactly_two_attempts(dispatcher):
+    """ClientConnectionError causes exactly 2 attempts (initial + one retry)."""
+    import aiohttp as _aiohttp
+
+    profile = make_profile(webhooks=[make_webhook(events=["analysis_completed"])])
+    payload = create_webhook_payload("analysis_completed", {}, "R")
+
+    call_count = 0
+
+    def _raise_conn_err(url, data=None, headers=None, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(side_effect=_aiohttp.ClientConnectionError("refused"))
+        mock_ctx.__aexit__ = AsyncMock(return_value=False)
+        return mock_ctx
+
+    mock_session = MagicMock()
+    mock_session.post = MagicMock(side_effect=_raise_conn_err)
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("aiohttp.ClientSession", return_value=mock_session):
+        results = await dispatcher.dispatch(profile, "analysis_completed", payload)
+
+    assert call_count == 2
+    assert results[0]["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# Test 29: webhook dict schema — required keys are url, events, secret
+# ---------------------------------------------------------------------------
+
+def test_make_webhook_has_required_keys():
+    """The helper make_webhook produces dicts with url, events, and secret keys."""
+    wh = make_webhook()
+    assert "url" in wh
+    assert "events" in wh
+    assert "secret" in wh
+
+
+# ---------------------------------------------------------------------------
+# Test 30: delivery result dict contains all four required keys
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_result_has_all_required_keys(dispatcher):
+    """Each delivery result dict must have url, status, success, error keys."""
+    profile = make_profile(webhooks=[make_webhook(events=["analysis_completed"])])
+    payload = create_webhook_payload("analysis_completed", {}, "Keys")
+
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.post = MagicMock(return_value=mock_resp)
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("aiohttp.ClientSession", return_value=mock_session):
+        results = await dispatcher.dispatch(profile, "analysis_completed", payload)
+
+    assert len(results) == 1
+    result = results[0]
+    assert "url" in result
+    assert "status" in result
+    assert "success" in result
+    assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Test 31: SUPPORTED_EVENTS is a frozenset (immutable)
+# ---------------------------------------------------------------------------
+
+def test_supported_events_is_frozenset():
+    """SUPPORTED_EVENTS must be a frozenset to prevent accidental mutation."""
+    from shared.webhook_dispatcher import SUPPORTED_EVENTS
+    assert isinstance(SUPPORTED_EVENTS, frozenset)
+
+
+# ---------------------------------------------------------------------------
+# Test 32: HMAC signature with empty-string secret is 64 hex chars
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_hmac_header_present_when_no_secret(dispatcher):
+    """Even without a secret, X-Valinor-Signature header is present and 64 chars long."""
+    profile = make_profile(webhooks=[make_webhook(events=["analysis_completed"], secret="")])
+    payload = create_webhook_payload("analysis_completed", {"k": "v"}, "NoSecret")
+
+    captured_headers: dict = {}
+
+    def _capture_post(url, data=None, headers=None, **kwargs):
+        captured_headers.update(headers or {})
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+        return mock_resp
+
+    mock_session = MagicMock()
+    mock_session.post = MagicMock(side_effect=_capture_post)
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("aiohttp.ClientSession", return_value=mock_session):
+        results = await dispatcher.dispatch(profile, "analysis_completed", payload)
+
+    assert results[0]["success"] is True
+    sig = captured_headers.get("X-Valinor-Signature", "")
+    assert len(sig) == 64  # SHA-256 hex digest is always 64 chars

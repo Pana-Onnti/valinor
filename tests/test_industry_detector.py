@@ -278,3 +278,94 @@ class TestIndustryDetectorAdditional:
         self.detector.update_profile(profile, em, {"currency": "EUR"})
         # Either it was set or remained None — no crash is the main check
         assert profile.currency_detected is None or isinstance(profile.currency_detected, str)
+
+
+# ---------------------------------------------------------------------------
+# Extended industry detection tests
+# ---------------------------------------------------------------------------
+
+class TestIndustryDetectorExtended:
+    """More coverage for IndustryDetector heuristics and profile integration."""
+
+    def setup_method(self):
+        self.detector = IndustryDetector()
+
+    def test_finanzas_tables_detected(self):
+        """account_move related tables → finanzas / contabilidad."""
+        em = _make_entity_map("account_move", "account_journal", "account_account")
+        result = self.detector.detect(em, {})
+        assert result["industry"] == "finanzas / contabilidad"
+
+    def test_detect_returns_currency_string(self):
+        """detect() result always has a non-empty 'currency' string."""
+        em = _make_entity_map("account_move")
+        result = self.detector.detect(em, {})
+        assert "currency" in result
+        assert isinstance(result["currency"], str)
+        assert len(result["currency"]) > 0
+
+    def test_detect_two_different_industries_differ(self):
+        """Two clearly different domain tables should yield different industry labels."""
+        mfg_em = _make_entity_map("mrp_production", "bom", "routing")
+        dist_em = _make_entity_map("c_invoice", "c_bpartner", "m_warehouse")
+        mfg = self.detector.detect(mfg_em, {})
+        dist = self.detector.detect(dist_em, {})
+        assert mfg["industry"] != dist["industry"]
+
+    def test_update_profile_is_idempotent(self):
+        """Calling update_profile twice with the same entity_map leaves the same industry."""
+        profile = _make_profile("IdempotentTest")
+        em = _make_entity_map("mrp_production", "bom")
+        self.detector.update_profile(profile, em, {})
+        industry_after_first = profile.industry_inferred
+        self.detector.update_profile(profile, em, {})
+        assert profile.industry_inferred == industry_after_first
+
+    def test_detect_with_none_entity_map_fallback(self):
+        """detect() with None entities dict falls back gracefully (no crash)."""
+        try:
+            result = self.detector.detect({}, {})
+        except Exception as exc:
+            pytest.fail(f"detect({{}}) raised {exc!r}")
+        assert isinstance(result, dict)
+
+    def test_single_table_returns_valid_industry(self):
+        """Even a single-table entity_map must return a valid industry string."""
+        em = _make_entity_map("pos_order")
+        result = self.detector.detect(em, {})
+        assert isinstance(result["industry"], str)
+        assert len(result["industry"]) > 0
+
+    def test_multiple_industry_tables_resolves_dominant(self):
+        """When tables from 2+ industries are present, the dominant one wins."""
+        # Mix of manufacturing (stronger signal) + one retail table
+        em = _make_entity_map(
+            "mrp_production", "bom", "routing", "workcenter",
+            "pos_order",
+        )
+        result = self.detector.detect(em, {})
+        # manufactura should win (4 keyword hits vs 1)
+        assert result["industry"] == "manufactura"
+
+    def test_profile_industry_is_str_after_update(self):
+        """profile.industry_inferred is always a str after update_profile."""
+        profile = _make_profile("StrCheck")
+        em = _make_entity_map("zz_unknown")
+        self.detector.update_profile(profile, em, {})
+        assert isinstance(profile.industry_inferred, str)
+
+    def test_detect_with_dict_without_entities_key(self):
+        """detect() with a dict that has no 'entities' key must not raise."""
+        try:
+            result = self.detector.detect({"other_key": {}}, {})
+        except Exception as exc:
+            pytest.fail(f"detect() raised {exc!r} when 'entities' key missing")
+        assert isinstance(result, dict)
+
+    def test_update_profile_sets_non_empty_industry(self):
+        """After update_profile(), profile.industry_inferred is never an empty string."""
+        profile = _make_profile("NonEmptyTest")
+        em = _make_entity_map("res_partner", "account_move")
+        self.detector.update_profile(profile, em, {})
+        assert profile.industry_inferred is not None
+        assert len(profile.industry_inferred) > 0

@@ -181,3 +181,125 @@ def test_valinor_error_in_exception_tracking():
         except ValinorError as e:
             seen_types.add(type(e))
     assert len(seen_types) == 3
+
+
+# ── 21. Full MRO: SSHConnectionError → ValinorError → Exception → BaseException ─
+def test_ssh_connection_error_full_mro():
+    mro = SSHConnectionError.__mro__
+    names = [c.__name__ for c in mro]
+    assert names == ["SSHConnectionError", "ValinorError", "Exception", "BaseException", "object"]
+
+
+# ── 22. All subclasses are instances of Exception ───────────────────────────
+def test_all_subclasses_are_instances_of_exception():
+    for exc_class in (SSHConnectionError, DatabaseConnectionError, PipelineTimeoutError, DQGateHaltError):
+        exc = exc_class("msg")
+        assert isinstance(exc, Exception)
+        assert isinstance(exc, BaseException)
+
+
+# ── 23. Catching specific type does not catch sibling type ──────────────────
+def test_specific_catch_does_not_catch_sibling():
+    caught = []
+    try:
+        raise SSHConnectionError("ssh only")
+    except DatabaseConnectionError:
+        caught.append("db")
+    except SSHConnectionError:
+        caught.append("ssh")
+    assert caught == ["ssh"]
+
+
+# ── 24. Exception with empty string message ──────────────────────────────────
+def test_exception_with_empty_string_message():
+    for exc_class in (ValinorError, SSHConnectionError, DatabaseConnectionError, PipelineTimeoutError):
+        exc = exc_class("")
+        assert exc.args[0] == ""
+        assert str(exc) == ""
+
+
+# ── 25. Exception re-raise preserves original type ──────────────────────────
+def test_reraise_preserves_exact_type():
+    original = PipelineTimeoutError("timed out")
+    caught = None
+    try:
+        try:
+            raise original
+        except ValinorError:
+            raise
+    except Exception as e:
+        caught = e
+    assert type(caught) is PipelineTimeoutError
+    assert caught is original
+
+
+# ── 26. DQGateHaltError dq_score defaults to None ───────────────────────────
+def test_dq_gate_halt_error_dq_score_default():
+    err = DQGateHaltError("no score")
+    assert err.dq_score is None
+
+
+# ── 27. DQGateHaltError stores both dq_score and gate_decision simultaneously ─
+def test_dq_gate_halt_error_both_attributes():
+    err = DQGateHaltError("halt", dq_score=55.0, gate_decision="HALT")
+    assert err.dq_score == 55.0
+    assert err.gate_decision == "HALT"
+    assert err.args[0] == "halt"
+
+
+# ── 28. repr() of each exception contains the class name ────────────────────
+def test_repr_contains_class_name():
+    for exc_class in (ValinorError, SSHConnectionError, DatabaseConnectionError, PipelineTimeoutError, DQGateHaltError):
+        exc = exc_class("some message")
+        assert exc_class.__name__ in repr(exc)
+
+
+# ── 29. Chained exception stores original as __cause__ ──────────────────────
+def test_chained_exception_stores_cause():
+    original = ValueError("root cause")
+    try:
+        try:
+            raise original
+        except ValueError as e:
+            raise SSHConnectionError("wrapped") from e
+    except SSHConnectionError as exc:
+        assert exc.__cause__ is original
+        assert isinstance(exc.__cause__, ValueError)
+        assert str(exc.__cause__) == "root cause"
+
+
+# ── 30. raise X from Y — __suppress_context__ is True ───────────────────────
+def test_chained_exception_suppresses_context():
+    try:
+        try:
+            raise RuntimeError("inner")
+        except RuntimeError as e:
+            raise DatabaseConnectionError("outer") from e
+    except DatabaseConnectionError as exc:
+        assert exc.__suppress_context__ is True
+
+
+# ── 31. DQGateHaltError can be raised and caught as both ValinorError and Exception ─
+def test_dq_gate_halt_caught_as_valinor_and_exception():
+    raised_as_valinor = False
+    try:
+        raise DQGateHaltError("halt", dq_score=10.0)
+    except ValinorError:
+        raised_as_valinor = True
+    assert raised_as_valinor
+
+    raised_as_exception = False
+    try:
+        raise DQGateHaltError("halt again")
+    except Exception:
+        raised_as_exception = True
+    assert raised_as_exception
+
+
+# ── 32. All exception classes are distinct types (not aliases) ───────────────
+def test_exception_classes_are_distinct_objects():
+    classes = [ValinorError, SSHConnectionError, DatabaseConnectionError, PipelineTimeoutError, DQGateHaltError]
+    # Each pair must be a different class object
+    for i, a in enumerate(classes):
+        for b in classes[i + 1:]:
+            assert a is not b
