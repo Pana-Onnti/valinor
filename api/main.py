@@ -799,6 +799,59 @@ async def get_client_profile(client_name: str):
     return profile.to_dict()
 
 
+@app.get("/api/clients/{client_name}/profile/export", tags=["Clients"])
+async def export_client_profile(client_name: str):
+    """
+    Export the full ClientProfile as a downloadable JSON file.
+    Returns Content-Disposition: attachment so browsers trigger a download.
+    """
+    import sys, os, json as _json
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+    from fastapi.responses import Response
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {client_name}")
+
+    payload = _json.dumps(profile.to_dict(), indent=2, ensure_ascii=False)
+    filename = f"{client_name}_profile.json"
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/clients/{client_name}/profile/import", tags=["Clients"])
+async def import_client_profile(client_name: str, body: dict):
+    """
+    Import (overwrite) a ClientProfile from a JSON body.
+    The body must contain a `client_name` field that matches the URL parameter.
+    Returns 400 if the names do not match.
+    """
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+    from shared.memory.client_profile import ClientProfile
+
+    if body.get("client_name") != client_name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"client_name in body ('{body.get('client_name')}') does not match URL parameter ('{client_name}')",
+        )
+
+    store = get_profile_store()
+    try:
+        profile = ClientProfile.from_dict(body)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid profile data: {exc}")
+
+    await store.save(profile)
+    return {"status": "imported", "client": client_name}
+
+
 @app.get("/api/clients", tags=["Clients"])
 async def list_clients():
     """
@@ -886,6 +939,120 @@ async def get_clients_summary():
                 for f in p.get("known_findings", {}).values()
             )
         ),
+    }
+
+
+@app.get("/api/clients/comparison", tags=["Clients"])
+async def get_clients_comparison(clients: Optional[str] = None):
+    """
+    Compare DQ scores and trends across multiple clients.
+
+    Optional query param: ?clients=client1,client2,client3 (comma-separated).
+    If omitted, all clients with profiles are included.
+    """
+    import sys, os, glob as _glob, json as _json
+    from datetime import datetime, timezone
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+
+    # Resolve the list of client names to include
+    if clients:
+        requested_names = [c.strip() for c in clients.split(",") if c.strip()]
+    else:
+        requested_names = None  # means "all"
+
+    # Load raw profile dicts (same two-path strategy as get_clients_summary)
+    all_profiles_data: list = []
+    try:
+        pool = await store._get_pool()
+        if pool:
+            async with pool.acquire() as conn:
+                if requested_names:
+                    rows = await conn.fetch(
+                        "SELECT profile FROM client_profiles WHERE client_name = ANY($1)",
+                        requested_names,
+                    )
+                else:
+                    rows = await conn.fetch("SELECT profile FROM client_profiles")
+                for row in rows:
+                    try:
+                        all_profiles_data.append(_json.loads(row["profile"]))
+                    except Exception:
+                        pass
+        else:
+            raise Exception("no pool")
+    except Exception:
+        profile_dir = "/tmp/valinor_profiles"
+        os.makedirs(profile_dir, exist_ok=True)
+        for path in _glob.glob(os.path.join(profile_dir, "*.json")):
+            try:
+                data = _json.loads(open(path).read())
+                if requested_names is None or data.get("client_name") in requested_names:
+                    all_profiles_data.append(data)
+            except Exception:
+                pass
+
+    def _compute_trend(dq_history: list) -> str:
+        """Return 'improving', 'degrading', or 'stable' based on last-3 vs first-3 scores."""
+        scores = [
+            e["score"] for e in dq_history
+            if isinstance(e, dict) and "score" in e
+        ]
+        if len(scores) < 2:
+            return "stable"
+        first_window = scores[:3]
+        last_window = scores[-3:]
+        avg_first = sum(first_window) / len(first_window)
+        avg_last = sum(last_window) / len(last_window)
+        diff = avg_last - avg_first
+        if diff > 2:
+            return "improving"
+        elif diff < -2:
+            return "degrading"
+        return "stable"
+
+    result_clients = []
+    for p in all_profiles_data:
+        dq_history = p.get("dq_history") or []
+        scores = [e["score"] for e in dq_history if isinstance(e, dict) and "score" in e]
+        avg_dq = round(sum(scores) / len(scores), 1) if scores else None
+
+        known_findings = p.get("known_findings") or {}
+        critical_count = sum(
+            1 for f in known_findings.values()
+            if isinstance(f, dict) and f.get("severity") == "CRITICAL"
+        )
+
+        # last_run: prefer last dq_history timestamp, fall back to last_run_date field
+        last_run = None
+        if dq_history:
+            last_entry = dq_history[-1]
+            if isinstance(last_entry, dict):
+                last_run = last_entry.get("timestamp") or last_entry.get("date")
+        if not last_run:
+            last_run = p.get("last_run_date")
+
+        result_clients.append({
+            "name": p.get("client_name"),
+            "run_count": p.get("run_count", 0),
+            "avg_dq_score": avg_dq,
+            "dq_trend": _compute_trend(dq_history),
+            "critical_findings": critical_count,
+            "last_run": last_run,
+            "industry": p.get("industry"),
+        })
+
+    # Sort by avg_dq_score descending (None last)
+    result_clients.sort(
+        key=lambda c: c["avg_dq_score"] if c["avg_dq_score"] is not None else -1,
+        reverse=True,
+    )
+
+    return {
+        "clients": result_clients,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
