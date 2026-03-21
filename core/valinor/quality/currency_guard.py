@@ -136,6 +136,86 @@ class CurrencyGuard:
                 )
         return findings
 
+    def build_currency_context_block(self, check: CurrencyCheckResult) -> str:
+        """
+        Generate a context string suitable for injection into agent prompts.
+
+        Informs downstream agents (Analyst, Sentinel, Hunter, Narrators) whether
+        they are operating on a homogeneous dataset or a mixed-currency one, and
+        gives explicit instructions to prevent silent cross-currency aggregation.
+
+        Best-practice rationale
+        -----------------------
+        Hedge funds and banks apply two canonical approaches when comparing
+        amounts across periods that span different currencies:
+
+        1. **Constant-currency reporting** (used by multinationals such as
+           Microsoft, Unilever, and SAP in their quarterly earnings):
+           Re-state prior-period figures using the *current-period exchange rate*
+           so that revenue/cost deltas reflect volume/price changes only, not FX
+           moves.  The formula is:
+               CC_growth = (current_value / prior_value_restated_at_current_FX) - 1
+
+        2. **Functional-currency aggregation** (IFRS 21 / ASC 830):
+           Each entity records transactions in its functional currency; only the
+           company-currency (debit/credit) columns are used for consolidated
+           totals.  The original transaction currency is preserved for audit but
+           never summed directly with other currencies.
+
+        In the context of Valinor, agents must never add EUR amounts to USD
+        amounts from the raw `amount_currency` field.  They should either:
+          a) Use the `debit`/`credit` (company currency) columns for aggregated
+             KPIs, or
+          b) Analyse each currency bucket in isolation and note FX impact
+             explicitly in the narrative.
+
+        The RevenueFactorModel should receive homogeneous inputs; if mixing is
+        detected the factor decomposition must be deferred until FX normalisation
+        has been applied upstream.
+
+        Parameters
+        ----------
+        check : CurrencyCheckResult
+            Result from a prior `check_result_set()` or `scan_query_results()`
+            call.
+
+        Returns
+        -------
+        str
+            A formatted, human-readable context block ready to prepend to any
+            agent system prompt or user message.
+        """
+        if check.is_homogeneous:
+            currency_label = check.dominant_currency.upper()
+            return (
+                f"[CONTEXTO MONEDA]\n"
+                f"Moneda única detectada: {currency_label}. "
+                f"Comparaciones directas válidas. "
+                f"El modelo de factores (RevenueFactorModel) puede agregarse sin conversión FX."
+            )
+
+        # Mixed-currency path
+        dominant = check.dominant_currency.upper()
+        dominant_pct = check.dominant_pct * 100
+        mixed_pct = check.mixed_exposure_pct * 100
+
+        return (
+            f"[CONTEXTO MONEDA — ADVERTENCIA]\n"
+            f"AVISO: Los datos contienen múltiples monedas. "
+            f"NO sumes EUR + USD. Analiza cada moneda por separado.\n"
+            f"Moneda dominante: {dominant} ({dominant_pct:.1f}% del valor total). "
+            f"Exposición en moneda no dominante: {mixed_pct:.1f}%.\n"
+            f"Instrucciones para agentes:\n"
+            f"  1. Usar columnas debit/credit (moneda de empresa) para KPIs agregados.\n"
+            f"  2. Descomponer resultados por moneda antes de comparar períodos.\n"
+            f"  3. Para comparación período-a-período (ej. Q1 2024 EUR vs Q1 2023 EUR "
+            f"con transacciones en USD): aplicar metodología 'constant currency' — "
+            f"re-expresar el período anterior al tipo de cambio actual y marcar el "
+            f"impacto FX como factor separado.\n"
+            f"  4. El RevenueFactorModel NO debe ejecutarse sobre datos mixtos sin "
+            f"normalización FX previa."
+        )
+
 
 # Module singleton
 _guard: Optional[CurrencyGuard] = None

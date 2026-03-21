@@ -401,6 +401,26 @@ async def start_analysis(
         # Store job request in Redis
         client_name = request.client_name or request.db_config.get_db_name() or "unknown"
         period = request.period or "unspecified"
+
+        # Per-client concurrent job limit: max 2 running jobs per client_name
+        running_count = 0
+        async for key in redis_client.scan_iter("job:*"):
+            job_status_val = await redis_client.hget(key, "status")
+            if job_status_val == "running":
+                job_client = await redis_client.hget(key, "client_name")
+                if job_client == client_name:
+                    running_count += 1
+                    if running_count >= 2:
+                        break
+        if running_count >= 2:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "error": "too_many_concurrent_jobs",
+                    "message": "Maximum 2 concurrent jobs per client",
+                    "client": client_name,
+                }
+            )
         # Build a sanitized copy of the request for retry support (no passwords)
         request_dict = request.dict()
         safe_request = json.loads(json.dumps(request_dict, default=str))
@@ -436,6 +456,8 @@ async def start_analysis(
             "message": "Analysis queued successfully"
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(
             "Failed to queue analysis",
