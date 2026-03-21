@@ -43,6 +43,7 @@ from shared.memory.profile_extractor import get_profile_extractor
 from api.refinement.prompt_tuner import PromptTuner
 from api.refinement.focus_ranker import FocusRanker
 from api.refinement.refinement_agent import RefinementAgent
+from api.refinement.query_evolver import QueryEvolver
 from shared.memory.industry_detector import IndustryDetector
 from shared.memory.segmentation_engine import get_segmentation_engine
 from core.valinor.quality.currency_guard import get_currency_guard
@@ -74,6 +75,7 @@ class ValinorAdapter:
         self.focus_ranker = FocusRanker()
         self.industry_detector = IndustryDetector()
         self.segmentation_engine = get_segmentation_engine()
+        self.query_evolver = QueryEvolver()
 
     async def run_analysis(
         self,
@@ -643,6 +645,20 @@ RETURN ONLY THE JSON OBJECT."""
                 "success": gate_analysis(findings)
             }
             results["findings"] = findings
+
+            # Run QueryEvolver to track empty queries and high-value tables
+            try:
+                evolver_report = self.query_evolver.analyze_query_results(
+                    query_results, findings, profile
+                )
+                results["_query_evolver"] = evolver_report
+                logger.info(
+                    "QueryEvolver",
+                    empty_queries=len(evolver_report.get("empty_queries", [])),
+                    high_value_tables=len(evolver_report.get("high_value_tables", [])),
+                )
+            except Exception as _qe_err:
+                logger.warning("QueryEvolver failed", error=str(_qe_err))
 
             await self._progress("analysis_agents", 75, f"Completed {len(findings)} agent analyses")
 
