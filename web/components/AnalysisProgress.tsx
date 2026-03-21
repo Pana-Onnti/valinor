@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import axios from 'axios'
 import { CheckCircle, XCircle, Clock, Loader2 } from 'lucide-react'
@@ -16,6 +16,19 @@ interface Step {
 interface AnalysisProgressProps {
   analysisId: string
   onComplete: () => void
+}
+
+interface ProgressUpdate {
+  job_id: string
+  status: string
+  stage: string
+  progress: number
+  message: string
+  dq_score?: number
+  dq_label?: string
+  final?: boolean
+  error?: string
+  done?: boolean
 }
 
 const PIPELINE_STEPS = [
@@ -34,45 +47,110 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
   )
   const [status, setStatus] = useState<'running' | 'completed' | 'failed'>('running')
   const [progress, setProgress] = useState(0)
+  const [dqScore, setDqScore] = useState<number | null>(null)
+  const [dqLabel, setDqLabel] = useState<string | null>(null)
+
+  // Keep a stable ref to onComplete so the SSE/polling closures don't go stale
+  const onCompleteRef = useRef(onComplete)
+  useEffect(() => { onCompleteRef.current = onComplete }, [onComplete])
 
   useEffect(() => {
-    let interval: NodeJS.Timeout
+    if (!analysisId) return
 
-    const poll = async () => {
-      try {
-        const res = await axios.get(`${API_URL}/api/jobs/${analysisId}/status`)
-        const data = res.data
+    let eventSource: EventSource | null = null
+    let pollInterval: ReturnType<typeof setInterval> | null = null
+    let completed = false
 
+    const applyUpdate = (data: ProgressUpdate) => {
+      if (data.error || data.done) return
+
+      const p = data.progress ?? 0
+      setProgress(p)
+      if (data.stage) {
+        const completedCount = Math.floor((p / 100) * PIPELINE_STEPS.length)
+        setSteps((prev) =>
+          prev.map((s, i) => ({
+            ...s,
+            status:
+              i < completedCount ? 'done' : i === completedCount ? 'running' : 'pending',
+          }))
+        )
+      }
+      if (data.status) setStatus(data.status as 'running' | 'completed' | 'failed')
+
+      if (data.dq_score !== undefined) {
+        setDqScore(data.dq_score ?? null)
+        setDqLabel(data.dq_label ?? null)
+      }
+
+      if (
+        !completed &&
+        (data.final || data.status === 'completed' || data.status === 'failed')
+      ) {
+        completed = true
         if (data.status === 'completed') {
-          setStatus('completed')
           setProgress(100)
           setSteps((prev) => prev.map((s) => ({ ...s, status: 'done' })))
-          clearInterval(interval)
-          setTimeout(onComplete, 1500)
-        } else if (data.status === 'failed') {
-          setStatus('failed')
-          clearInterval(interval)
-        } else {
-          const p = data.progress || 0
-          setProgress(p)
-          const completedCount = Math.floor((p / 100) * PIPELINE_STEPS.length)
-          setSteps((prev) =>
-            prev.map((s, i) => ({
-              ...s,
-              status:
-                i < completedCount ? 'done' : i === completedCount ? 'running' : 'pending',
-            }))
-          )
+          setTimeout(() => onCompleteRef.current(), 1500)
         }
-      } catch {
-        // keep polling
+        eventSource?.close()
+        if (pollInterval) clearInterval(pollInterval)
       }
     }
 
-    poll()
-    interval = setInterval(poll, 3000)
-    return () => clearInterval(interval)
-  }, [analysisId, onComplete])
+    const startPolling = () => {
+      const poll = async () => {
+        if (completed) return
+        try {
+          const res = await axios.get(`${API_URL}/api/jobs/${analysisId}/status`)
+          applyUpdate({
+            job_id: analysisId,
+            status: res.data.status,
+            stage: res.data.stage ?? '',
+            progress: res.data.progress ?? 0,
+            message: res.data.message ?? '',
+          })
+        } catch {
+          // keep polling
+        }
+      }
+      poll()
+      pollInterval = setInterval(poll, 3000)
+    }
+
+    const trySSE = () => {
+      try {
+        eventSource = new EventSource(
+          `${API_URL}/api/jobs/${analysisId}/stream`
+        )
+
+        eventSource.onmessage = (event) => {
+          try {
+            const data: ProgressUpdate = JSON.parse(event.data)
+            applyUpdate(data)
+          } catch {
+            // ignore parse errors
+          }
+        }
+
+        eventSource.onerror = () => {
+          eventSource?.close()
+          eventSource = null
+          // Fall back to polling if SSE fails
+          if (!completed) startPolling()
+        }
+      } catch {
+        startPolling()
+      }
+    }
+
+    trySSE()
+
+    return () => {
+      eventSource?.close()
+      if (pollInterval) clearInterval(pollInterval)
+    }
+  }, [analysisId])
 
   return (
     <motion.div
@@ -101,6 +179,23 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
               transition={{ duration: 0.5 }}
             />
           </div>
+
+          {/* DQ Score badge — shown as soon as it arrives */}
+          {dqScore !== null && (
+            <div className="mt-2 flex items-center gap-2 text-sm">
+              <span
+                className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                  dqScore >= 85
+                    ? 'bg-green-100 text-green-700'
+                    : dqScore >= 65
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-orange-100 text-orange-700'
+                }`}
+              >
+                DQ {dqScore}/100{dqLabel ? ` · ${dqLabel}` : ''}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Steps */}

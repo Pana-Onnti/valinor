@@ -16,7 +16,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, validator
 from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -55,10 +55,36 @@ def _validate_period(period: str) -> str:
 # Configure FastAPI app
 app = FastAPI(
     title="Valinor SaaS API",
-    description="Enterprise Analytics API - Transform database insights into business intelligence",
-    version="1.0.0",
+    description="""
+## Valinor — AI-Powered Business Intelligence
+
+Analiza cualquier base de datos empresarial y genera reportes ejecutivos en 15 minutos.
+
+### Arquitectura
+- **Zero Data Storage** — solo metadata y resultados agregados
+- **Multi-agent pipeline**: Cartographer → DataQualityGate → QueryBuilder → Analysts → Narrators
+- **Calidad institucional**: 9 controles de datos antes de cada análisis
+
+### Flujo típico
+1. `POST /api/analyze` — inicia análisis (devuelve job_id)
+2. `GET /api/jobs/{id}/stream` — SSE para progreso en tiempo real
+3. `GET /api/jobs/{id}/results` — resultados completos
+4. `GET /api/jobs/{id}/pdf` — reporte PDF con marca Valinor
+5. `GET /api/jobs/{id}/quality` — reporte de calidad de datos
+
+### Metodología de calidad de datos
+Implementa estándares de: Renaissance Technologies, Bloomberg Terminal, ECB, Big 4 Audit
+- Ecuación contable (Activos = Pasivos + Capital)
+- Reconciliación 3 rutas de revenue
+- Ley de Benford
+- Descomposición STL estacional
+- Cointegración Engle-Granger
+    """,
+    version="2.0.0",
+    contact={"name": "Delta 4C", "email": "hola@delta4c.com"},
+    license_info={"name": "Proprietary"},
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
 
 # Rate limiter
@@ -282,7 +308,7 @@ async def health_check():
         "version": "1.0.0"
     }
 
-@app.post("/api/analyze", response_model=Dict[str, str], summary="Start analysis")
+@app.post("/api/analyze", response_model=Dict[str, str], summary="Start analysis", tags=["Analysis"])
 @limiter.limit("10/minute")
 async def start_analysis(
     http_request: Request,
@@ -412,6 +438,96 @@ async def get_job_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get job status: {str(e)}"
         )
+
+@app.get("/api/jobs/{job_id}/stream", summary="Stream job progress via SSE")
+async def stream_job_progress(job_id: str):
+    """
+    Server-Sent Events stream for real-time job progress.
+    Client subscribes and receives events as the job progresses.
+    Automatically closes when job completes or fails.
+    """
+    async def event_generator():
+        last_stage = None
+        last_progress = -1
+        consecutive_polls = 0
+        max_polls = 360  # 30 minutes max at 5s interval
+
+        while consecutive_polls < max_polls:
+            try:
+                r = await get_redis()
+                job_data = await r.hgetall(f"job:{job_id}")
+
+                if not job_data:
+                    yield f"data: {json.dumps({'error': 'Job not found'})}\n\n"
+                    break
+
+                current_status = job_data.get("status", "unknown")
+                current_stage = job_data.get("stage", "")
+                current_progress = job_data.get("progress", "0")
+                current_message = job_data.get("message", "")
+
+                # Only yield if something changed
+                if current_stage != last_stage or current_progress != last_progress:
+                    event_data = {
+                        "job_id": job_id,
+                        "status": current_status,
+                        "stage": current_stage,
+                        "progress": int(current_progress) if current_progress else 0,
+                        "message": current_message,
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }
+
+                    # Add DQ score when available
+                    if current_stage == "data_quality" or current_status == "completed":
+                        try:
+                            results_raw = await r.get(f"job:{job_id}:results")
+                            if results_raw:
+                                results = json.loads(results_raw)
+                                dq = results.get("data_quality")
+                                if dq:
+                                    event_data["dq_score"] = dq.get("score")
+                                    event_data["dq_label"] = dq.get("confidence_label")
+                        except Exception:
+                            pass
+
+                    yield f"data: {json.dumps(event_data)}\n\n"
+                    last_stage = current_stage
+                    last_progress = current_progress
+
+                # Terminal states — close stream
+                if current_status in ("completed", "failed", "cancelled"):
+                    final_event = {
+                        "job_id": job_id,
+                        "status": current_status,
+                        "stage": "done",
+                        "progress": 100 if current_status == "completed" else 0,
+                        "message": "Análisis completado" if current_status == "completed" else "Error en análisis",
+                        "final": True,
+                    }
+                    yield f"data: {json.dumps(final_event)}\n\n"
+                    break
+
+                consecutive_polls += 1
+                await asyncio.sleep(2)  # Poll Redis every 2 seconds
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                break
+
+        yield 'data: {"done": true}\n\n'
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+            "Connection": "keep-alive",
+        },
+    )
+
 
 @app.get("/api/jobs/{job_id}/results", summary="Get job results")
 async def get_job_results(
@@ -1010,14 +1126,10 @@ async def register_webhook(client_name: str, body: dict):
     store = get_profile_store()
     profile = await store.load_or_create(client_name)
 
-    if not hasattr(profile, '__dict__'):
-        raise HTTPException(status_code=500, detail="Profile error")
-
-    # Store webhook in profile (as extra field)
-    webhooks = profile.__dict__.get('_webhooks', [])
-    existing = [w for w in webhooks if w.get("url") != webhook_url]
+    # Deduplicate and append, capped at 5
+    existing = [w for w in profile.webhooks if w.get("url") != webhook_url]
     existing.append({"url": webhook_url, "registered_at": datetime.utcnow().isoformat(), "active": True})
-    profile.__dict__['_webhooks'] = existing[-5:]  # max 5 webhooks
+    profile.webhooks = existing[-5:]  # max 5 webhooks
 
     await store.save(profile)
     return {"status": "registered", "url": webhook_url, "client": client_name}
@@ -1031,8 +1143,7 @@ async def list_webhooks(client_name: str):
     profile = await store.load(client_name)
     if not profile:
         raise HTTPException(status_code=404, detail="Client not found")
-    webhooks = profile.__dict__.get('_webhooks', [])
-    return {"client": client_name, "webhooks": webhooks}
+    return {"client": client_name, "webhooks": profile.webhooks}
 
 
 @app.delete("/api/clients/{client_name}/webhooks")
@@ -1043,10 +1154,9 @@ async def delete_webhook(client_name: str, url: str):
     profile = await store.load(client_name)
     if not profile:
         raise HTTPException(status_code=404, detail="Client not found")
-    webhooks = [w for w in profile.__dict__.get('_webhooks', []) if w.get("url") != url]
-    profile.__dict__['_webhooks'] = webhooks
+    profile.webhooks = [w for w in profile.webhooks if w.get("url") != url]
     await store.save(profile)
-    return {"status": "removed", "remaining": len(webhooks)}
+    return {"status": "removed", "remaining": len(profile.webhooks)}
 
 
 @app.get("/api/clients/{client_name}/segmentation")
@@ -1261,8 +1371,7 @@ async def run_analysis_task(job_id: str, request_data: Dict[str, Any]):
             store = get_profile_store()
             profile = await store.load(client_name)
             if profile:
-                webhooks = profile.__dict__.get('_webhooks', [])
-                for webhook in webhooks:
+                for webhook in profile.webhooks:
                     if webhook.get("active") and webhook.get("url"):
                         summary = build_job_summary(results)
                         asyncio.create_task(fire_job_completion_webhook(
@@ -1297,8 +1406,7 @@ async def run_analysis_task(job_id: str, request_data: Dict[str, Any]):
             store = get_profile_store()
             profile = await store.load(client_name)
             if profile:
-                webhooks = profile.__dict__.get('_webhooks', [])
-                for webhook in webhooks:
+                for webhook in profile.webhooks:
                     if webhook.get("active") and webhook.get("url"):
                         asyncio.create_task(fire_job_completion_webhook(
                             webhook["url"], job_id, client_name, "failed", {}

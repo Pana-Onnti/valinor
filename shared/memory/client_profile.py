@@ -103,6 +103,9 @@ class ClientProfile:
     # ── Data Quality history ──────────────────────────────────────────────────
     dq_history: List[Dict] = field(default_factory=list)  # last 10 DQ reports per run
 
+    # ── Webhooks ──────────────────────────────────────────────────────────────
+    webhooks: List[Dict] = field(default_factory=list)  # registered webhook URLs
+
     def get_refinement(self) -> ClientRefinement:
         if self.refinement:
             return ClientRefinement(**self.refinement)

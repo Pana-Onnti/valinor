@@ -560,6 +560,21 @@ RETURN ONLY THE JSON OBJECT."""
                 logger.warning("Currency mixing detected in query results",
                                affected_queries=list(currency_issues.keys()))
 
+            # ── Statistical anomaly detection on raw results ──────────────────
+            try:
+                from core.valinor.quality.anomaly_detector import get_anomaly_detector
+                statistical_anomalies = get_anomaly_detector().scan(query_results)
+                if statistical_anomalies:
+                    results["statistical_anomalies"] = [
+                        {"query": a.query_id, "column": a.column, "severity": a.severity,
+                         "description": a.description, "value_share": a.value_share}
+                        for a in statistical_anomalies
+                    ]
+                    # Will inject into memory in the memory section below
+                    results["_anomaly_context"] = get_anomaly_detector().format_for_agent(statistical_anomalies)
+            except Exception as _anom_err:
+                logger.warning("Anomaly detector failed", error=str(_anom_err))
+
             # ── Customer segmentation from query results ──────────────────────
             seg_result = self.segmentation_engine.segment_from_query_results(query_results, profile)
             if seg_result:
@@ -598,6 +613,10 @@ RETURN ONLY THE JSON OBJECT."""
             # Inject factor model context if available
             if results.get("_factor_model_context"):
                 memory["factor_model_context"] = results["_factor_model_context"]
+
+            # Inject statistical anomaly context if available
+            if results.get("_anomaly_context"):
+                memory["statistical_anomalies"] = results["_anomaly_context"]
 
             # Inject historical context for narrator
             if profile.run_count > 0 and profile.run_history:
