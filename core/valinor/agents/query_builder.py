@@ -12,10 +12,11 @@ Key design:
 """
 
 import json
-import logging
 from typing import Any
 
-logger = logging.getLogger(__name__)
+import structlog
+
+logger = structlog.get_logger()
 
 ROW_COUNT_CAP = 100_000
 MAX_ENTITIES = 20

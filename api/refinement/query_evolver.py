@@ -27,11 +27,10 @@ class QueryEvolver:
         empty_queries: List[str] = []
         high_value_tables: List[str] = []
 
-        for result in query_results.get("results", []):
-            query_name = result.get("name", "")
+        for query_id, result in query_results.get("results", {}).items():
             rows = result.get("rows", [])
             if not rows:
-                empty_queries.append(query_name)
+                empty_queries.append(query_id)
 
         # Persist empty-query counts so repeated empties accumulate across runs
         if not isinstance(profile.metadata.get("empty_query_counts"), dict):

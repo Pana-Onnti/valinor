@@ -62,6 +62,12 @@ from core.valinor.quality.provenance import ProvenanceRegistry
 
 logger = structlog.get_logger()
 
+try:
+    from api.metrics import JOBS_TOTAL, ACTIVE_JOBS, ANALYSIS_COST_USD, DQ_CHECKS_TOTAL
+    _METRICS_AVAILABLE = True
+except ImportError:
+    _METRICS_AVAILABLE = False
+
 class ValinorAdapter:
     """
     Adapter that exposes Valinor v0 functionality for SaaS usage.
@@ -119,7 +125,10 @@ class ValinorAdapter:
             "started_at": start_time.isoformat(),
             "stages": {}
         }
-        
+
+        if _METRICS_AVAILABLE:
+            ACTIVE_JOBS.inc()
+
         try:
             # Validate configurations
             await self._progress("validating", 5, "Validating configurations...")
@@ -138,19 +147,8 @@ class ValinorAdapter:
             if not conn_str:
                 pg_type = 'postgresql' if db_type in ('postgresql', 'postgres') else db_type
                 conn_str = f"{pg_type}://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
-            # Inside Docker, localhost/127.0.0.1 refers to the container itself.
-            # Route to the host via host.docker.internal. Because host postgres only
-            # listens on 127.0.0.1, a port forwarder on 0.0.0.0:5444 → 127.0.0.1:5432
-            # is expected on the host (see scripts/pg_proxy.py or scripts/claude_proxy.py).
-            if os.path.exists("/.dockerenv"):
-                import re as _re
-                def _remap_pg_port(m):
-                    port = int(m.group(1))
-                    # Map standard PG ports to the forwarder ports on the host
-                    port_map = {5432: 5444, 5433: 5444, 5435: 5445, 5436: 5446}
-                    new_port = port_map.get(port, port)
-                    return f"@host.docker.internal:{new_port}/"
-                conn_str = _re.sub(r'@(?:localhost|127\.0\.0\.1):(\d+)/', _remap_pg_port, conn_str)
+            # API runs with network_mode: host — localhost inside the container
+            # IS the host's localhost. No port remapping needed.
             db_config['connection_string'] = conn_str
 
             if ssh_config and not self.zero_trust.validate_ssh_config(ssh_config):
@@ -210,9 +208,14 @@ class ValinorAdapter:
             })
             
             await self._progress("completed", 100, f"Analysis completed in {execution_time:.1f} seconds")
-            
+
+            if _METRICS_AVAILABLE:
+                ACTIVE_JOBS.dec()
+                JOBS_TOTAL.labels(status="completed").inc()
+                ANALYSIS_COST_USD.inc(results.get("estimated_cost_usd", 0))
+
             return results
-            
+
         except Exception as _raw_exc:
             # ── Categorize raw exceptions into structured error types ─────────
             e: Exception = _raw_exc
@@ -239,6 +242,10 @@ class ValinorAdapter:
             results["error"] = str(e)
             results["error_type"] = type(e).__name__
             results["failed_at"] = datetime.utcnow().isoformat()
+
+            if _METRICS_AVAILABLE:
+                ACTIVE_JOBS.dec()
+                JOBS_TOTAL.labels(status="failed").inc()
 
             # Store failure metadata (including structured error type)
             await self.metadata_storage.store_job_results(job_id, {
@@ -512,7 +519,7 @@ RETURN ONLY THE JSON OBJECT."""
             from sqlalchemy import create_engine as _create_engine
             _dq_engine = _create_engine(config["connection_string"])
             try:
-                dq_gate = DataQualityGate(_dq_engine, period_config.get("start", ""), period_config.get("end", ""))
+                dq_gate = DataQualityGate(_dq_engine, period_config.get("start", ""), period_config.get("end", ""), erp=config.get("erp"))
                 dq_report = dq_gate.run()
             except Exception as _dq_err:
                 logger.warning("DataQualityGate failed, proceeding without DQ check", error=str(_dq_err))
@@ -673,9 +680,12 @@ RETURN ONLY THE JSON OBJECT."""
             else:
                 # Confirm single currency for agents
                 from core.valinor.quality.currency_guard import CurrencyCheckResult
-                _ok_check = CurrencyCheckResult(dominant_currency=profile.currency_detected or "USD",
-                                                mixed=False, mixed_exposure_pct=0.0,
-                                                warning_message=None, recommendation="")
+                _ok_check = CurrencyCheckResult(is_homogeneous=True,
+                                                dominant_currency=profile.currency_detected or "USD",
+                                                dominant_pct=100.0,
+                                                mixed_exposure_pct=0.0,
+                                                safe_to_aggregate=True,
+                                                recommendation="")
                 results["_currency_context"] = _guard.build_currency_context_block(_ok_check)
 
             # ── Statistical anomaly detection on raw results ──────────────────

@@ -116,7 +116,7 @@ class SegmentationEngine:
         Looks for common patterns in result sets.
         """
         pairs = []
-        for result in query_results.get("results", []):
+        for result in query_results.get("results", {}).values():
             rows = result.get("rows", [])
             if not rows:
                 continue

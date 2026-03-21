@@ -103,10 +103,35 @@ class DataQualityGate:
         "receivables_cointegration":      5,
     }
 
-    def __init__(self, engine, period_start: str, period_end: str):
+    # ERP → required tables for schema integrity check
+    ERP_CORE_TABLES = {
+        "odoo": {
+            "tables": ["account_move", "account_move_line", "account_account", "res_partner"],
+            "columns": {
+                "account_move_line": ["debit", "credit", "date", "account_id", "move_id"],
+                "account_move":      ["state", "partner_id", "invoice_date", "currency_id", "move_type", "name"],
+                "account_account":   ["code", "account_type"],
+            },
+        },
+        "openbravo": {
+            "tables": ["c_invoice", "c_bpartner", "m_product", "c_order"],
+            "columns": {
+                "c_invoice":  ["c_bpartner_id", "dateinvoiced", "grandtotal", "issotrx"],
+                "c_bpartner": ["name", "iscustomer", "isvendor"],
+            },
+        },
+        "sap": {
+            "tables": ["BKPF", "BSEG", "KNA1"],
+            "columns": {},
+        },
+        # Generic / unknown: skip schema check
+    }
+
+    def __init__(self, engine, period_start: str, period_end: str, erp: str = None):
         self.engine = engine
         self.period_start = period_start
         self.period_end = period_end
+        self.erp = (erp or "").lower().strip()
 
     # -----------------------------------------------------------------------
     # Public entry point
@@ -114,12 +139,8 @@ class DataQualityGate:
 
     def run(self) -> DataQualityReport:
         """Run all checks and return a DataQualityReport."""
-        try:
-            import structlog
-            logger = structlog.get_logger()
-        except ImportError:
-            import logging
-            logger = logging.getLogger(__name__)
+        import structlog
+        logger = structlog.get_logger()
 
         report = DataQualityReport(
             overall_score=100.0,
@@ -140,6 +161,12 @@ class DataQualityGate:
             self._check_receivables_revenue_cointegration,
         ]
 
+        try:
+            from api.metrics import DQ_CHECKS_TOTAL
+            _dq_metrics = True
+        except ImportError:
+            _dq_metrics = False
+
         for method in check_methods:
             try:
                 check = method()
@@ -151,6 +178,13 @@ class DataQualityGate:
                     severity="INFO",
                     detail=f"Check skipped: {e}",
                 )
+
+            if _dq_metrics:
+                result_label = "passed" if check.passed else "failed"
+                DQ_CHECKS_TOTAL.labels(
+                    check_name=check.check_name,
+                    result=result_label,
+                ).inc()
 
             report.checks.append(check)
             if not check.passed:
@@ -229,18 +263,21 @@ class DataQualityGate:
     # -----------------------------------------------------------------------
 
     def _check_schema_integrity(self) -> QualityCheckResult:
-        """Verify core Odoo accounting tables and key columns exist."""
-        required_tables = [
-            "account_move",
-            "account_move_line",
-            "account_account",
-            "res_partner",
-        ]
-        required_columns = {
-            "account_move_line": ["debit", "credit", "date", "account_id", "move_id"],
-            "account_move":      ["state", "partner_id", "invoice_date", "currency_id", "move_type", "name"],
-            "account_account":   ["code", "account_type"],
-        }
+        """Verify core ERP tables and key columns exist. ERP-aware."""
+        erp_spec = self.ERP_CORE_TABLES.get(self.erp)
+
+        # Unknown / generic ERP → skip destructive schema check
+        if erp_spec is None:
+            return QualityCheckResult(
+                check_name="schema_integrity",
+                passed=True,
+                score_impact=0,
+                severity="INFO",
+                detail=f"Schema check skipped for ERP '{self.erp or 'unknown'}' — no required-table definition.",
+            )
+
+        required_tables = erp_spec["tables"]
+        required_columns = erp_spec["columns"]
 
         with self.engine.connect() as conn:
             missing_tables = [t for t in required_tables if not self._table_exists(conn, t)]
@@ -250,8 +287,8 @@ class DataQualityGate:
                     passed=False,
                     score_impact=self.SCORE_WEIGHTS["schema_integrity"],
                     severity="FATAL",
-                    detail=f"Core tables missing: {missing_tables}",
-                    recommendation="Verify this is an Odoo/iDempiere database and the schema is accessible.",
+                    detail=f"Core tables missing for {self.erp}: {missing_tables}",
+                    recommendation=f"Verify this is a {self.erp} database and the schema is accessible.",
                 )
 
             missing_cols: List[str] = []
@@ -267,7 +304,7 @@ class DataQualityGate:
                 score_impact=self.SCORE_WEIGHTS["schema_integrity"],
                 severity="FATAL",
                 detail=f"Required columns missing: {missing_cols}",
-                recommendation="Schema may be an older Odoo version or non-standard. Map column names before analysis.",
+                recommendation=f"Schema may be a non-standard {self.erp} version. Map column names before analysis.",
             )
 
         return QualityCheckResult(
