@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, status, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, status, Request, WebSocket, WebSocketDisconnect, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, validator
@@ -466,7 +466,16 @@ async def start_analysis(
 
         await redis_client.hset(f"job:{job_id}", mapping=job_data)
         await redis_client.expire(f"job:{job_id}", 86400)  # 24 hours
-        
+
+        # Audit log: analysis_started
+        await redis_client.lpush("audit_log", json.dumps({
+            "event_type": "analysis_started",
+            "job_id": job_id,
+            "client_name": client_name,
+            "timestamp": datetime.utcnow().isoformat(),
+        }))
+        await redis_client.ltrim("audit_log", 0, 999)
+
         # Queue background task
         background_tasks.add_task(
             run_analysis_task,
@@ -541,6 +550,42 @@ async def get_job_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get job status: {str(e)}"
         )
+
+@app.post("/api/audit", summary="Log audit event", tags=["System"])
+async def log_audit_event(
+    event: dict = Body(...),
+    redis_client: redis.Redis = Depends(get_redis)
+):
+    """
+    Internal endpoint to log audit events.
+    Events are stored in Redis as a capped list (max 1000 entries).
+    """
+    await redis_client.lpush("audit_log", json.dumps({**event, "timestamp": datetime.utcnow().isoformat()}))
+    await redis_client.ltrim("audit_log", 0, 999)
+    return {"logged": True}
+
+
+@app.get("/api/audit", summary="Read audit events", tags=["System"])
+async def get_audit_events(
+    limit: int = 50,
+    event_type: Optional[str] = None,
+    redis_client: redis.Redis = Depends(get_redis)
+):
+    """
+    Read recent audit events from Redis.
+    Optionally filter by event_type.
+    """
+    raw_events = await redis_client.lrange("audit_log", 0, limit - 1)
+    events = []
+    for raw in raw_events:
+        try:
+            evt = json.loads(raw)
+        except Exception:
+            continue
+        if event_type is None or evt.get("event_type") == event_type:
+            events.append(evt)
+    return {"events": events, "total_returned": len(events)}
+
 
 @app.get("/api/jobs/{job_id}/stream", summary="Stream job progress via SSE")
 async def stream_job_progress(job_id: str):
