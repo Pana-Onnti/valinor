@@ -114,6 +114,10 @@ def build_executive_system_prompt(memory: dict) -> str:
     if anomaly_ctx:
         extra_sections.append(f"## ANOMALÍAS ESTADÍSTICAS DETECTADAS\n{anomaly_ctx}")
 
+    sentinel_ctx = memory.get("sentinel_patterns", "")
+    if sentinel_ctx:
+        extra_sections.append(f"## PATRONES DE FRAUDE ACTIVOS\n{sentinel_ctx}")
+
     extra_block = "\n\n".join(extra_sections)
     if extra_block:
         extra_block = "\n\n" + extra_block

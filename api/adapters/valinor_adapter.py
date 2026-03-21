@@ -645,6 +645,19 @@ RETURN ONLY THE JSON OBJECT."""
             if results.get("_currency_context"):
                 memory["currency_context"] = results["_currency_context"]
 
+            # Inject sentinel fraud patterns for available tables
+            try:
+                from core.valinor.agents.sentinel_patterns import (
+                    get_patterns_for_tables, build_sentinel_context
+                )
+                available_tables = list(entity_map.get("entities", {}).keys())
+                relevant_patterns = get_patterns_for_tables(available_tables)
+                if relevant_patterns:
+                    memory["sentinel_patterns"] = build_sentinel_context(relevant_patterns)
+                    logger.info("Sentinel patterns injected", count=len(relevant_patterns))
+            except Exception as _sp_err:
+                logger.warning("Sentinel patterns injection failed", error=str(_sp_err))
+
             # Inject historical context for narrator
             if profile.run_count > 0 and profile.run_history:
                 last_run = profile.run_history[-1] if profile.run_history else {}
