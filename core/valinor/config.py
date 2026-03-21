@@ -165,7 +165,20 @@ def parse_period(period: str) -> dict[str, str]:
             "label": period,
         }
     
+    # Monthly: YYYY-MM (e.g. 2025-04)
+    import re as _re
+    if _re.match(r'^\d{4}-\d{2}$', period):
+        year, month = period.split("-")
+        m = int(month)
+        import calendar as _cal
+        last_day = _cal.monthrange(int(year), m)[1]
+        return {
+            "start": f"{year}-{month.zfill(2)}-01",
+            "end":   f"{year}-{month.zfill(2)}-{last_day:02d}",
+            "label": period,
+        }
+
     raise ValueError(
         f"Unrecognized period format: '{period}'. "
-        f"Use: Q1-2025, H1-2025, or 2025"
+        f"Use: 2025-04, Q1-2025, H1-2025, or 2025"
     )

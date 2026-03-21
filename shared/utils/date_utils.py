@@ -30,6 +30,7 @@ _HALF_BOUNDS: dict[int, tuple[tuple[int, int], tuple[int, int]]] = {
 _RE_QUARTER = re.compile(r"^Q([1-4])-(\d{4})$", re.IGNORECASE)
 _RE_HALF    = re.compile(r"^H([12])-(\d{4})$", re.IGNORECASE)
 _RE_YEAR    = re.compile(r"^(\d{4})$")
+_RE_MONTH   = re.compile(r"^(\d{4})-(\d{2})$")
 
 
 def parse_period(period: str) -> tuple[str, str]:
@@ -96,9 +97,20 @@ def parse_period(period: str) -> tuple[str, str]:
         end   = date(year, 12, 31).isoformat()
         return start, end
 
+    # --- Monthly: YYYY-MM ---
+    m = _RE_MONTH.match(period)
+    if m:
+        import calendar
+        year  = int(m.group(1))
+        month = int(m.group(2))
+        last_day = calendar.monthrange(year, month)[1]
+        start = date(year, month, 1).isoformat()
+        end   = date(year, month, last_day).isoformat()
+        return start, end
+
     raise ValueError(
         f"Unrecognised period format: {period!r}. "
-        "Expected formats: 'Q1-2025', 'H1-2025', '2025'."
+        "Expected formats: '2025-04', 'Q1-2025', 'H1-2025', '2025'."
     )
 
 
