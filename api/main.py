@@ -1277,6 +1277,45 @@ async def get_client_dq_history(client_name: str):
     }
 
 
+@app.get("/api/clients/{client_name}/kpis", tags=["Clients"])
+async def get_client_kpis(client_name: str):
+    """
+    Get KPI baseline history for a client.
+
+    Returns the full `baseline_history` from the client profile — a dict of
+    KPI label → list of datapoints — together with summary metadata such as
+    the total number of tracked KPIs and the earliest/latest periods present.
+    """
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    _validate_client_name(client_name)
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {client_name}")
+
+    baseline_history: dict = profile.baseline_history or {}
+
+    # Collect all period strings across every KPI to derive earliest/latest
+    all_periods: list[str] = []
+    for datapoints in baseline_history.values():
+        for dp in datapoints:
+            period = dp.get("period")
+            if period:
+                all_periods.append(period)
+
+    return {
+        "client_name": client_name,
+        "kpis": baseline_history,
+        "kpi_count": len(baseline_history),
+        "earliest_period": min(all_periods) if all_periods else None,
+        "latest_period": max(all_periods) if all_periods else None,
+    }
+
+
 @app.get("/api/clients/{client_name}/stats", tags=["Clients"])
 async def get_client_stats(client_name: str):
     """

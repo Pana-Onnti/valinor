@@ -206,6 +206,7 @@ export default function ClientHistoryPage() {
               { label: 'Historial', href: `/clients/${clientId}/history` },
               { label: 'Hallazgos', href: `/clients/${clientId}/findings` },
               { label: 'Alertas',   href: `/clients/${clientId}/alerts` },
+              { label: 'Costos',    href: `/clients/${clientId}/costs` },
             ].map(tab => {
               const isActive = pathname === tab.href
               return (

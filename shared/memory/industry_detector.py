@@ -131,13 +131,20 @@ Responde SOLO con JSON: {{"industry": "...", "currency": "..."}}"""
         return heuristic
 
     def update_profile(self, profile: "ClientProfile", entity_map: Dict, config: Dict):
-        """Update profile.industry_inferred and profile.currency_detected if not set."""
-        if profile.industry_inferred and profile.currency_detected:
-            return  # Already detected
-
+        """Update profile.industry_inferred and profile.currency_detected."""
         detected = self.detect(entity_map, config)
-        if not profile.industry_inferred:
-            profile.industry_inferred = detected["industry"]
+
+        old_industry = profile.industry_inferred
+        new_industry = detected["industry"]
+        if old_industry != new_industry:
+            logger.info(
+                "Industry detected",
+                client=profile.client_name,
+                from_industry=old_industry,
+                to_industry=new_industry,
+            )
+            profile.industry_inferred = new_industry
+
         if not profile.currency_detected:
             profile.currency_detected = detected["currency"]
 
