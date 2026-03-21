@@ -16,6 +16,130 @@ interface ClientSummary {
   dq_trend?: string;
 }
 
+// ─── System Health types ────────────────────────────────────────────────────
+
+interface SystemMetrics {
+  total_cost_estimate: number;
+  avg_dq_score: number;
+  success_rate: number;
+  running_jobs: number;
+}
+
+interface SystemStatus {
+  features?: {
+    data_quality?: {
+      dq_gate?: boolean;
+      factor_model?: boolean;
+      benford?: boolean;
+      stl_decomp?: boolean;
+      cointegration?: boolean;
+    };
+  };
+}
+
+// ─── SystemHealthBar component ───────────────────────────────────────────────
+
+function SystemHealthBar() {
+  const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
+  const [status, setStatus] = useState<SystemStatus | null>(null);
+  const [metricsError, setMetricsError] = useState(false);
+  const [statusError, setStatusError] = useState(false);
+
+  useEffect(() => {
+    const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+    fetch(`${API}/api/system/metrics`)
+      .then(r => r.json())
+      .then(setMetrics)
+      .catch(() => setMetricsError(true));
+
+    fetch(`${API}/api/system/status`)
+      .then(r => r.json())
+      .then(setStatus)
+      .catch(() => setStatusError(true));
+  }, []);
+
+  // Colour helpers
+  const successColor = (v: number) =>
+    v >= 90 ? 'bg-green-100 text-green-700' : v >= 70 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700';
+  const dqColor = (v: number) =>
+    v >= 80 ? 'bg-green-100 text-green-700' : v >= 60 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700';
+  const runningColor = (v: number) =>
+    v === 0 ? 'bg-gray-100 text-gray-500' : 'bg-blue-100 text-blue-700';
+
+  const features = status?.features ?? null;
+  const dq = features?.data_quality ?? {};
+  const featureList: { key: keyof typeof dq; label: string }[] = [
+    { key: 'dq_gate',        label: 'DQ Gate' },
+    { key: 'factor_model',   label: 'Factor Model' },
+    { key: 'benford',        label: 'Benford' },
+    { key: 'stl_decomp',     label: 'STL Decomp' },
+    { key: 'cointegration',  label: 'Cointegración' },
+  ];
+
+  return (
+    <div className="bg-white border rounded-xl px-5 py-3 mb-6 flex flex-wrap items-center gap-x-6 gap-y-3">
+      {/* ── Metrics pills ── */}
+      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Sistema</span>
+
+      {metricsError ? (
+        <span className="px-2.5 py-1 rounded-full text-xs bg-red-50 text-red-400">metrics unavailable</span>
+      ) : metrics ? (
+        <>
+          <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+            Costo estimado: <strong>${metrics.total_cost_estimate.toFixed(2)}</strong>
+          </span>
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${dqColor(metrics.avg_dq_score)}`}>
+            DQ avg: <strong>{Math.round(metrics.avg_dq_score)}/100</strong>
+          </span>
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${successColor(metrics.success_rate)}`}>
+            Exito: <strong>{Math.round(metrics.success_rate)}%</strong>
+          </span>
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${runningColor(metrics.running_jobs)}`}>
+            Jobs activos: <strong>{metrics.running_jobs}</strong>
+          </span>
+        </>
+      ) : (
+        <>
+          {[1, 2, 3, 4].map(i => (
+            <span key={i} className="px-2.5 py-1 rounded-full text-xs bg-gray-100 text-gray-300 animate-pulse w-24">&nbsp;</span>
+          ))}
+        </>
+      )}
+
+      {/* ── Divider ── */}
+      <span className="h-4 w-px bg-gray-200 hidden sm:inline-block" />
+
+      {/* ── Feature flags ── */}
+      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Features activas</span>
+
+      {statusError ? (
+        <span className="px-2.5 py-1 rounded-full text-xs bg-red-50 text-red-400">status unavailable</span>
+      ) : features ? (
+        featureList.map(({ key, label }) => {
+          const active = features.data_quality?.[key] ?? false;
+          return (
+            <span
+              key={key}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
+                active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
+              }`}
+            >
+              {active ? '✓' : '○'} {label}
+            </span>
+          );
+        })
+      ) : (
+        <>
+          {[1, 2, 3, 4, 5].map(i => (
+            <span key={i} className="px-2.5 py-1 rounded-full text-xs bg-gray-100 text-gray-300 animate-pulse w-20">&nbsp;</span>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [clients, setClients] = useState<ClientSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,6 +209,9 @@ export default function DashboardPage() {
             </Link>
           </div>
         </div>
+
+        {/* System health */}
+        <SystemHealthBar />
 
         {/* Summary bar */}
         <div className="grid grid-cols-4 gap-4 mb-6">
