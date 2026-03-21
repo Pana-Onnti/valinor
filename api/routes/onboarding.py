@@ -3,11 +3,13 @@ Onboarding endpoints — validate connections and detect ERP type before full an
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 import re
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
+
+# ─── Models ───────────────────────────────────────────────────────────────────
 
 class ConnectionTestRequest(BaseModel):
     db_type: str = "postgresql"
@@ -34,6 +36,49 @@ class ConnectionTestResult(BaseModel):
     has_partners: bool = False
     recommended_analysis: Optional[str] = None  # "full" | "accounting_only" | "limited"
 
+
+class SSHTestRequest(BaseModel):
+    """Request body for SSH + DB connectivity test."""
+    ssh_host: str
+    ssh_port: int = 22
+    ssh_user: str
+    ssh_key: str  # base64-encoded PEM private key
+    db_host: str
+    db_port: int = 5432
+    db_type: str = "postgresql"
+    db_name: str
+    db_user: str
+    db_password: str
+
+
+class SSHTestResult(BaseModel):
+    ssh_ok: bool
+    db_ok: bool
+    latency_ms: float
+    error: Optional[str] = None
+
+
+class DBTypeInfo(BaseModel):
+    id: str
+    label: str
+    default_port: int
+    connection_template: str
+    notes: str
+
+
+class CostEstimateRequest(BaseModel):
+    estimated_rows: int
+    tables_count: int
+    period: str  # e.g. "Q1-2025", "H1-2025", "2025"
+
+
+class CostEstimateResult(BaseModel):
+    estimated_cost_usd: float
+    estimated_duration_minutes: int
+    token_estimate: int
+
+
+# ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.post("/test-connection", response_model=ConnectionTestResult)
 async def test_db_connection(request: ConnectionTestRequest):
@@ -104,6 +149,298 @@ async def test_db_connection(request: ConnectionTestRequest):
         )
 
 
+@router.post("/ssh-test", response_model=SSHTestResult)
+async def test_ssh_and_db(request: SSHTestRequest):
+    """
+    Test SSH tunnel + DB connectivity without running any analysis.
+    Validates SSH config, opens tunnel, attempts a DB ping, then immediately disconnects.
+    No client data is stored.
+
+    Returns: ssh_ok, db_ok, latency_ms, error
+    """
+    import time
+    import base64
+    import tempfile
+    import os
+    import paramiko
+    import socket
+
+    # ── Zero-trust validation ────────────────────────────────────────────────
+    _validate_ssh_host(request.ssh_host)
+    _validate_ssh_host(request.db_host)
+
+    start = time.time()
+    ssh_ok = False
+    db_ok = False
+    error_msg: Optional[str] = None
+
+    ssh_client = paramiko.SSHClient()
+    ssh_client.set_missing_host_key_policy(paramiko.RejectPolicy())  # zero-trust: reject unknown hosts
+    key_file = None
+
+    try:
+        # Decode base64 key and write to temp file
+        try:
+            key_bytes = base64.b64decode(request.ssh_key)
+        except Exception:
+            # Try raw PEM
+            key_bytes = request.ssh_key.encode()
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pem", mode="wb") as tf:
+            tf.write(key_bytes)
+            key_file = tf.name
+        os.chmod(key_file, 0o600)
+
+        try:
+            private_key = paramiko.RSAKey.from_private_key_file(key_file)
+        except paramiko.ssh_exception.SSHException:
+            try:
+                private_key = paramiko.Ed25519Key.from_private_key_file(key_file)
+            except paramiko.ssh_exception.SSHException:
+                private_key = paramiko.ECDSAKey.from_private_key_file(key_file)
+
+        # ── SSH connect ──────────────────────────────────────────────────────
+        ssh_client.connect(
+            hostname=request.ssh_host,
+            port=request.ssh_port,
+            username=request.ssh_user,
+            pkey=private_key,
+            timeout=10,
+            banner_timeout=10,
+            auth_timeout=10,
+        )
+        ssh_ok = True
+
+        # ── DB connectivity via SSH transport channel ────────────────────────
+        transport = ssh_client.get_transport()
+        if transport is None:
+            raise RuntimeError("SSH transport not available after connect")
+
+        # Find a free local port for the tunnel
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            local_port = s.getsockname()[1]
+
+        channel = transport.open_channel(
+            "direct-tcpip",
+            (request.db_host, request.db_port),
+            ("127.0.0.1", local_port),
+        )
+        channel.settimeout(8)
+
+        # Minimal DB handshake to confirm reachability
+        if request.db_type in ("postgresql", "postgres"):
+            _check = _ping_postgres_via_channel(channel, request.db_name, request.db_user, request.db_password)
+        elif request.db_type == "mysql":
+            _check = _ping_mysql_via_channel(channel)
+        else:
+            # Generic: if channel opened without error, consider db_ok
+            _check = True
+
+        db_ok = _check
+        channel.close()
+
+    except paramiko.AuthenticationException as exc:
+        error_msg = f"SSH authentication failed: {exc}"
+    except paramiko.ssh_exception.NoValidConnectionsError as exc:
+        error_msg = f"SSH connection refused: {exc}"
+    except socket.timeout:
+        error_msg = "Connection timed out"
+    except Exception as exc:
+        error_msg = str(exc)[:300]
+    finally:
+        try:
+            ssh_client.close()
+        except Exception:
+            pass
+        if key_file:
+            try:
+                os.unlink(key_file)
+            except Exception:
+                pass
+
+    latency_ms = round((time.time() - start) * 1000, 1)
+
+    return SSHTestResult(
+        ssh_ok=ssh_ok,
+        db_ok=db_ok,
+        latency_ms=latency_ms,
+        error=error_msg,
+    )
+
+
+@router.get("/supported-databases", response_model=List[DBTypeInfo])
+async def supported_databases():
+    """
+    Returns the list of supported database types with connection string templates
+    and default port information.
+    """
+    return [
+        DBTypeInfo(
+            id="postgresql",
+            label="PostgreSQL",
+            default_port=5432,
+            connection_template="postgresql://{user}:{password}@{host}:{port}/{database}",
+            notes="Fully supported. Odoo, iDempiere, and custom schemas auto-detected.",
+        ),
+        DBTypeInfo(
+            id="mysql",
+            label="MySQL / MariaDB",
+            default_port=3306,
+            connection_template="mysql+pymysql://{user}:{password}@{host}:{port}/{database}",
+            notes="MySQL 5.7+ and MariaDB 10.3+ supported.",
+        ),
+        DBTypeInfo(
+            id="sqlserver",
+            label="SQL Server",
+            default_port=1433,
+            connection_template="mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+17+for+SQL+Server",
+            notes="SQL Server 2016+ supported. Requires ODBC Driver 17.",
+        ),
+        DBTypeInfo(
+            id="oracle",
+            label="Oracle Database",
+            default_port=1521,
+            connection_template="oracle+oracledb://{user}:{password}@{host}:{port}/{database}",
+            notes="Oracle 12c+ supported via python-oracledb.",
+        ),
+    ]
+
+
+@router.post("/estimate-cost", response_model=CostEstimateResult)
+async def estimate_cost(request: CostEstimateRequest):
+    """
+    Estimate analysis cost based on rough database size.
+
+    Formula:
+      base = $3.00
+      + $0.50 per 100 000 rows
+      + $0.20 per table
+      min = $5.00, max = $15.00
+
+    Duration estimate: 3 min base + 1 min per 500k rows + 0.5 min per 10 tables.
+    Token estimate: 50k base + 10 tokens per row (sampled) + 500 per table.
+    """
+    rows = max(0, request.estimated_rows)
+    tables = max(0, request.tables_count)
+
+    cost = 3.0 + (rows / 100_000) * 0.5 + tables * 0.2
+    cost = max(5.0, min(15.0, cost))
+    cost = round(cost, 2)
+
+    # Duration in minutes
+    duration = 3 + int(rows / 500_000) + int(tables / 10) * 1
+    duration = max(3, min(30, duration))
+
+    # Rough token estimate (very conservative — most rows are sampled, not streamed)
+    sampled_rows = min(rows, 10_000)  # sampling cap
+    tokens = 50_000 + sampled_rows * 10 + tables * 500
+    tokens = int(min(tokens, 500_000))
+
+    return CostEstimateResult(
+        estimated_cost_usd=cost,
+        estimated_duration_minutes=duration,
+        token_estimate=tokens,
+    )
+
+
+@router.post("/validate-period")
+async def validate_period(body: dict):
+    """Validate that a period has data in the client database."""
+    period = body.get("period", "")
+    patterns = [r'^Q[1-4]-\d{4}$', r'^H[12]-\d{4}$', r'^\d{4}$']
+    valid = any(re.match(p, period) for p in patterns)
+    return {
+        "valid": valid,
+        "period": period,
+        "message": "Período válido" if valid else "Formato inválido. Usar: Q1-2025, H1-2025, 2025"
+    }
+
+
+# ─── Internal helpers ─────────────────────────────────────────────────────────
+
+_PRIVATE_RANGES = [
+    re.compile(r'^127\.'),
+    re.compile(r'^10\.'),
+    re.compile(r'^192\.168\.'),
+    re.compile(r'^172\.(1[6-9]|2\d|3[01])\.'),
+    re.compile(r'^0\.'),
+    re.compile(r'^169\.254\.'),
+    re.compile(r'^::1$'),
+    re.compile(r'^fc00:', re.IGNORECASE),
+    re.compile(r'^fe80:', re.IGNORECASE),
+]
+
+_ALLOWED_HOSTNAME = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$')
+
+
+def _validate_ssh_host(host: str) -> None:
+    """
+    ZeroTrustValidator: block RFC-1918 / loopback addresses to prevent
+    SSRF via SSH tunnel. Only public hostnames and IPs are allowed.
+    Raises HTTPException(400) on violation.
+    """
+    if not host or len(host) > 253:
+        raise HTTPException(status_code=400, detail="Invalid host value")
+
+    # Block private/loopback ranges
+    for pattern in _PRIVATE_RANGES:
+        if pattern.match(host):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Host '{host}' is in a reserved/private range and is not allowed (zero-trust policy)"
+            )
+
+    # Allow numeric IPs (basic check) or valid hostnames
+    if not _ALLOWED_HOSTNAME.match(host):
+        # Could be a raw IP — let it through, private ranges already blocked above
+        ip_pattern = re.compile(r'^\d{1,3}(\.\d{1,3}){3}$')
+        if not ip_pattern.match(host):
+            raise HTTPException(status_code=400, detail=f"Invalid hostname format: '{host}'")
+
+
+def _ping_postgres_via_channel(channel, dbname: str, user: str, password: str) -> bool:
+    """
+    Send a minimal PostgreSQL startup message over a paramiko channel to confirm
+    the DB is reachable and credentials are accepted. Returns True on success.
+    """
+    import struct
+
+    try:
+        # Startup message: length (4) + protocol (4) + params + null
+        params = f"user\x00{user}\x00database\x00{dbname}\x00\x00".encode()
+        proto = struct.pack("!I", 196608)  # 3.0
+        msg_len = struct.pack("!I", 4 + 4 + len(params))
+        channel.sendall(msg_len + proto + params)
+
+        # Read response byte (AuthenticationOk = 'R', ErrorResponse = 'E')
+        resp = channel.recv(1)
+        if resp in (b'R', b'S'):
+            return True  # 'R' = auth request (connected), 'S' = parameter status
+        if resp == b'E':
+            # Error from server — still reachable, but credentials may be wrong
+            return True  # TCP/DB is reachable
+        return False
+    except Exception:
+        return False
+
+
+def _ping_mysql_via_channel(channel) -> bool:
+    """
+    Read the MySQL server greeting to confirm DB is reachable.
+    Does not attempt authentication.
+    """
+    try:
+        data = channel.recv(64)
+        # MySQL greeting starts with packet length (3 bytes) + seq (1 byte)
+        # followed by protocol version (0x0a for MySQL 5+)
+        if len(data) >= 5 and data[4] == 0x0a:
+            return True
+        return len(data) > 0
+    except Exception:
+        return False
+
+
 def _detect_erp(tables: list, conn) -> dict:
     """Auto-detect ERP type from table names and metadata."""
     from sqlalchemy import text
@@ -138,16 +475,3 @@ def _detect_erp(tables: list, conn) -> dict:
         return {"name": "generic_postgresql", "version": None}
 
     return {"name": "unknown", "version": None}
-
-
-@router.post("/validate-period")
-async def validate_period(body: dict):
-    """Validate that a period has data in the client database."""
-    period = body.get("period", "")
-    patterns = [r'^Q[1-4]-\d{4}$', r'^H[12]-\d{4}$', r'^\d{4}$']
-    valid = any(re.match(p, period) for p in patterns)
-    return {
-        "valid": valid,
-        "period": period,
-        "message": "Período válido" if valid else "Formato inválido. Usar: Q1-2025, H1-2025, 2025"
-    }

@@ -1928,6 +1928,124 @@ async def delete_alert_threshold(client_name: str, alert_label: str):
     return {"status": "deleted"}
 
 
+# ── Alert Threshold CRUD (keyed by metric name) ───────────────────────────────
+
+_VALID_CONDITIONS = {
+    "pct_change_below",
+    "pct_change_above",
+    "absolute_below",
+    "absolute_above",
+    "z_score_above",
+}
+
+
+@app.get("/api/clients/{name}/alerts/thresholds", tags=["Alerts"])
+async def get_alert_thresholds(name: str):
+    """Return the client's alert thresholds keyed by metric name."""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load(name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {name}")
+
+    thresholds = profile.alert_thresholds or []
+    return {"thresholds": thresholds, "count": len(thresholds)}
+
+
+@app.post("/api/clients/{name}/alerts/thresholds", tags=["Alerts"])
+async def upsert_alert_threshold(name: str, body: dict):
+    """
+    Create or update an alert threshold for a client.
+
+    Body fields:
+      - metric           : str    — key used in baseline_history
+      - condition        : str    — one of the 5 supported condition types
+      - threshold_value  : float  — numeric threshold
+      - severity         : str    — CRITICAL | HIGH | MEDIUM
+      - description      : str    — human-readable description (optional)
+    """
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    required = ["metric", "condition", "threshold_value", "severity"]
+    missing = [f for f in required if f not in body]
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Missing required fields: {missing}")
+
+    condition = body["condition"]
+    if condition not in _VALID_CONDITIONS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid condition '{condition}'. Must be one of: {sorted(_VALID_CONDITIONS)}",
+        )
+
+    metric = body["metric"]
+    new_threshold = {
+        "metric":          metric,
+        "condition":       condition,
+        "value":           float(body["threshold_value"]),
+        "severity":        body["severity"],
+        "description":     body.get("description", ""),
+        "label":           metric,
+        "triggered":       False,
+        "created_at":      datetime.utcnow().isoformat(),
+    }
+
+    store = get_profile_store()
+    profile = await store.load_or_create(name)
+
+    # Upsert: replace existing entry with the same metric key, or append
+    updated = False
+    for i, t in enumerate(profile.alert_thresholds):
+        if t.get("metric") == metric:
+            profile.alert_thresholds[i] = {**t, **new_threshold}
+            new_threshold = profile.alert_thresholds[i]
+            updated = True
+            break
+    if not updated:
+        profile.alert_thresholds.append(new_threshold)
+
+    await store.save(profile)
+    return {"status": "ok", "threshold": new_threshold, "upserted": True}
+
+
+@app.delete("/api/clients/{name}/alerts/thresholds/{metric}", tags=["Alerts"])
+async def delete_alert_threshold_by_metric(name: str, metric: str):
+    """Remove an alert threshold identified by its metric key."""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load_or_create(name)
+    before = len(profile.alert_thresholds)
+    profile.alert_thresholds = [t for t in profile.alert_thresholds if t.get("metric") != metric]
+    if len(profile.alert_thresholds) == before:
+        raise HTTPException(status_code=404, detail=f"No threshold found for metric: {metric}")
+    await store.save(profile)
+    return {"deleted": True, "metric": metric}
+
+
+@app.get("/api/clients/{name}/alerts/triggered", tags=["Alerts"])
+async def get_triggered_alerts(name: str):
+    """Return triggered alerts stored from the last analysis run."""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load(name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {name}")
+
+    triggered = profile.metadata.get("last_triggered_alerts", [])
+    return {"triggered": triggered}
+
+
 # ── Email Digest ──────────────────────────────────────────────────────────────
 
 @app.get("/api/jobs/{job_id}/digest")

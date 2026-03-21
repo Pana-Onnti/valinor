@@ -9,10 +9,9 @@ import json
 import asyncio
 from pathlib import Path
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import structlog
-from celery import Celery
 import redis
 
 # Add shared modules to path
@@ -20,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from api.adapters.valinor_adapter import ValinorAdapter, PipelineExecutor
 from shared.storage import MetadataStorage
+from worker.celery_app import celery_app
 
 logger = structlog.get_logger()
 
@@ -56,32 +56,6 @@ async def _fire_webhooks_async(job_id: str, client_name: str, status: str, resul
         url = wh.get("url") if isinstance(wh, dict) else str(wh)
         if url:
             await fire_job_completion_webhook(url, job_id, client_name, status, summary)
-
-
-# Initialize Celery
-celery_app = Celery(
-    "valinor_worker",
-    broker=os.getenv("CELERY_BROKER", "redis://localhost:6379/0"),
-    backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0"),
-)
-
-# Configure Celery
-celery_app.conf.update(
-    task_serializer='json',
-    accept_content=['json'],
-    result_serializer='json',
-    timezone='UTC',
-    enable_utc=True,
-    task_track_started=True,
-    task_time_limit=3600,  # 1 hour timeout
-    task_soft_time_limit=3300,  # 55 minute soft timeout
-    worker_max_tasks_per_child=10,
-    worker_prefetch_multiplier=1,
-    task_routes={
-        'worker.tasks.run_analysis': {'queue': 'analysis'},
-        'worker.tasks.cleanup_job': {'queue': 'cleanup'},
-    }
-)
 
 # Global components
 redis_client = None
@@ -320,6 +294,183 @@ def cleanup_job(job_id: str):
         )
         # Don't raise - cleanup failures shouldn't fail the task
 
+@celery_app.task(
+    bind=True,
+    name="worker.tasks.run_analysis_task",
+    max_retries=2,
+    retry_backoff=True,
+)
+def run_analysis_task(
+    self,
+    job_id: str,
+    client_name: str,
+    connection_config: Dict[str, Any],
+    period: str,
+    analysis_config: Dict[str, Any],
+):
+    """
+    Celery task that executes a full Valinor analysis for a given job.
+
+    Parameters
+    ----------
+    job_id:            Unique job identifier (UUID string).
+    client_name:       Human-readable client label.
+    connection_config: SSH + DB connection details forwarded to ValinorAdapter.
+    period:            Analysis period string (e.g. "Q1-2026").
+    analysis_config:   Extra options dict (sector, country, overrides, …).
+    """
+    logger.info(
+        "Starting run_analysis_task",
+        job_id=job_id,
+        client=client_name,
+        celery_task_id=self.request.id,
+    )
+
+    rc = get_redis_client()
+
+    try:
+        # Mark job as running
+        rc.hset(f"job:{job_id}", mapping={
+            "status": "running",
+            "started_at": datetime.utcnow().isoformat(),
+            "task_id": self.request.id,
+        })
+
+        # Run the async pipeline in a fresh event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            results = loop.run_until_complete(
+                _run_analysis_task_async(
+                    job_id, client_name, connection_config, period, analysis_config
+                )
+            )
+        finally:
+            loop.close()
+
+        # Persist results
+        rc.set(
+            f"job:{job_id}:results",
+            json.dumps(results, default=str),
+            ex=86400,  # 24 hours
+        )
+
+        # Update status to completed
+        rc.hset(f"job:{job_id}", mapping={
+            "status": "completed",
+            "completed_at": datetime.utcnow().isoformat(),
+            "message": "Analysis completed successfully",
+        })
+
+        logger.info(
+            "run_analysis_task completed",
+            job_id=job_id,
+            client=client_name,
+            execution_time=results.get("execution_time_seconds"),
+        )
+
+        # Fire webhooks
+        _fire_webhooks_sync(job_id, client_name, "completed", results)
+
+        # Schedule per-job cleanup after 24 h
+        cleanup_job.apply_async(args=[job_id], countdown=86400)
+
+        return {
+            "job_id": job_id,
+            "status": "completed",
+            "findings_count": len(results.get("findings", {})),
+            "execution_time": results.get("execution_time_seconds"),
+        }
+
+    except Exception as exc:
+        logger.error(
+            "run_analysis_task failed",
+            job_id=job_id,
+            client=client_name,
+            error=str(exc),
+            exc_info=True,
+        )
+
+        try:
+            rc.hset(f"job:{job_id}", mapping={
+                "status": "failed",
+                "error": str(exc),
+                "failed_at": datetime.utcnow().isoformat(),
+            })
+        except Exception:
+            pass
+
+        _fire_webhooks_sync(job_id, client_name, "failed", {})
+
+        # Retry with backoff (raises MaxRetriesExceededError when exhausted)
+        raise self.retry(exc=exc)
+
+
+async def _run_analysis_task_async(
+    job_id: str,
+    client_name: str,
+    connection_config: Dict[str, Any],
+    period: str,
+    analysis_config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Async core for run_analysis_task."""
+    # Merge analysis_config into connection_config so ValinorAdapter receives
+    # sector, country, currency, overrides, etc.
+    full_config = {**connection_config, **analysis_config, "client_name": client_name}
+
+    adapter = ValinorAdapter()
+    results = await adapter.run_analysis(
+        job_id=job_id,
+        client_name=client_name,
+        connection_config=full_config,
+        period=period,
+    )
+    return results
+
+
+@celery_app.task(name="worker.tasks.cleanup_expired_jobs")
+def cleanup_expired_jobs():
+    """
+    Periodic task (every 6 hours) that removes Redis job keys older than 7 days.
+    Only the job hash key is deleted; the corresponding :results key is also
+    deleted when found.
+    """
+    logger.info("cleanup_expired_jobs: starting scan")
+
+    rc = get_redis_client()
+    cutoff = datetime.utcnow() - timedelta(days=7)
+    deleted = 0
+
+    try:
+        # Scan for all job hash keys (exclude :results sub-keys)
+        job_keys = [k for k in rc.keys("job:*") if not k.endswith(":results")]
+
+        for key in job_keys:
+            try:
+                created_at_raw = rc.hget(key, "created_at")
+                if not created_at_raw:
+                    continue
+                created_at = datetime.fromisoformat(created_at_raw)
+                if created_at < cutoff:
+                    job_id = rc.hget(key, "job_id") or key.split(":", 1)[-1]
+                    rc.delete(key)
+                    rc.delete(f"job:{job_id}:results")
+                    deleted += 1
+            except Exception as inner_exc:
+                logger.warning(
+                    "cleanup_expired_jobs: error processing key",
+                    key=key,
+                    error=str(inner_exc),
+                )
+
+        logger.info("cleanup_expired_jobs: finished", deleted_jobs=deleted)
+        return {"deleted_jobs": deleted}
+
+    except Exception as exc:
+        logger.error("cleanup_expired_jobs: scan failed", error=str(exc))
+        return {"error": str(exc)}
+
+
 @celery_app.task(name='worker.tasks.health_check')
 def health_check():
     """
@@ -405,7 +556,9 @@ def monitor_jobs():
         return {"error": str(e)}
 
 # Periodic tasks configuration
-celery_app.conf.beat_schedule = {
+# Note: cleanup_expired_jobs is already registered in celery_app.py beat_schedule.
+# The entries below are merged/updated here to keep all schedule definitions together.
+celery_app.conf.beat_schedule.update({
     'health-check': {
         'task': 'worker.tasks.health_check',
         'schedule': 300.0,  # Every 5 minutes
@@ -414,7 +567,7 @@ celery_app.conf.beat_schedule = {
         'task': 'worker.tasks.monitor_jobs',
         'schedule': 600.0,  # Every 10 minutes
     },
-}
+})
 
 if __name__ == "__main__":
     # For debugging - run worker programmatically

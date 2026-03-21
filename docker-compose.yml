@@ -9,6 +9,7 @@ services:
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -27,6 +28,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./deploy/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U valinor"]
       interval: 10s
@@ -51,6 +53,9 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-console_cli}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CLAUDE_CLI_PATH: /usr/local/bin/claude
+
+      # Celery
+      CELERY_ENABLED: "true"
 
       # Feature Flags
       LLM_ENABLE_FALLBACK: "true"
@@ -79,6 +84,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
+    mem_limit: 512m
     depends_on:
       redis:
         condition: service_healthy
@@ -105,12 +112,14 @@ services:
       - ./worker:/app/worker
       - ./shared:/app/shared
       - ./ssh_keys:/app/ssh_keys:ro
+    restart: unless-stopped
+    mem_limit: 512m
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    command: celery -A worker.tasks worker --loglevel=info
+    command: celery -A worker.celery_app worker -Q valinor -c 2
 
   # Next.js Frontend (Development)
   web:

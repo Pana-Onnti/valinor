@@ -136,6 +136,13 @@ if _shared_stub is not None:
         _shared_memory_stub.profile_store = _profile_store_stub
         _shared_memory_stub.client_profile = sys.modules.get("shared.memory.client_profile")
 
+# shared.pdf_generator — stub with a minimal PDF bytes generator
+_stub_missing("shared.pdf_generator")
+_pdf_stub = sys.modules["shared.pdf_generator"]
+_pdf_stub.generate_pdf_report = MagicMock(return_value=b"%PDF-1.4 test pdf")
+if _shared_stub is not None:
+    _shared_stub.pdf_generator = _pdf_stub
+
 # Do NOT stub api.routes.* — those are real modules we want to import
 
 # ---------------------------------------------------------------------------
@@ -724,3 +731,99 @@ class TestClientComparisonEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert "clients" in data
+
+
+# ---------------------------------------------------------------------------
+# /api/clients/{name}/alerts/thresholds  (GET / POST / DELETE)
+# /api/clients/{name}/alerts/triggered   (GET)
+# ---------------------------------------------------------------------------
+
+
+class TestAlertThresholdEndpoints:
+    """Tests for the metric-keyed alert threshold CRUD endpoints."""
+
+    @staticmethod
+    def _store_patch(profile_mock):
+        """Context manager that injects a profile store returning profile_mock."""
+        store = _make_profile_store_mock()
+        store.load = AsyncMock(return_value=profile_mock)
+        store.load_or_create = AsyncMock(return_value=profile_mock)
+        store.save = AsyncMock(return_value=None)
+        return patch(
+            "shared.memory.profile_store.get_profile_store",
+            return_value=store,
+        )
+
+    # ── GET /api/clients/{name}/alerts/thresholds ──────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_get_thresholds_empty(self, client):
+        """A new profile with no thresholds returns an empty list and count=0."""
+        profile_mock = MagicMock()
+        profile_mock.alert_thresholds = []
+
+        with self._store_patch(profile_mock):
+            response = await client.get("/api/clients/new-client/alerts/thresholds")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "thresholds" in data
+        assert data["thresholds"] == []
+        assert data["count"] == 0
+
+    # ── POST /api/clients/{name}/alerts/thresholds ─────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_post_threshold_creates_entry(self, client):
+        """POSTing a valid threshold body returns 200 with the saved threshold."""
+        profile_mock = MagicMock()
+        profile_mock.alert_thresholds = []
+
+        payload = {
+            "metric": "total_revenue",
+            "condition": "pct_change_below",
+            "threshold_value": -15.0,
+            "severity": "HIGH",
+            "description": "Revenue dropped more than 15% period-over-period.",
+        }
+
+        with self._store_patch(profile_mock):
+            response = await client.post(
+                "/api/clients/test-client/alerts/thresholds", json=payload
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["upserted"] is True
+        threshold = data["threshold"]
+        assert threshold["metric"] == "total_revenue"
+        assert threshold["condition"] == "pct_change_below"
+        assert threshold["value"] == -15.0
+        assert threshold["severity"] == "HIGH"
+
+    # ── DELETE /api/clients/{name}/alerts/thresholds/{metric} ─────────────
+
+    @pytest.mark.asyncio
+    async def test_delete_threshold_removes_entry(self, client):
+        """DELETEing an existing metric threshold returns deleted=True and the metric name."""
+        profile_mock = MagicMock()
+        profile_mock.alert_thresholds = [
+            {
+                "metric": "total_revenue",
+                "condition": "absolute_below",
+                "value": 100.0,
+                "severity": "CRITICAL",
+                "label": "total_revenue",
+                "triggered": False,
+            }
+        ]
+
+        with self._store_patch(profile_mock):
+            response = await client.delete(
+                "/api/clients/test-client/alerts/thresholds/total_revenue"
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted"] is True
+        assert data["metric"] == "total_revenue"
