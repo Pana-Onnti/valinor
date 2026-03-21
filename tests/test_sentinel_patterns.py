@@ -8,6 +8,7 @@ from core.valinor.agents.sentinel_patterns import (
     AnomalyPattern,
     get_patterns_for_tables,
     get_patterns_by_severity,
+    get_patterns_by_category,
     build_sentinel_context,
 )
 

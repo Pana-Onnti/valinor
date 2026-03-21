@@ -228,3 +228,146 @@ def test_create_default_thresholds_extra_for_distribucion_mayorista():
     assert "revenue_drop" in labels
     assert "receivables_spike" in labels
     assert len(thresholds) >= 3
+
+
+# ---------------------------------------------------------------------------
+# absolute_above condition
+# ---------------------------------------------------------------------------
+
+def test_absolute_above_triggers():
+    """Current value exceeds threshold — should trigger."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("high_receivables", "total_receivables", "absolute_above", 500_000.0, "HIGH")
+    ])
+    history = {"total_receivables": make_history([600_000.0])}
+    alerts = engine.check_thresholds(profile, history, {})
+
+    assert len(alerts) == 1
+    assert alerts[0]["condition"] == "absolute_above"
+    assert alerts[0]["computed_value"] == pytest.approx(600_000.0)
+
+
+def test_absolute_above_does_not_trigger_when_below():
+    """Current value is below threshold — should NOT trigger."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("high_receivables", "total_receivables", "absolute_above", 500_000.0, "HIGH")
+    ])
+    history = {"total_receivables": make_history([400_000.0])}
+    alerts = engine.check_thresholds(profile, history, {})
+    assert alerts == []
+
+
+# ---------------------------------------------------------------------------
+# Edge cases for z_score_above
+# ---------------------------------------------------------------------------
+
+def test_z_score_does_not_trigger_within_bounds():
+    """Series with no spike — z-score below threshold — should NOT trigger."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("anomaly_z", "some_metric", "z_score_above", 3.0, "CRITICAL")
+    ])
+    # All values very close to each other — no anomaly
+    history = {"some_metric": make_history([100.0, 101.0, 99.0, 100.0, 102.0, 100.0])}
+    alerts = engine.check_thresholds(profile, history, {})
+    assert alerts == []
+
+
+def test_z_score_requires_minimum_3_values():
+    """z_score condition with fewer than 3 data points must NOT trigger."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("anomaly_z", "some_metric", "z_score_above", 1.0, "HIGH")
+    ])
+    # Only 2 values — not enough for z-score
+    history = {"some_metric": make_history([100.0, 200.0])}
+    alerts = engine.check_thresholds(profile, history, {})
+    assert alerts == []
+
+
+# ---------------------------------------------------------------------------
+# Missing metric / empty history
+# ---------------------------------------------------------------------------
+
+def test_missing_metric_key_skips_threshold():
+    """If baseline_history has no entry for a threshold's metric, it is silently skipped."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("revenue_drop", "total_revenue", "pct_change_below", -15.0)
+    ])
+    # Provide history for a different key — threshold metric is absent
+    history = {"some_other_metric": make_history([1_000.0, 800.0])}
+    alerts = engine.check_thresholds(profile, history, {})
+    assert alerts == []
+
+
+def test_empty_history_for_metric_skips_threshold():
+    """An empty history list for the metric key is treated the same as absent."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("revenue_drop", "total_revenue", "pct_change_below", -15.0)
+    ])
+    history = {"total_revenue": []}
+    alerts = engine.check_thresholds(profile, history, {})
+    assert alerts == []
+
+
+# ---------------------------------------------------------------------------
+# Unknown condition type
+# ---------------------------------------------------------------------------
+
+def test_unknown_condition_never_triggers():
+    """An unrecognized condition type must never produce an alert."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("unknown_cond", "total_revenue", "not_a_real_condition", 0.0)
+    ])
+    history = {"total_revenue": make_history([1_000_000.0, 0.0])}
+    alerts = engine.check_thresholds(profile, history, {})
+    assert alerts == []
+
+
+# ---------------------------------------------------------------------------
+# Triggered_alerts capped at 20
+# ---------------------------------------------------------------------------
+
+def test_triggered_alerts_capped_at_20():
+    """profile.triggered_alerts never grows beyond 20 entries."""
+    engine = AlertEngine()
+    # Pre-populate the profile with 19 historical alerts
+    old_alerts = [{"condition": "absolute_below", "metric": "x", "period": str(i)} for i in range(19)]
+    profile = make_profile(
+        alert_thresholds=[
+            make_threshold("zero_revenue", "total_revenue", "absolute_below", 100.0, "CRITICAL")
+        ],
+        triggered_alerts=old_alerts,
+    )
+    history = {"total_revenue": make_history([10.0])}
+    engine.check_thresholds(profile, history, {})
+    # We had 19 old + 1 new = 20 — capped at 20
+    assert len(profile.triggered_alerts) == 20
+
+
+# ---------------------------------------------------------------------------
+# Multiple implicit CRITICAL findings
+# ---------------------------------------------------------------------------
+
+def test_multiple_implicit_critical_findings_all_captured():
+    """Multiple CRITICAL findings each produce a separate implicit alert."""
+    engine = AlertEngine()
+    profile = make_profile()
+    findings = {
+        "sentinel": {
+            "findings": [
+                {"id": "fraud_001", "title": "Fraud finding A", "severity": "CRITICAL"},
+                {"id": "fraud_002", "title": "Fraud finding B", "severity": "CRITICAL"},
+            ]
+        }
+    }
+    alerts = engine.check_thresholds(profile, {}, findings)
+    assert len(alerts) == 2
+    ids = {a["finding_id"] for a in alerts}
+    assert "fraud_001" in ids
+    assert "fraud_002" in ids
