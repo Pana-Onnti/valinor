@@ -233,7 +233,7 @@ def create_default_thresholds(profile: "ClientProfile") -> List[Dict]:
         },
     ]
 
-    industry = (getattr(profile, "industry", None) or "").lower().strip()
+    industry = (getattr(profile, "industry_inferred", None) or getattr(profile, "industry", None) or "").lower().strip()
 
     if industry == "distribución mayorista":
         thresholds += [
