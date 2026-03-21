@@ -119,11 +119,59 @@ app.add_middleware(SecurityHeadersMiddleware)
 class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         request_id = request.headers.get("X-Request-ID", str(_uuid.uuid4())[:8])
+        request.state.request_id = request_id
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
 
 app.add_middleware(RequestIDMiddleware)
+
+# ═══ GLOBAL EXCEPTION HANDLERS ═══
+
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc):
+    request_id = getattr(request.state, "request_id", None)
+    body = {"error": "not_found", "path": request.url.path}
+    if request_id:
+        body["request_id"] = request_id
+    return JSONResponse(status_code=404, content=body)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    request_id = getattr(request.state, "request_id", None)
+    logger.error(
+        "Unhandled exception",
+        request_id=request_id,
+        path=request.url.path,
+        method=request.method,
+        error=str(exc),
+        exc_info=True,
+    )
+    body = {
+        "error": "internal_error",
+        "message": "An unexpected error occurred",
+    }
+    if request_id:
+        body["request_id"] = request_id
+    return JSONResponse(status_code=500, content=body)
+
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    request_id = getattr(request.state, "request_id", None)
+    errors = []
+    for err in exc.errors():
+        field = ".".join(str(loc) for loc in err.get("loc", []))
+        errors.append({"field": field, "message": err.get("msg"), "type": err.get("type")})
+    body = {
+        "error": "validation_error",
+        "message": "Request validation failed",
+        "details": errors,
+    }
+    if request_id:
+        body["request_id"] = request_id
+    return JSONResponse(status_code=422, content=body)
 
 # Register routers
 app.include_router(quality_router)
@@ -212,6 +260,7 @@ class JobStatus(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
+    error_detail: Optional[Dict[str, Any]] = None  # structured detail for DQ HALT and similar
 
 class AnalysisResults(BaseModel):
     """Analysis results response."""
@@ -415,6 +464,13 @@ async def get_job_status(
                 detail="Job not found"
             )
         
+        error_detail = None
+        if job_data.get("error_detail"):
+            try:
+                error_detail = json.loads(job_data["error_detail"])
+            except Exception:
+                pass
+
         return JobStatus(
             job_id=job_id,
             status=job_data.get("status", "unknown"),
@@ -423,7 +479,8 @@ async def get_job_status(
             message=job_data.get("message"),
             started_at=datetime.fromisoformat(job_data["started_at"]) if job_data.get("started_at") else None,
             completed_at=datetime.fromisoformat(job_data["completed_at"]) if job_data.get("completed_at") else None,
-            error=job_data.get("error")
+            error=job_data.get("error"),
+            error_detail=error_detail,
         )
         
     except HTTPException:
@@ -1564,19 +1621,46 @@ async def run_analysis_task(job_id: str, request_data: Dict[str, Any]):
             logger.warning("Webhook setup failed", error=str(_wh_err))
 
     except Exception as e:
+        error_msg = str(e)
+        is_dq_halt = error_msg.startswith("Data quality gate HALT:")
+
         logger.error(
             "Analysis failed",
             job_id=job_id,
-            error=str(e)
+            error=error_msg,
+            dq_halt=is_dq_halt,
         )
 
         if redis_client:
             try:
-                await redis_client.hset(f"job:{job_id}", mapping={
-                    "status": "failed",
-                    "error": str(e),
-                    "failed_at": datetime.utcnow().isoformat()
-                })
+                if is_dq_halt:
+                    # Parse score and blocking issues out of the error message so the
+                    # status endpoint can surface a structured DQ HALT payload.
+                    # Format: "Data quality gate HALT: score=NN/100. Issues: ..."
+                    import re as _re2
+                    _score_match = _re2.search(r'score=(\d+(?:\.\d+)?)/100', error_msg)
+                    _dq_score = float(_score_match.group(1)) if _score_match else None
+                    _issues_part = error_msg.split("Issues: ", 1)
+                    _fatal_checks = [i.strip() for i in _issues_part[1].split("; ")] if len(_issues_part) > 1 else []
+                    dq_halt_payload = json.dumps({
+                        "error": "data_quality_halt",
+                        "dq_score": _dq_score,
+                        "fatal_checks": _fatal_checks,
+                        "message": f"Analysis blocked by Data Quality Gate (score={_dq_score}/100). Resolve the listed issues and retry.",
+                    })
+                    await redis_client.hset(f"job:{job_id}", mapping={
+                        "status": "failed",
+                        "error": error_msg,
+                        "error_code": "data_quality_halt",
+                        "error_detail": dq_halt_payload,
+                        "failed_at": datetime.utcnow().isoformat(),
+                    })
+                else:
+                    await redis_client.hset(f"job:{job_id}", mapping={
+                        "status": "failed",
+                        "error": error_msg,
+                        "failed_at": datetime.utcnow().isoformat(),
+                    })
             except:
                 pass  # Don't fail on status update error
 

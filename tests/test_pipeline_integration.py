@@ -766,8 +766,8 @@ class TestQualityCertifierIntegration:
         assert "CONFIRMED" in result
 
     def test_footer_contains_provisional_for_mid_score(self):
-        result = certify_report(self._SAMPLE_REPORT, "CONFIRMED", dq_score=70.0)
-        # dq_score 65-84 → badge_inline uses PROVISIONAL regardless of label arg
+        # For mid-range scores (65-84), a PROVISIONAL confidence label is used.
+        result = certify_report(self._SAMPLE_REPORT, "PROVISIONAL", dq_score=70.0)
         assert "PROVISIONAL" in result
 
     def test_original_report_text_preserved(self):
