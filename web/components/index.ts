@@ -1,4 +1,5 @@
 // Default exports
+export { default as Sidebar } from './Sidebar'
 export { default as AnalysisForm } from './AnalysisForm'
 export { default as AnalysisProgress } from './AnalysisProgress'
 export { default as ConnectionStatusBadge } from './ConnectionStatusBadge'

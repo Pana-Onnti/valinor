@@ -643,3 +643,60 @@ class TestDQContextBuilder:
             assert decision in context, (
                 f"Expected gate decision '{decision}' in context string, got:\n{context}"
             )
+
+    # ------------------------------------------------------------------
+    # 19. test_confidence_label_boundaries
+    # ------------------------------------------------------------------
+
+    def test_confidence_label_boundaries(self):
+        """
+        confidence_label must map scores to the correct label at each boundary:
+          >= 85 → CONFIRMED, >= 65 → PROVISIONAL, >= 45 → UNVERIFIED, else BLOCKED.
+        """
+        cases = [
+            (100.0, "CONFIRMED"),
+            (85.0,  "CONFIRMED"),
+            (84.9,  "PROVISIONAL"),
+            (65.0,  "PROVISIONAL"),
+            (64.9,  "UNVERIFIED"),
+            (45.0,  "UNVERIFIED"),
+            (44.9,  "BLOCKED"),
+            (0.0,   "BLOCKED"),
+        ]
+        for score, expected_label in cases:
+            report = DataQualityReport(overall_score=score, gate_decision="PROCEED")
+            assert report.confidence_label == expected_label, (
+                f"Score {score} expected label '{expected_label}', "
+                f"got '{report.confidence_label}'"
+            )
+
+    # ------------------------------------------------------------------
+    # 20. test_score_cannot_go_below_zero
+    # ------------------------------------------------------------------
+
+    def test_score_cannot_go_below_zero(self, bare_engine):
+        """
+        Even when multiple high-impact FATAL checks fail and combined penalties
+        exceed 100 points, overall_score must be clamped to 0.0 and never
+        reported as a negative value.
+        """
+        gate = DataQualityGate(bare_engine, "2025-01-01", "2025-12-31")
+        # Inject failures whose combined score_impact exceeds 100
+        overrides = {
+            "_check_schema_integrity":                QualityCheckResult(
+                "schema_integrity", False, 50, "FATAL", "massive impact 1"),
+            "_check_accounting_balance":              QualityCheckResult(
+                "accounting_balance", False, 50, "FATAL", "massive impact 2"),
+            "_check_null_density":                    QualityCheckResult(
+                "null_density", False, 50, "CRITICAL", "massive impact 3"),
+        }
+        with _mock_all_checks(gate, overrides):
+            report = gate.run()
+
+        assert report.overall_score >= 0.0, (
+            f"overall_score must be >= 0, got {report.overall_score}"
+        )
+        assert report.overall_score == 0.0, (
+            f"Clamped score expected to be 0.0, got {report.overall_score}"
+        )
+        assert report.gate_decision == "HALT"

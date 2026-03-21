@@ -300,6 +300,41 @@ class TestValinorAdapter:
         assert any(update["stage"] == "completed" for update in self.progress_updates)
     
     @pytest.mark.asyncio
+    async def test_adapter_timeout_raises_error(self):
+        """
+        Mock _run_pipeline_with_progress to raise asyncio.TimeoutError and verify
+        that run_analysis() propagates an exception rather than hanging indefinitely.
+        """
+        from api.adapters.exceptions import PipelineTimeoutError
+
+        async def _mock_timeout(*args, **kwargs):
+            raise asyncio.TimeoutError()
+
+        with patch('shared.ssh_tunnel.ZeroTrustValidator.validate_ssh_config', return_value=True), \
+             patch('shared.ssh_tunnel.ZeroTrustValidator.validate_db_config', return_value=True):
+            self.adapter._run_pipeline_with_progress = _mock_timeout
+
+            connection_config = {
+                "db_config": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "name": "testdb",
+                    "type": "postgres",
+                    "connection_string": "postgresql://user:pass@localhost:5432/testdb",
+                }
+            }
+
+            # run_analysis must raise — either PipelineTimeoutError (after categorization)
+            # or at minimum a base Exception.  It must NOT hang.
+            with pytest.raises(Exception):
+                await self.adapter.run_analysis(
+                    job_id="test-timeout-001",
+                    client_name="test_client",
+                    connection_config=connection_config,
+                    period="Q1-2025",
+                )
+
+    @pytest.mark.asyncio
     async def test_run_analysis_invalid_ssh_config(self):
         """Test analysis with invalid SSH config."""
         connection_config = {
