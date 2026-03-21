@@ -1056,6 +1056,96 @@ async def get_clients_comparison(clients: Optional[str] = None):
     }
 
 
+@app.get("/api/clients/{client_name}/findings", tags=["Clients"])
+async def get_client_findings(client_name: str):
+    """
+    Return all active findings for a client with full details.
+
+    Reads from profile.known_findings (dict keyed by finding_id).
+    Counts by severity and resolved findings are included in the summary.
+    """
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load_or_create(client_name)
+
+    known_findings: dict = profile.known_findings or {}
+
+    findings_list = []
+    resolved_count = 0
+    severity_counts: dict = {}
+
+    for finding_id, record in known_findings.items():
+        if not isinstance(record, dict):
+            continue
+
+        status = record.get("status", "open")
+        if status == "resolved":
+            resolved_count += 1
+            continue
+
+        severity = record.get("severity", "UNKNOWN")
+        severity_counts[severity] = severity_counts.get(severity, 0) + 1
+
+        findings_list.append({
+            "id": finding_id,
+            "title": record.get("title") or record.get("description") or finding_id,
+            "severity": severity,
+            "agent": record.get("agent") or record.get("source_agent"),
+            "first_seen": record.get("first_seen"),
+            "last_seen": record.get("last_seen"),
+            "runs_open": record.get("runs_open", 0),
+        })
+
+    # Sort: CRITICAL first, then HIGH, MEDIUM, LOW, UNKNOWN
+    _sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "UNKNOWN": 4}
+    findings_list.sort(key=lambda f: _sev_order.get(f["severity"], 99))
+
+    return {
+        "client": client_name,
+        "findings": findings_list,
+        "total": len(findings_list),
+        "critical": severity_counts.get("CRITICAL", 0),
+        "high": severity_counts.get("HIGH", 0),
+        "resolved_count": resolved_count,
+    }
+
+
+@app.get("/api/clients/{client_name}/findings/{finding_id}", tags=["Clients"])
+async def get_client_finding(client_name: str, finding_id: str):
+    """
+    Return a single finding by ID for a client.
+
+    Returns 404 if the client has no profile or the finding_id does not exist.
+    """
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+    from fastapi import HTTPException
+
+    store = get_profile_store()
+    profile = await store.load_or_create(client_name)
+
+    known_findings: dict = profile.known_findings or {}
+
+    if finding_id not in known_findings:
+        raise HTTPException(status_code=404, detail=f"Finding '{finding_id}' not found for client '{client_name}'")
+
+    record = known_findings[finding_id]
+    if not isinstance(record, dict):
+        raise HTTPException(status_code=404, detail=f"Finding '{finding_id}' has invalid format")
+
+    return {
+        "client": client_name,
+        "finding": {
+            "id": finding_id,
+            **record,
+        },
+    }
+
+
 @app.put("/api/clients/{client_name}/profile/false-positive")
 async def mark_false_positive(client_name: str, finding_id: str):
     """
