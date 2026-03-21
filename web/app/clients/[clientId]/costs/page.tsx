@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'
 import axios from 'axios'
 import { ArrowLeft, RefreshCw, DollarSign, TrendingUp, Calendar, BarChart2 } from 'lucide-react'
 import Link from 'next/link'
+import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const COST_PER_RUN = 8
@@ -47,29 +48,43 @@ function StatCard({
   label,
   value,
   sub,
-  accent = 'green',
+  accent = 'teal',
 }: {
   icon: React.ElementType
   label: string
   value: string | number
   sub?: string
-  accent?: 'green' | 'amber' | 'violet'
+  accent?: 'teal' | 'yellow' | 'blue'
 }) {
   const accentMap = {
-    green: 'bg-green-50 dark:bg-green-900/30 text-green-500',
-    amber: 'bg-amber-50 dark:bg-amber-900/30 text-amber-500',
-    violet: 'bg-violet-50 dark:bg-violet-900/30 text-violet-500',
+    teal: T.accent.teal,
+    yellow: T.accent.yellow,
+    blue: T.accent.blue,
   }
+  const color = accentMap[accent]
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm">
-      <div className="flex items-start gap-3">
-        <div className={`p-2 rounded-xl ${accentMap[accent]}`}>
-          <Icon className="h-4 w-4" />
+    <div style={{
+      backgroundColor: T.bg.card,
+      borderRadius: T.radius.lg,
+      border: T.border.card,
+      padding: T.space.lg,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: T.space.sm }}>
+        <div style={{
+          padding: T.space.sm,
+          borderRadius: T.radius.md,
+          backgroundColor: color + '15',
+          color: color,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <Icon style={{ width: 16, height: 16 }} />
         </div>
         <div>
-          <p className="text-xs text-gray-400 mb-1">{label}</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
-          {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+          <p style={{ fontSize: 11, color: T.text.tertiary, marginBottom: 4 }}>{label}</p>
+          <p style={{ fontSize: 24, fontWeight: 700, color: T.text.primary, lineHeight: 1 }}>{value}</p>
+          {sub && <p style={{ fontSize: 11, color: T.text.tertiary, marginTop: 2 }}>{sub}</p>}
         </div>
       </div>
     </div>
@@ -90,35 +105,68 @@ function RunCostBar({ run, maxCost, i }: { run: RunHistoryEntry; maxCost: number
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: i * 0.05 }}
-      className="flex items-center gap-4 py-2.5"
+      style={{ display: 'flex', alignItems: 'center', gap: T.space.xl, paddingTop: 10, paddingBottom: 10 }}
     >
       {/* Date + period */}
-      <div className="w-36 flex-shrink-0">
-        <p className="text-xs font-mono text-gray-400">{run.period}</p>
-        <p className="text-xs text-gray-500 dark:text-gray-500">{date}</p>
+      <div style={{ width: 144, flexShrink: 0 }}>
+        <p style={{ fontSize: 11, fontFamily: T.font.mono, color: T.text.tertiary }}>{run.period}</p>
+        <p style={{ fontSize: 11, color: T.text.secondary }}>{date}</p>
       </div>
 
       {/* Bar */}
-      <div className="flex-1 h-7 bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden relative">
+      <div style={{
+        flex: 1,
+        height: 28,
+        backgroundColor: T.bg.elevated,
+        borderRadius: T.radius.md,
+        overflow: 'hidden',
+        position: 'relative',
+      }}>
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${widthPct}%` }}
           transition={{ duration: 0.5, delay: i * 0.05, ease: 'easeOut' }}
-          className={`h-full rounded-lg ${run.success ? 'bg-green-400 dark:bg-green-500' : 'bg-red-400 dark:bg-red-500'}`}
+          style={{
+            height: '100%',
+            borderRadius: T.radius.md,
+            backgroundColor: run.success ? T.accent.teal : T.accent.red,
+          }}
         />
-        <span className="absolute inset-0 flex items-center px-2.5 text-xs font-semibold text-gray-900 dark:text-white mix-blend-difference pointer-events-none">
+        <span style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          paddingLeft: 10,
+          fontSize: 11,
+          fontWeight: 600,
+          color: T.text.primary,
+          pointerEvents: 'none',
+        }}>
           ${cost.toFixed(2)}
         </span>
       </div>
 
       {/* Status badge */}
-      <div className="w-24 flex-shrink-0 text-right">
+      <div style={{ width: 96, flexShrink: 0, textAlign: 'right' }}>
         {run.success ? (
-          <span className="text-xs text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 px-2 py-0.5 rounded-full">
+          <span style={{
+            fontSize: 11,
+            color: T.accent.teal,
+            backgroundColor: T.accent.teal + '15',
+            padding: '2px 8px',
+            borderRadius: 999,
+          }}>
             Exitoso
           </span>
         ) : (
-          <span className="text-xs text-red-500 bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded-full">
+          <span style={{
+            fontSize: 11,
+            color: T.accent.red,
+            backgroundColor: T.accent.red + '15',
+            padding: '2px 8px',
+            borderRadius: 999,
+          }}>
             Fallido
           </span>
         )}
@@ -210,15 +258,15 @@ export default function ClientCostsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
-        <div className="max-w-6xl mx-auto space-y-6 animate-pulse">
-          <div className="h-8 bg-gray-200 dark:bg-gray-800 rounded-xl w-48" />
-          <div className="grid grid-cols-4 gap-4">
+      <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, padding: T.space.xxl }}>
+        <div style={{ maxWidth: 1152, margin: '0 auto' }}>
+          <div style={{ height: 32, backgroundColor: T.bg.elevated, borderRadius: T.radius.md, width: 192, marginBottom: T.space.xl }} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: T.space.lg, marginBottom: T.space.xl }}>
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-24 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+              <div key={i} style={{ height: 96, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg }} />
             ))}
           </div>
-          <div className="h-64 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+          <div style={{ height: 256, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg }} />
         </div>
       </div>
     )
@@ -226,10 +274,10 @@ export default function ClientCostsPage() {
 
   if (isError) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-500 mb-4">{errorProfile || 'No hay datos para este cliente'}</p>
-          <Link href="/" className="text-violet-600 hover:underline text-sm">
+      <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <p style={{ color: T.text.secondary, marginBottom: T.space.lg }}>{errorProfile || 'No hay datos para este cliente'}</p>
+          <Link href="/" style={{ color: T.accent.teal, fontSize: 13, textDecoration: 'none' }}>
             ← Volver
           </Link>
         </div>
@@ -250,47 +298,49 @@ export default function ClientCostsPage() {
   ]
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary }}>
       {/* Header */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
-            >
-              <ArrowLeft className="h-5 w-5" />
+      <header style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+        backgroundColor: T.bg.card,
+        borderBottom: T.border.card,
+      }}>
+        <div style={{ maxWidth: 1152, margin: '0 auto', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: T.space.lg }}>
+            <Link href="/" style={{ color: T.text.tertiary, display: 'flex', alignItems: 'center' }}>
+              <ArrowLeft style={{ width: 20, height: 20 }} />
             </Link>
             <div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-white">{clientName}</h1>
-              <p className="text-xs text-gray-400">
+              <h1 style={{ fontSize: 18, fontWeight: 700, color: T.text.primary, margin: 0 }}>{clientName}</h1>
+              <p style={{ fontSize: 11, color: T.text.tertiary, margin: 0 }}>
                 {[industry, currency].filter(Boolean).join(' · ')}
               </p>
             </div>
           </div>
           <button
             onClick={handleRefresh}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700 rounded-lg transition-all"
+            className="d4c-btn-ghost"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}
           >
-            <RefreshCw className="h-3.5 w-3.5" />
+            <RefreshCw style={{ width: 14, height: 14 }} />
             Actualizar
           </button>
         </div>
 
         {/* Tab navigation */}
-        <div className="max-w-6xl mx-auto px-6">
-          <nav className="flex gap-1 -mb-px">
+        <div style={{ maxWidth: 1152, margin: '0 auto', padding: '0 24px' }}>
+          <nav style={{ display: 'flex', gap: 4 }}>
             {tabs.map(tab => {
               const isActive = pathname === tab.href
               return (
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                    isActive
-                      ? 'border-violet-500 text-violet-600 dark:text-violet-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
-                  }`}
+                  style={isActive
+                    ? { borderBottom: `2px solid ${T.accent.teal}`, color: T.accent.teal, padding: '10px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }
+                    : { borderBottom: '2px solid transparent', color: T.text.tertiary, padding: '10px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}
                 >
                   {tab.label}
                 </Link>
@@ -300,50 +350,50 @@ export default function ClientCostsPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+      <main style={{ maxWidth: 1152, margin: '0 auto', padding: '32px 24px' }}>
 
         {/* Summary cards */}
         {derivedCosts && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: T.space.lg, marginBottom: T.space.xxl }}>
             <StatCard
               icon={BarChart2}
               label="Total Runs"
               value={derivedCosts.total_runs}
               sub="desde el inicio"
-              accent="violet"
+              accent="blue"
             />
             <StatCard
               icon={DollarSign}
               label="Costo Total"
               value={`$${derivedCosts.total_cost_usd.toFixed(2)}`}
               sub="USD estimado"
-              accent="green"
+              accent="teal"
             />
             <StatCard
               icon={TrendingUp}
               label="Costo Promedio"
               value={`$${derivedCosts.avg_cost_per_run.toFixed(2)}`}
               sub="por análisis"
-              accent="amber"
+              accent="yellow"
             />
             <StatCard
               icon={Calendar}
               label="Este Mes"
               value={`$${derivedCosts.cost_this_month.toFixed(2)}`}
               sub={`${derivedCosts.runs_this_month} run${derivedCosts.runs_this_month !== 1 ? 's' : ''}`}
-              accent="green"
+              accent="teal"
             />
           </div>
         )}
 
         {/* Monthly cost summary */}
         {derivedCosts && derivedCosts.cost_by_month.length > 0 && (
-          <div>
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+          <div style={{ marginBottom: T.space.xxl }}>
+            <h2 style={{ fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: T.space.sm }}>
               Costo por Mes
             </h2>
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm">
-              <div className="space-y-3">
+            <div style={{ backgroundColor: T.bg.card, borderRadius: T.radius.lg, border: T.border.card, padding: T.space.lg }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
                 {(() => {
                   const maxMonthCost = Math.max(...derivedCosts.cost_by_month.map(m => m.cost), 1)
                   return derivedCosts.cost_by_month
@@ -362,24 +412,31 @@ export default function ClientCostsPage() {
                           initial={{ opacity: 0, x: -8 }}
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: i * 0.06 }}
-                          className="flex items-center gap-4"
+                          style={{ display: 'flex', alignItems: 'center', gap: T.space.lg }}
                         >
-                          <span className="w-32 text-xs text-gray-500 dark:text-gray-400 capitalize flex-shrink-0">
+                          <span style={{ width: 128, fontSize: 11, color: T.text.secondary, textTransform: 'capitalize', flexShrink: 0 }}>
                             {label}
                           </span>
-                          <div className="flex-1 h-6 bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden relative">
+                          <div style={{
+                            flex: 1,
+                            height: 24,
+                            backgroundColor: T.bg.elevated,
+                            borderRadius: T.radius.md,
+                            overflow: 'hidden',
+                            position: 'relative',
+                          }}>
                             <motion.div
                               initial={{ width: 0 }}
                               animate={{ width: `${pct}%` }}
                               transition={{ duration: 0.5, delay: i * 0.06, ease: 'easeOut' }}
-                              className="h-full rounded-lg bg-green-400 dark:bg-green-500"
+                              style={{ height: '100%', borderRadius: T.radius.md, backgroundColor: T.accent.teal }}
                             />
                           </div>
-                          <div className="w-28 flex-shrink-0 text-right space-y-0.5">
-                            <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                          <div style={{ width: 112, flexShrink: 0, textAlign: 'right' }}>
+                            <p style={{ fontSize: 13, fontWeight: 600, color: T.text.primary, margin: 0 }}>
                               ${entry.cost.toFixed(2)}
                             </p>
-                            <p className="text-xs text-gray-400">
+                            <p style={{ fontSize: 11, color: T.text.tertiary, margin: 0 }}>
                               {entry.runs} run{entry.runs !== 1 ? 's' : ''}
                             </p>
                           </div>
@@ -394,25 +451,25 @@ export default function ClientCostsPage() {
 
         {/* Last 10 runs bar chart */}
         {recentRuns.length > 0 && (
-          <div>
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+          <div style={{ marginBottom: T.space.xxl }}>
+            <h2 style={{ fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: T.space.sm }}>
               Últimos 10 Runs — Costo por Ejecución
             </h2>
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm">
+            <div style={{ backgroundColor: T.bg.card, borderRadius: T.radius.lg, border: T.border.card, padding: T.space.lg }}>
               {/* Column headers */}
-              <div className="flex items-center gap-4 pb-3 border-b border-gray-100 dark:border-gray-800 mb-2">
-                <span className="w-36 flex-shrink-0 text-xs font-semibold text-gray-400 uppercase tracking-widest">
+              <div style={{ display: 'flex', alignItems: 'center', gap: T.space.xl, paddingBottom: T.space.sm, borderBottom: T.border.card, marginBottom: T.space.sm }}>
+                <span style={{ width: 144, flexShrink: 0, fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                   Período / Fecha
                 </span>
-                <span className="flex-1 text-xs font-semibold text-gray-400 uppercase tracking-widest">
+                <span style={{ flex: 1, fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                   Costo (USD)
                 </span>
-                <span className="w-24 flex-shrink-0 text-xs font-semibold text-gray-400 uppercase tracking-widest text-right">
+                <span style={{ width: 96, flexShrink: 0, fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em', textAlign: 'right' }}>
                   Estado
                 </span>
               </div>
 
-              <div className="divide-y divide-gray-50 dark:divide-gray-800/50">
+              <div>
                 {recentRuns.map((run, i) => (
                   <RunCostBar key={i} run={run} maxCost={COST_PER_RUN} i={i} />
                 ))}
@@ -422,9 +479,17 @@ export default function ClientCostsPage() {
         )}
 
         {/* Note about estimation */}
-        <div className="flex items-start gap-2 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl">
-          <span className="text-amber-500 text-sm mt-0.5">*</span>
-          <p className="text-xs text-amber-700 dark:text-amber-400">
+        <div style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: T.space.sm,
+          padding: T.space.lg,
+          backgroundColor: T.accent.yellow + '10',
+          border: `1px solid ${T.accent.yellow}30`,
+          borderRadius: T.radius.md,
+        }}>
+          <span style={{ color: T.accent.yellow, fontSize: 13, marginTop: 2 }}>*</span>
+          <p style={{ fontSize: 11, color: T.accent.yellow, margin: 0 }}>
             Los costos son estimados basados en ~${COST_PER_RUN} USD por análisis (Claude API + infraestructura).
             El costo real puede variar según la complejidad de la base de datos y número de agentes utilizados.
           </p>

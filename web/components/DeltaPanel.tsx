@@ -1,10 +1,8 @@
 'use client'
 
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  TrendingUp, TrendingDown, AlertOctagon, CheckCircle2,
-  Minus, Clock, AlertTriangle, ArrowUp, ArrowDown
-} from 'lucide-react'
+import { TrendingUp, AlertOctagon, CheckCircle2, Minus, Clock, ArrowUp, ArrowDown } from 'lucide-react'
+import { T } from '@/components/d4c/tokens'
 
 export interface FindingDelta {
   id: string
@@ -30,55 +28,15 @@ interface DeltaPanelProps {
     runs_open: number
   }>
   runCount?: number
-  className?: string
+  style?: React.CSSProperties
 }
 
 const STATUS_CONFIG = {
-  NEW: {
-    label: 'Nuevo',
-    icon: AlertOctagon,
-    bg: 'bg-red-50 dark:bg-red-900/20',
-    border: 'border-red-200 dark:border-red-800',
-    text: 'text-red-700 dark:text-red-300',
-    dot: 'bg-red-500',
-    pulse: true,
-  },
-  WORSENED: {
-    label: 'Empeoró',
-    icon: ArrowUp,
-    bg: 'bg-orange-50 dark:bg-orange-900/20',
-    border: 'border-orange-200 dark:border-orange-800',
-    text: 'text-orange-700 dark:text-orange-300',
-    dot: 'bg-orange-500',
-    pulse: true,
-  },
-  PERSISTS: {
-    label: 'Persiste',
-    icon: Minus,
-    bg: 'bg-amber-50 dark:bg-amber-900/20',
-    border: 'border-amber-200 dark:border-amber-800',
-    text: 'text-amber-700 dark:text-amber-300',
-    dot: 'bg-amber-400',
-    pulse: false,
-  },
-  IMPROVED: {
-    label: 'Mejoró',
-    icon: ArrowDown,
-    bg: 'bg-blue-50 dark:bg-blue-900/20',
-    border: 'border-blue-200 dark:border-blue-800',
-    text: 'text-blue-700 dark:text-blue-300',
-    dot: 'bg-blue-400',
-    pulse: false,
-  },
-  RESOLVED: {
-    label: 'Resuelto',
-    icon: CheckCircle2,
-    bg: 'bg-emerald-50 dark:bg-emerald-900/20',
-    border: 'border-emerald-200 dark:border-emerald-800',
-    text: 'text-emerald-700 dark:text-emerald-300',
-    dot: 'bg-emerald-400',
-    pulse: false,
-  },
+  NEW:      { label: 'Nuevo',    icon: AlertOctagon, color: T.accent.red,    pulse: true  },
+  WORSENED: { label: 'Empeoró',  icon: ArrowUp,      color: T.accent.orange, pulse: true  },
+  PERSISTS: { label: 'Persiste', icon: Minus,         color: T.accent.yellow, pulse: false },
+  IMPROVED: { label: 'Mejoró',   icon: ArrowDown,     color: T.accent.blue,   pulse: false },
+  RESOLVED: { label: 'Resuelto', icon: CheckCircle2,  color: T.accent.teal,   pulse: false },
 }
 
 function DeltaBadge({ status, count }: { status: keyof typeof STATUS_CONFIG; count: number }) {
@@ -86,9 +44,22 @@ function DeltaBadge({ status, count }: { status: keyof typeof STATUS_CONFIG; cou
   const cfg = STATUS_CONFIG[status]
   const Icon = cfg.icon
   return (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${cfg.bg} ${cfg.border} ${cfg.text}`}>
-      {cfg.pulse && <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot} animate-pulse`} />}
-      <Icon className="h-3 w-3" />
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 6,
+      fontSize: 11,
+      fontWeight: 600,
+      padding: '3px 10px',
+      borderRadius: 999,
+      border: `1px solid ${cfg.color}40`,
+      backgroundColor: cfg.color + '15',
+      color: cfg.color,
+    }}>
+      {cfg.pulse && (
+        <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, animation: 'pulse 1.5s ease-in-out infinite' }} />
+      )}
+      <Icon size={10} />
       {count} {cfg.label}{count > 1 ? 's' : ''}
     </span>
   )
@@ -106,26 +77,46 @@ function DeltaRow({ id, status, title, runsOpen }: {
     <motion.div
       initial={{ opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
-      className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border ${cfg.border} ${cfg.bg}`}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: `${T.space.sm} ${T.space.md}`,
+        borderRadius: T.radius.sm,
+        border: `1px solid ${cfg.color}30`,
+        backgroundColor: cfg.color + '0D',
+      }}
     >
-      <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${cfg.bg} ${cfg.text}`}>
-        <Icon className="h-3.5 w-3.5" />
+      <span style={{
+        flexShrink: 0,
+        width: 24,
+        height: 24,
+        borderRadius: '50%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: cfg.color + '20',
+        color: cfg.color,
+      }}>
+        <Icon size={12} />
       </span>
-      <div className="flex-1 min-w-0">
-        <p className={`text-sm font-medium ${cfg.text} truncate`}>{title || id}</p>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 13, fontWeight: 500, color: cfg.color, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {title || id}
+        </p>
         {runsOpen && runsOpen > 1 && (
-          <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-            <Clock className="h-3 w-3" />
+          <p style={{ fontSize: 11, color: T.text.tertiary, display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+            <Clock size={10} />
             Abierto hace {runsOpen} runs
           </p>
         )}
       </div>
-      <span className="text-xs font-mono text-gray-400 flex-shrink-0">{id}</span>
+      <span style={{ fontSize: 11, fontFamily: T.font.mono, color: T.text.tertiary, flexShrink: 0 }}>{id}</span>
     </motion.div>
   )
 }
 
-export function DeltaPanel({ runDelta, knownFindings, runCount, className = '' }: DeltaPanelProps) {
+export function DeltaPanel({ runDelta, knownFindings, runCount, style }: DeltaPanelProps) {
   const newIds = runDelta.new || []
   const resolvedIds = runDelta.resolved || []
   const worsenedIds = runDelta.worsened || []
@@ -142,57 +133,52 @@ export function DeltaPanel({ runDelta, knownFindings, runCount, className = '' }
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm ${className}`}
+      style={{
+        borderRadius: T.radius.md,
+        border: T.border.card,
+        overflow: 'hidden',
+        ...style,
+      }}
     >
       {/* Header */}
-      <div className="px-5 py-3 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-violet-500" />
-            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-widest">
-              Delta vs Run Anterior
-            </h3>
-            {runCount && runCount > 1 && (
-              <span className="text-xs text-gray-400 font-mono">Run #{runCount}</span>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            <DeltaBadge status="NEW" count={newIds.length} />
-            <DeltaBadge status="WORSENED" count={worsenedIds.length} />
-            <DeltaBadge status="IMPROVED" count={improvedIds.length} />
-            <DeltaBadge status="RESOLVED" count={resolvedIds.length} />
-          </div>
+      <div style={{
+        padding: `${T.space.sm} ${T.space.lg}`,
+        backgroundColor: T.bg.elevated,
+        borderBottom: T.border.card,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap' as const,
+        gap: 8,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <TrendingUp size={14} style={{ color: T.accent.teal }} />
+          <h3 style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' as const, color: T.text.tertiary, margin: 0, fontFamily: T.font.mono }}>
+            Delta vs Run Anterior
+          </h3>
+          {runCount && runCount > 1 && (
+            <span style={{ fontSize: 11, color: T.text.tertiary, fontFamily: T.font.mono }}>Run #{runCount}</span>
+          )}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+          <DeltaBadge status="NEW" count={newIds.length} />
+          <DeltaBadge status="WORSENED" count={worsenedIds.length} />
+          <DeltaBadge status="IMPROVED" count={improvedIds.length} />
+          <DeltaBadge status="RESOLVED" count={resolvedIds.length} />
         </div>
       </div>
 
       {/* Content */}
-      <div className="p-4 bg-white dark:bg-gray-900 space-y-2">
+      <div style={{ padding: T.space.md, backgroundColor: T.bg.card, display: 'flex', flexDirection: 'column', gap: 8 }}>
         <AnimatePresence>
-          {/* Worsened first — most urgent */}
-          {worsenedIds.map(id => (
-            <DeltaRow key={id} id={id} status="WORSENED"
-              title={getTitle(id)} runsOpen={getRunsOpen(id)} />
-          ))}
-          {/* New findings */}
-          {newIds.map(id => (
-            <DeltaRow key={id} id={id} status="NEW"
-              title={getTitle(id)} runsOpen={getRunsOpen(id)} />
-          ))}
-          {/* Improved */}
-          {improvedIds.map(id => (
-            <DeltaRow key={id} id={id} status="IMPROVED"
-              title={getTitle(id)} runsOpen={getRunsOpen(id)} />
-          ))}
-          {/* Resolved — good news */}
-          {resolvedIds.map(id => (
-            <DeltaRow key={id} id={id} status="RESOLVED"
-              title={getTitle(id)} runsOpen={undefined} />
-          ))}
-          {/* Persistent findings (compact) */}
+          {worsenedIds.map(id => <DeltaRow key={id} id={id} status="WORSENED" title={getTitle(id)} runsOpen={getRunsOpen(id)} />)}
+          {newIds.map(id => <DeltaRow key={id} id={id} status="NEW" title={getTitle(id)} runsOpen={getRunsOpen(id)} />)}
+          {improvedIds.map(id => <DeltaRow key={id} id={id} status="IMPROVED" title={getTitle(id)} runsOpen={getRunsOpen(id)} />)}
+          {resolvedIds.map(id => <DeltaRow key={id} id={id} status="RESOLVED" title={getTitle(id)} runsOpen={undefined} />)}
           {persistsIds.length > 0 && (
-            <div className="flex items-center gap-2 px-3 py-2">
-              <Minus className="h-3.5 w-3.5 text-amber-400 flex-shrink-0" />
-              <p className="text-xs text-gray-400">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: `${T.space.xs} ${T.space.sm}` }}>
+              <Minus size={12} style={{ color: T.accent.yellow, flexShrink: 0 }} />
+              <p style={{ fontSize: 12, color: T.text.secondary, margin: 0 }}>
                 {persistsIds.length} hallazgo{persistsIds.length > 1 ? 's persisten' : ' persiste'} sin cambios
               </p>
             </div>

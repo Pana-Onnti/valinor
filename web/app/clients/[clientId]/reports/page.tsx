@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, RefreshCw, FileDown, ShieldCheck, Plus } from 'lucide-react'
+import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const PAGE_SIZE = 20
@@ -53,37 +54,53 @@ function shortId(id: string): string {
 // ── Status Badge ──────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: JobStatus }) {
-  const config: Record<JobStatus, { label: string; dot: string; pill: string }> = {
+  const config: Record<JobStatus, { label: string; color: string; bg: string }> = {
     completed: {
       label: 'Completado',
-      dot: 'bg-emerald-500',
-      pill: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
+      color: T.accent.teal,
+      bg: T.accent.teal + '15',
     },
     failed: {
       label: 'Fallido',
-      dot: 'bg-red-500',
-      pill: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
+      color: T.accent.red,
+      bg: T.accent.red + '15',
     },
     error: {
       label: 'Error',
-      dot: 'bg-red-500',
-      pill: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
+      color: T.accent.red,
+      bg: T.accent.red + '15',
     },
     running: {
       label: 'En curso',
-      dot: 'bg-blue-500 animate-pulse',
-      pill: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400',
+      color: T.accent.blue,
+      bg: T.accent.blue + '15',
     },
     pending: {
       label: 'Pendiente',
-      dot: 'bg-gray-400',
-      pill: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+      color: T.text.tertiary,
+      bg: T.text.tertiary + '15',
     },
   }
-  const { label, dot, pill } = config[status] ?? config.pending
+  const { label, color, bg } = config[status] ?? config.pending
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${pill}`}>
-      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot}`} />
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 6,
+      padding: '2px 10px',
+      borderRadius: 999,
+      fontSize: 11,
+      fontWeight: 600,
+      color,
+      backgroundColor: bg,
+    }}>
+      <span style={{
+        width: 6,
+        height: 6,
+        borderRadius: '50%',
+        flexShrink: 0,
+        backgroundColor: color,
+      }} />
       {label}
     </span>
   )
@@ -95,23 +112,46 @@ function JobCard({ job, clientId }: { job: Job; clientId: string }) {
   const canExport = job.status === 'completed'
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 px-5 py-4 shadow-sm hover:border-violet-100 dark:hover:border-violet-900 transition-colors">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div style={{
+      backgroundColor: T.bg.card,
+      borderRadius: T.radius.lg,
+      border: T.border.card,
+      padding: '16px 20px',
+    }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.lg }}>
 
         {/* Left: metadata */}
-        <div className="flex-1 min-w-0 space-y-2">
+        <div style={{ flex: 1, minWidth: 0 }}>
 
           {/* Top row: ID + period + status */}
-          <div className="flex items-center gap-2.5 flex-wrap">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: T.space.sm }}>
             <span
               title={job.job_id}
-              className="font-mono text-xs font-semibold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/20 border border-violet-100 dark:border-violet-900 px-2 py-0.5 rounded-lg select-all cursor-pointer"
+              style={{
+                fontFamily: T.font.mono,
+                fontSize: 11,
+                backgroundColor: T.accent.teal + '10',
+                border: `1px solid ${T.accent.teal}30`,
+                color: T.accent.teal,
+                borderRadius: T.radius.sm,
+                padding: '2px 8px',
+                cursor: 'pointer',
+                userSelect: 'all',
+              }}
             >
               #{shortId(job.job_id)}
             </span>
 
             {job.period && (
-              <span className="text-xs font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-lg font-mono">
+              <span style={{
+                fontSize: 11,
+                fontWeight: 500,
+                color: T.text.primary,
+                backgroundColor: T.bg.elevated,
+                padding: '2px 8px',
+                borderRadius: T.radius.sm,
+                fontFamily: T.font.mono,
+              }}>
                 {job.period}
               </span>
             )}
@@ -120,23 +160,35 @@ function JobCard({ job, clientId }: { job: Job; clientId: string }) {
           </div>
 
           {/* Started at */}
-          <p className="text-xs text-gray-400">
+          <p style={{ fontSize: 11, color: T.text.tertiary, margin: 0 }}>
             Iniciado:{' '}
-            <span className="text-gray-600 dark:text-gray-300 font-medium">
+            <span style={{ color: T.text.primary, fontWeight: 500 }}>
               {formatDate(job.started_at ?? job.created_at)}
             </span>
           </p>
         </div>
 
         {/* Right: action buttons */}
-        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+        <div style={{ display: 'flex', alignItems: 'center', gap: T.space.sm, flexWrap: 'wrap' }}>
 
           {/* Quality report link */}
           <Link
             href={`/api/jobs/${encodeURIComponent(job.job_id)}/quality`}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-800 rounded-xl hover:bg-teal-100 dark:hover:bg-teal-900/40 transition-colors"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 12px',
+              fontSize: 11,
+              fontWeight: 500,
+              color: T.accent.teal,
+              backgroundColor: T.accent.teal + '10',
+              border: `1px solid ${T.accent.teal}30`,
+              borderRadius: T.radius.md,
+              textDecoration: 'none',
+            }}
           >
-            <ShieldCheck className="h-3.5 w-3.5" />
+            <ShieldCheck style={{ width: 14, height: 14 }} />
             Calidad
           </Link>
 
@@ -147,17 +199,42 @@ function JobCard({ job, clientId }: { job: Job; clientId: string }) {
               target="_blank"
               rel="noopener noreferrer"
               download
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-xl hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                fontSize: 11,
+                fontWeight: 500,
+                color: T.accent.teal,
+                backgroundColor: T.accent.teal + '10',
+                border: `1px solid ${T.accent.teal}30`,
+                borderRadius: T.radius.md,
+                textDecoration: 'none',
+              }}
             >
-              <FileDown className="h-3.5 w-3.5" />
+              <FileDown style={{ width: 14, height: 14 }} />
               PDF
             </a>
           ) : (
             <span
               title="Disponible cuando el análisis complete"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-400 dark:text-gray-600 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl opacity-60 cursor-not-allowed"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                fontSize: 11,
+                fontWeight: 500,
+                color: T.text.tertiary,
+                backgroundColor: T.bg.elevated,
+                border: T.border.card,
+                borderRadius: T.radius.md,
+                opacity: 0.6,
+                cursor: 'not-allowed',
+              }}
             >
-              <FileDown className="h-3.5 w-3.5" />
+              <FileDown style={{ width: 14, height: 14 }} />
               PDF
             </span>
           )}
@@ -166,7 +243,19 @@ function JobCard({ job, clientId }: { job: Job; clientId: string }) {
           {job.status === 'running' && (
             <Link
               href={`/results/${encodeURIComponent(job.job_id)}`}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                fontSize: 11,
+                fontWeight: 500,
+                color: T.accent.blue,
+                backgroundColor: T.accent.blue + '10',
+                border: `1px solid ${T.accent.blue}30`,
+                borderRadius: T.radius.md,
+                textDecoration: 'none',
+              }}
             >
               Ver progreso →
             </Link>
@@ -181,13 +270,13 @@ function JobCard({ job, clientId }: { job: Job; clientId: string }) {
 
 function LoadingSkeleton() {
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8 animate-pulse">
-      <div className="max-w-4xl mx-auto space-y-5">
-        <div className="h-8 bg-gray-200 dark:bg-gray-800 rounded-xl w-48" />
-        <div className="h-10 bg-gray-200 dark:bg-gray-800 rounded-xl w-full" />
-        <div className="space-y-3">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, padding: T.space.xxl }}>
+      <div style={{ maxWidth: 896, margin: '0 auto' }}>
+        <div style={{ height: 32, backgroundColor: T.bg.elevated, borderRadius: T.radius.md, width: 192, marginBottom: T.space.xl }} />
+        <div style={{ height: 40, backgroundColor: T.bg.elevated, borderRadius: T.radius.md, marginBottom: T.space.sm }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-20 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+            <div key={i} style={{ height: 80, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg }} />
           ))}
         </div>
       </div>
@@ -210,18 +299,16 @@ function TabNav({ clientId, pathname }: { clientId: string; pathname: string }) 
     { label: 'Configuración', href: `/clients/${clientId}/settings` },
   ]
   return (
-    <nav className="flex gap-1 -mb-px overflow-x-auto">
+    <nav style={{ display: 'flex', gap: 4, overflowX: 'auto' }}>
       {tabs.map(tab => {
         const isActive = pathname === tab.href
         return (
           <Link
             key={tab.href}
             href={tab.href}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-              isActive
-                ? 'border-violet-500 text-violet-600 dark:text-violet-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
-            }`}
+            style={isActive
+              ? { borderBottom: `2px solid ${T.accent.teal}`, color: T.accent.teal, padding: '10px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }
+              : { borderBottom: '2px solid transparent', color: T.text.tertiary, padding: '10px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}
           >
             {tab.label}
           </Link>
@@ -286,13 +373,13 @@ export default function ClientReportsPage() {
   // ── Fatal error ───────────────────────────────────────────────────────────
 
   if (error && jobs.length === 0) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-      <div className="text-center">
-        <svg className="h-10 w-10 text-red-400 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center' }}>
+        <svg style={{ width: 40, height: 40, color: T.accent.red, margin: '0 auto 12px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
         </svg>
-        <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
-        <button onClick={handleRefresh} className="text-violet-600 hover:underline text-sm">
+        <p style={{ color: T.text.secondary, marginBottom: T.space.lg }}>{error}</p>
+        <button onClick={handleRefresh} style={{ color: T.accent.teal, fontSize: 13, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
           Reintentar
         </button>
       </div>
@@ -300,61 +387,80 @@ export default function ClientReportsPage() {
   )
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary }}>
 
       {/* ── Sticky header ── */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <header style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+        backgroundColor: T.bg.card,
+        borderBottom: T.border.card,
+      }}>
+        <div style={{ maxWidth: 896, margin: '0 auto', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: T.space.lg }}>
             <Link
               href={`/clients/${clientId}`}
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+              style={{ color: T.text.tertiary, display: 'flex', alignItems: 'center' }}
             >
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft style={{ width: 20, height: 20 }} />
             </Link>
             <div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <svg className="h-4 w-4 text-violet-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <h1 style={{ fontSize: 18, fontWeight: 700, color: T.text.primary, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <svg style={{ width: 16, height: 16, color: T.accent.teal }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                 </svg>
                 Reportes · {clientId.replace(/_/g, ' ')}
               </h1>
-              <p className="text-xs text-gray-400">
+              <p style={{ fontSize: 11, color: T.text.tertiary, margin: 0 }}>
                 {total} análisis en total
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div style={{ display: 'flex', alignItems: 'center', gap: T.space.sm }}>
             <Link
               href={`/new-analysis?client=${encodeURIComponent(clientId)}`}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded-xl shadow-sm transition-colors"
+              className="d4c-btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus style={{ width: 14, height: 14 }} />
               Nuevo análisis
             </Link>
             <button
               onClick={handleRefresh}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700 rounded-lg transition-all"
+              className="d4c-btn-ghost"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}
             >
-              <RefreshCw className="h-3.5 w-3.5" />
+              <RefreshCw style={{ width: 14, height: 14 }} />
               Actualizar
             </button>
           </div>
         </div>
 
         {/* Tab nav */}
-        <div className="max-w-4xl mx-auto px-6">
+        <div style={{ maxWidth: 896, margin: '0 auto', padding: '0 24px' }}>
           <TabNav clientId={clientId} pathname={pathname} />
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+      <main style={{ maxWidth: 896, margin: '0 auto', padding: '32px 24px' }}>
 
         {/* Non-fatal error banner */}
         {error && jobs.length > 0 && (
-          <div className="flex items-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-sm">
-            <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: T.space.sm,
+            padding: '12px 16px',
+            backgroundColor: T.accent.red + '10',
+            border: `1px solid ${T.accent.red}30`,
+            borderRadius: T.radius.md,
+            color: T.accent.red,
+            fontSize: 13,
+            marginBottom: T.space.xl,
+          }}>
+            <svg style={{ width: 16, height: 16, flexShrink: 0 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
             </svg>
             {error}
@@ -363,36 +469,51 @@ export default function ClientReportsPage() {
 
         {/* Empty state */}
         {jobs.length === 0 ? (
-          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 p-16 flex flex-col items-center gap-4 text-center">
-            <div className="p-4 rounded-2xl bg-violet-50 dark:bg-violet-900/20">
-              <FileDown className="h-8 w-8 text-violet-400" />
+          <div style={{
+            backgroundColor: T.bg.card,
+            borderRadius: T.radius.lg,
+            border: `1px dashed #1E1E28`,
+            padding: '64px 24px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: T.space.lg,
+            textAlign: 'center',
+          }}>
+            <div style={{
+              padding: T.space.lg,
+              borderRadius: T.radius.lg,
+              backgroundColor: T.accent.teal + '10',
+            }}>
+              <FileDown style={{ width: 32, height: 32, color: T.accent.teal }} />
             </div>
             <div>
-              <p className="font-semibold text-gray-800 dark:text-gray-100 mb-1">Sin reportes todavía</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 max-w-xs">
+              <p style={{ fontWeight: 600, color: T.text.primary, marginBottom: 4 }}>Sin reportes todavía</p>
+              <p style={{ fontSize: 13, color: T.text.secondary, maxWidth: 300, margin: '0 auto' }}>
                 Ejecuta el primer análisis para empezar a generar reportes para {clientId.replace(/_/g, ' ')}.
               </p>
             </div>
             <Link
               href={`/new-analysis?client=${encodeURIComponent(clientId)}`}
-              className="mt-1 inline-flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors"
+              className="d4c-btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 4, fontSize: 13 }}
             >
-              <Plus className="h-4 w-4" />
+              <Plus style={{ width: 16, height: 16 }} />
               Ejecutar análisis
             </Link>
           </div>
         ) : (
           <>
             {/* Section header */}
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: T.space.sm }}>
+              <h2 style={{ fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>
                 Análisis ejecutados
-                <span className="ml-2 font-bold text-gray-500 normal-case">({total})</span>
+                <span style={{ marginLeft: 8, fontWeight: 700, color: T.text.secondary, textTransform: 'none' }}>({total})</span>
               </h2>
             </div>
 
             {/* Job cards */}
-            <div className="space-y-3">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm, marginBottom: T.space.xl }}>
               {jobs.map(job => (
                 <JobCard key={job.job_id} job={job} clientId={clientId} />
               ))}
@@ -400,20 +521,21 @@ export default function ClientReportsPage() {
 
             {/* Load more */}
             {hasMore && (
-              <div className="flex justify-center pt-2">
+              <div style={{ display: 'flex', justifyContent: 'center', paddingTop: T.space.sm }}>
                 <button
                   onClick={handleLoadMore}
                   disabled={loadingMore}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="d4c-btn-ghost"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, opacity: loadingMore ? 0.5 : 1, cursor: loadingMore ? 'not-allowed' : 'pointer' }}
                 >
                   {loadingMore ? (
                     <>
-                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      <RefreshCw style={{ width: 16, height: 16 }} />
                       Cargando…
                     </>
                   ) : (
                     <>
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                       </svg>
                       Cargar más ({total - jobs.length} restantes)

@@ -1,36 +1,40 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Inter, JetBrains_Mono } from 'next/font/google'
 import { Suspense } from 'react'
 import './globals.css'
 import { Providers } from './providers'
 import ConnectionStatusBadge from '@/components/ConnectionStatusBadge'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import Sidebar from '@/components/Sidebar'
+import { T } from '@/components/d4c/tokens'
 
-const inter = Inter({ subsets: ['latin'] })
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
+const mono  = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', weight: ['400', '600'] })
 
 export const metadata: Metadata = {
-  title: 'Valinor SaaS - Business Intelligence Platform',
+  title: 'Valinor — Delta 4C',
   description: 'Transform your database into executive insights in 15 minutes',
-  icons: {
-    icon: '/favicon.ico',
-  },
+  icons: { icon: '/favicon.ico' },
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="h-full">
-      <body className={`${inter.className} h-full bg-gray-50 dark:bg-gray-900`}>
+    <html lang="es" className={`${inter.variable} ${mono.variable}`} style={{ height: '100%' }}>
+      <body
+        style={{
+          fontFamily: T.font.display,
+          backgroundColor: T.bg.primary,
+          color: T.text.primary,
+          margin: 0,
+          height: '100%',
+        }}
+      >
         <ErrorBoundary>
-          <Suspense fallback={<div className="min-h-screen bg-gray-950 animate-pulse"/>}>
+          <Suspense fallback={<div style={{ minHeight: '100vh', backgroundColor: T.bg.primary }} />}>
             <Providers>
-              <div className="flex min-h-screen">
+              <div style={{ display: 'flex', minHeight: '100vh' }}>
                 <Sidebar />
-                <main className="flex-1 overflow-auto">
+                <main style={{ flex: 1, overflowY: 'auto' }}>
                   {children}
                 </main>
               </div>

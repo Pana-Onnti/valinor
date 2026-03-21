@@ -1,3 +1,121 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── D4C Design System — CSS vars ─────────────────────────────────────────── */
+:root {
+  --d4c-bg-primary:    #0A0A0F;
+  --d4c-bg-card:       #111116;
+  --d4c-bg-elevated:   #1A1A22;
+  --d4c-bg-hover:      #222230;
+  --d4c-text-primary:  #F0F0F5;
+  --d4c-text-secondary:#8A8A9A;
+  --d4c-text-tertiary: #5A5A6A;
+  --d4c-accent-teal:   #2A9D8F;
+  --d4c-accent-red:    #E63946;
+  --d4c-border:        #222230;
+}
+
+html,
+body {
+  background-color: var(--d4c-bg-primary);
+  color: var(--d4c-text-primary);
+  margin: 0;
+  padding: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ── Form helpers ─────────────────────────────────────────────────────────── */
+.d4c-input {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--d4c-border);
+  background-color: var(--d4c-bg-elevated);
+  color: var(--d4c-text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 150ms ease;
+  font-family: inherit;
+}
+
+.d4c-input::placeholder {
+  color: var(--d4c-text-tertiary);
+}
+
+.d4c-input:focus {
+  border-color: var(--d4c-accent-teal);
+}
+
+.d4c-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.d4c-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  background-color: var(--d4c-accent-teal);
+  color: #0A0A0F;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 150ms ease;
+  font-family: inherit;
+}
+
+.d4c-btn-primary:hover { opacity: 0.9; }
+.d4c-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.d4c-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background-color: transparent;
+  color: var(--d4c-text-secondary);
+  border: 1px solid var(--d4c-border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+  font-family: inherit;
+}
+
+.d4c-btn-ghost:hover { color: var(--d4c-text-primary); border-color: var(--d4c-text-tertiary); }
+.d4c-btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Sidebar nav helpers (pseudo-state requires CSS, not inline styles) ───── */
+.d4c-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color 150ms ease, color 150ms ease;
+  color: var(--d4c-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.d4c-nav-link:hover {
+  background-color: var(--d4c-bg-elevated);
+  color: var(--d4c-text-primary);
+}
+
+.d4c-nav-link.active {
+  background-color: color-mix(in srgb, var(--d4c-accent-teal) 15%, transparent);
+  color: var(--d4c-accent-teal);
+  box-shadow: inset 2px 0 0 var(--d4c-accent-teal);
+}

@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'
 import axios from 'axios'
 import { ArrowLeft, RefreshCw, Trophy, TrendingUp, Clock, AlertTriangle } from 'lucide-react'
 import Link from 'next/link'
+import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -24,42 +25,34 @@ interface SegmentationData {
   segments: Segment[]
 }
 
-const SEGMENT_META: Record<string, { icon: React.ElementType; color: string; bg: string; border: string; bar: string }> = {
+const SEGMENT_META: Record<string, { icon: React.ElementType; color: string; barColor: string }> = {
   Champions: {
     icon: Trophy,
-    color: 'text-amber-600 dark:text-amber-400',
-    bg: 'bg-amber-50 dark:bg-amber-900/30',
-    border: 'border-amber-200 dark:border-amber-800',
-    bar: 'bg-violet-500',
+    color: T.accent.yellow,
+    barColor: T.accent.yellow,
   },
   Growth: {
     icon: TrendingUp,
-    color: 'text-emerald-600 dark:text-emerald-400',
-    bg: 'bg-emerald-50 dark:bg-emerald-900/30',
-    border: 'border-emerald-200 dark:border-emerald-800',
-    bar: 'bg-violet-500',
+    color: T.accent.teal,
+    barColor: T.accent.teal,
   },
   Maintenance: {
     icon: Clock,
-    color: 'text-blue-600 dark:text-blue-400',
-    bg: 'bg-blue-50 dark:bg-blue-900/30',
-    border: 'border-blue-200 dark:border-blue-800',
-    bar: 'bg-violet-500',
+    color: T.accent.blue,
+    barColor: T.accent.blue,
   },
   'At-Risk': {
     icon: AlertTriangle,
-    color: 'text-red-600 dark:text-red-400',
-    bg: 'bg-red-50 dark:bg-red-900/30',
-    border: 'border-red-200 dark:border-red-800',
-    bar: 'bg-violet-500',
+    color: T.accent.red,
+    barColor: T.accent.red,
   },
 }
 
 const STACKED_COLORS = [
-  'bg-violet-600',
-  'bg-violet-400',
-  'bg-violet-300',
-  'bg-violet-200',
+  T.accent.teal,
+  T.accent.blue,
+  T.accent.orange,
+  T.accent.yellow,
 ]
 
 function formatCurrency(value: number, currency: string | null) {
@@ -86,48 +79,48 @@ function SegmentCard({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: i * 0.07 }}
-      className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm"
+      style={{ backgroundColor: T.bg.card, borderRadius: T.radius.lg, border: T.border.card, padding: 20 }}
     >
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-xl ${meta.bg}`}>
-            <Icon className={`h-4 w-4 ${meta.color}`} />
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ padding: 8, borderRadius: T.radius.md, backgroundColor: meta.color + '20' }}>
+            <Icon style={{ height: 16, width: 16, color: meta.color }} />
           </div>
           <div>
-            <p className="text-sm font-semibold text-gray-900 dark:text-white">{segment.name}</p>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p style={{ fontSize: 14, fontWeight: 600, color: T.text.primary, margin: 0 }}>{segment.name}</p>
+            <p style={{ fontSize: 12, color: T.text.tertiary, marginTop: 2, marginBottom: 0 }}>
               {segment.count.toLocaleString('es')} clientes
             </p>
           </div>
         </div>
-        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${meta.bg} ${meta.color} ${meta.border}`}>
+        <span style={{ fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 999, border: `1px solid ${meta.color}40`, backgroundColor: meta.color + '20', color: meta.color }}>
           {segment.pct_of_total.toFixed(1)}%
         </span>
       </div>
 
       {/* Revenue share bar */}
-      <div className="mb-3">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-gray-400">Revenue share</span>
-          <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: 12, color: T.text.tertiary }}>Revenue share</span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: T.text.primary }}>
             {segment.revenue_share.toFixed(1)}%
           </span>
         </div>
-        <div className="h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+        <div style={{ height: 8, backgroundColor: T.bg.elevated, borderRadius: 999, overflow: 'hidden' }}>
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${segment.revenue_share}%` }}
             transition={{ delay: i * 0.07 + 0.2, duration: 0.6, ease: 'easeOut' }}
-            className="h-full bg-violet-500 rounded-full"
+            style={{ height: '100%', backgroundColor: meta.barColor, borderRadius: 999 }}
           />
         </div>
       </div>
 
       {/* Avg revenue */}
-      <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-800">
-        <span className="text-xs text-gray-400">Revenue promedio</span>
-        <span className="text-sm font-bold text-gray-900 dark:text-white">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, borderTop: T.border.card }}>
+        <span style={{ fontSize: 12, color: T.text.tertiary }}>Revenue promedio</span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: T.text.primary }}>
           {formatCurrency(segment.avg_revenue, currency)}
         </span>
       </div>
@@ -166,24 +159,24 @@ export default function ClientSegmentationPage() {
   const clientName = data?.client_name ?? clientId
 
   if (loading) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
-      <div className="max-w-6xl mx-auto space-y-6 animate-pulse">
-        <div className="h-8 bg-gray-200 dark:bg-gray-800 rounded-xl w-48" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, padding: 32 }}>
+      <div style={{ maxWidth: 1152, margin: '0 auto' }}>
+        <div style={{ height: 32, backgroundColor: T.bg.elevated, borderRadius: T.radius.md, width: 192, marginBottom: 24 }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-40 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+            <div key={i} style={{ height: 160, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg }} />
           ))}
         </div>
-        <div className="h-20 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+        <div style={{ height: 80, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg }} />
       </div>
     </div>
   )
 
   if (error || !data) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-      <div className="text-center">
-        <p className="text-gray-500 mb-4">{error || 'No hay datos de segmentación para este cliente'}</p>
-        <Link href={`/clients/${clientId}/history`} className="text-violet-600 hover:underline text-sm">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center' }}>
+        <p style={{ color: T.text.secondary, marginBottom: 16 }}>{error || 'No hay datos de segmentación para este cliente'}</p>
+        <Link href={`/clients/${clientId}/history`} style={{ color: T.accent.teal, fontSize: 14 }}>
           ← Volver al historial
         </Link>
       </div>
@@ -191,20 +184,20 @@ export default function ClientSegmentationPage() {
   )
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary }}>
       {/* Header */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <header style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: T.bg.card, borderBottom: T.border.card }}>
+        <div style={{ maxWidth: 1152, margin: '0 auto', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <Link
               href="/"
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+              style={{ color: T.text.tertiary }}
             >
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft size={20} />
             </Link>
             <div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-white">{clientName}</h1>
-              <p className="text-xs text-gray-400">
+              <h1 style={{ fontSize: 18, fontWeight: 700, color: T.text.primary, margin: 0 }}>{clientName}</h1>
+              <p style={{ fontSize: 12, color: T.text.tertiary, margin: 0 }}>
                 {data.total_customers.toLocaleString('es')} clientes totales
                 {data.currency ? ` · ${data.currency}` : ''}
               </p>
@@ -212,26 +205,26 @@ export default function ClientSegmentationPage() {
           </div>
           <button
             onClick={fetchSegmentation}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700 rounded-lg transition-all"
+            className="d4c-btn-ghost"
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', fontSize: 14 }}
           >
-            <RefreshCw className="h-3.5 w-3.5" />Actualizar
+            <RefreshCw size={14} />Actualizar
           </button>
         </div>
 
         {/* Tab navigation */}
-        <div className="max-w-6xl mx-auto px-6">
-          <nav className="flex gap-1 -mb-px">
+        <div style={{ maxWidth: 1152, margin: '0 auto', padding: '0 24px' }}>
+          <nav style={{ display: 'flex', gap: 4 }}>
             {tabs.map(tab => {
               const isActive = pathname === tab.href
               return (
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                    isActive
-                      ? 'border-violet-500 text-violet-600 dark:text-violet-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
-                  }`}
+                  style={isActive
+                    ? { borderBottom: `2px solid ${T.accent.teal}`, color: T.accent.teal, padding: '10px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none', display: 'inline-block' }
+                    : { borderBottom: '2px solid transparent', color: T.text.tertiary, padding: '10px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none', display: 'inline-block' }
+                  }
                 >
                   {tab.label}
                 </Link>
@@ -241,19 +234,19 @@ export default function ClientSegmentationPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+      <main style={{ maxWidth: 1152, margin: '0 auto', padding: '32px 24px' }}>
         {/* Section title */}
-        <div>
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">
+        <div style={{ marginBottom: 32 }}>
+          <h2 style={{ fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>
             Segmentación de Clientes
           </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p style={{ fontSize: 14, color: T.text.secondary, margin: 0 }}>
             Distribución por segmento de valor · {data.total_customers.toLocaleString('es')} clientes
           </p>
         </div>
 
         {/* Segment cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 }}>
           {data.segments.map((segment, i) => (
             <SegmentCard
               key={segment.name}
@@ -266,37 +259,37 @@ export default function ClientSegmentationPage() {
 
         {/* Stacked bar — Distribución de Revenue */}
         <div>
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">
+          <h2 style={{ fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 16 }}>
             Distribución de Revenue
           </h2>
-          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6 shadow-sm">
+          <div style={{ backgroundColor: T.bg.card, borderRadius: T.radius.lg, border: T.border.card, padding: 24 }}>
             {/* Stacked bar */}
-            <div className="flex h-10 rounded-xl overflow-hidden gap-0.5 mb-5">
+            <div style={{ display: 'flex', height: 40, borderRadius: T.radius.md, overflow: 'hidden', gap: 2, marginBottom: 20 }}>
               {data.segments.map((segment, i) => (
                 <motion.div
                   key={segment.name}
                   initial={{ flex: 0 }}
                   animate={{ flex: segment.revenue_share }}
                   transition={{ delay: i * 0.08 + 0.1, duration: 0.7, ease: 'easeOut' }}
-                  className={`${STACKED_COLORS[i % STACKED_COLORS.length]} first:rounded-l-xl last:rounded-r-xl`}
+                  style={{ backgroundColor: STACKED_COLORS[i % STACKED_COLORS.length] }}
                   title={`${segment.name}: ${segment.revenue_share.toFixed(1)}%`}
                 />
               ))}
             </div>
 
             {/* Legend */}
-            <div className="flex flex-wrap gap-x-6 gap-y-3">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px 24px' }}>
               {data.segments.map((segment, i) => {
                 const meta = SEGMENT_META[segment.name] ?? SEGMENT_META['Maintenance']
                 const Icon = meta.icon
                 return (
-                  <div key={segment.name} className="flex items-center gap-2">
-                    <span className={`w-3 h-3 rounded-sm flex-shrink-0 ${STACKED_COLORS[i % STACKED_COLORS.length]}`} />
-                    <Icon className={`h-3.5 w-3.5 ${meta.color}`} />
-                    <span className="text-sm text-gray-600 dark:text-gray-300 font-medium">
+                  <div key={segment.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 12, height: 12, borderRadius: 2, flexShrink: 0, backgroundColor: STACKED_COLORS[i % STACKED_COLORS.length], display: 'inline-block' }} />
+                    <Icon style={{ height: 14, width: 14, color: meta.color }} />
+                    <span style={{ fontSize: 14, color: T.text.primary, fontWeight: 500 }}>
                       {segment.name}
                     </span>
-                    <span className="text-sm text-gray-400">
+                    <span style={{ fontSize: 14, color: T.text.tertiary }}>
                       {segment.revenue_share.toFixed(1)}%
                     </span>
                   </div>
@@ -305,14 +298,14 @@ export default function ClientSegmentationPage() {
             </div>
 
             {/* Summary row */}
-            <div className="mt-5 pt-5 border-t border-gray-100 dark:border-gray-800 grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div style={{ marginTop: 20, paddingTop: 20, borderTop: T.border.card, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
               {data.segments.map(segment => (
-                <div key={segment.name} className="text-center">
-                  <p className="text-xs text-gray-400 mb-1">{segment.name}</p>
-                  <p className="text-lg font-bold text-gray-900 dark:text-white">
+                <div key={segment.name} style={{ textAlign: 'center' }}>
+                  <p style={{ fontSize: 12, color: T.text.tertiary, marginBottom: 4 }}>{segment.name}</p>
+                  <p style={{ fontSize: 18, fontWeight: 700, color: T.text.primary, margin: '0 0 2px' }}>
                     {formatCurrency(segment.avg_revenue, data.currency)}
                   </p>
-                  <p className="text-xs text-gray-400">avg / cliente</p>
+                  <p style={{ fontSize: 12, color: T.text.tertiary, margin: 0 }}>avg / cliente</p>
                 </div>
               ))}
             </div>

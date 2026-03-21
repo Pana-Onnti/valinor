@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import axios from 'axios'
 import { CheckCircle, XCircle, Clock, Loader2 } from 'lucide-react'
+import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -210,52 +211,76 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
     return cleanup
   }, [analysisId])
 
+  const dqColor = dqScore === null ? T.text.tertiary
+    : dqScore >= 85 ? T.accent.teal
+    : dqScore >= 65 ? T.accent.yellow
+    : T.accent.orange
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="max-w-2xl mx-auto"
+      style={{ maxWidth: 640, margin: '0 auto' }}
     >
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+      <div style={{
+        backgroundColor: T.bg.card,
+        borderRadius: T.radius.lg,
+        border: T.border.card,
+        padding: T.space.xl,
+      }}>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: T.text.primary, marginBottom: 8 }}>
           Análisis en progreso
         </h2>
         <div
-          className="flex items-center gap-2 mb-6 px-3 py-2 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl cursor-pointer group"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: T.space.lg,
+            padding: `${T.space.xs} ${T.space.sm}`,
+            backgroundColor: T.bg.elevated,
+            border: T.border.card,
+            borderRadius: T.radius.sm,
+            cursor: 'pointer',
+          }}
           onClick={() => navigator.clipboard.writeText(analysisId)}
           title="Copiar Job ID"
         >
-          <span className="text-xs text-gray-400 uppercase tracking-wide font-medium flex-shrink-0">Job ID</span>
-          <span className="font-mono text-xs text-gray-700 dark:text-gray-300 truncate flex-1">{analysisId}</span>
-          <span className="text-xs text-gray-400 group-hover:text-violet-500 transition-colors flex-shrink-0">📋</span>
+          <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: T.text.tertiary, flexShrink: 0, fontFamily: T.font.mono }}>
+            Job ID
+          </span>
+          <span style={{ fontFamily: T.font.mono, fontSize: 11, color: T.text.secondary, overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+            {analysisId}
+          </span>
+          <span style={{ fontSize: 11, color: T.text.tertiary, flexShrink: 0 }}>⧉</span>
         </div>
 
         {/* Progress Bar */}
-        <div className="mb-8">
-          <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400 mb-2">
-            <span>Progress</span>
-            <span>{progress}%</span>
+        <div style={{ marginBottom: T.space.xl }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: T.text.secondary, marginBottom: 8 }}>
+            <span>Progreso</span>
+            <span style={{ fontFamily: T.font.mono }}>{progress}%</span>
           </div>
-          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+          <div style={{ height: 8, backgroundColor: T.bg.elevated, borderRadius: 4, overflow: 'hidden' }}>
             <motion.div
-              className="h-full bg-indigo-600 rounded-full"
+              style={{ height: '100%', backgroundColor: T.accent.teal, borderRadius: 4 }}
               animate={{ width: `${progress}%` }}
               transition={{ duration: 0.5 }}
             />
           </div>
 
-          {/* DQ Score badge — shown as soon as it arrives */}
           {dqScore !== null && (
-            <div className="mt-2 flex items-center gap-2 text-sm">
-              <span
-                className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                  dqScore >= 85
-                    ? 'bg-green-100 text-green-700'
-                    : dqScore >= 65
-                    ? 'bg-amber-100 text-amber-700'
-                    : 'bg-orange-100 text-orange-700'
-                }`}
-              >
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                fontSize: 11,
+                fontWeight: 600,
+                fontFamily: T.font.mono,
+                padding: '2px 10px',
+                borderRadius: 999,
+                backgroundColor: dqColor + '15',
+                border: `1px solid ${dqColor}40`,
+                color: dqColor,
+              }}>
                 DQ {dqScore}/100{dqLabel ? ` · ${dqLabel}` : ''}
               </span>
             </div>
@@ -263,42 +288,39 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
         </div>
 
         {/* Steps */}
-        <div className="space-y-3">
-          {steps.map((step, i) => (
-            <div key={i} className="flex items-center">
-              <div className="mr-3 flex-shrink-0">
-                {step.status === 'done' && (
-                  <CheckCircle className="h-5 w-5 text-green-500" />
-                )}
-                {step.status === 'running' && (
-                  <Loader2 className="h-5 w-5 text-indigo-600 animate-spin" />
-                )}
-                {step.status === 'pending' && (
-                  <Clock className="h-5 w-5 text-gray-300 dark:text-gray-600" />
-                )}
-                {step.status === 'error' && (
-                  <XCircle className="h-5 w-5 text-red-500" />
-                )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {steps.map((step, i) => {
+            const isDone    = step.status === 'done'
+            const isRunning = step.status === 'running'
+            const isError   = step.status === 'error'
+            const color = isDone ? T.accent.teal : isRunning ? T.accent.blue : isError ? T.accent.red : T.text.tertiary
+
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ flexShrink: 0 }}>
+                  {isDone    && <CheckCircle  size={18} style={{ color: T.accent.teal }} />}
+                  {isRunning && <Loader2      size={18} style={{ color: T.accent.blue, animation: 'spin 1s linear infinite' }} />}
+                  {step.status === 'pending' && <Clock size={18} style={{ color: T.text.tertiary }} />}
+                  {isError   && <XCircle      size={18} style={{ color: T.accent.red }} />}
+                </div>
+                <span style={{ fontSize: 13, fontWeight: isDone || isRunning ? 500 : 400, color }}>
+                  {step.name}
+                </span>
               </div>
-              <span
-                className={`text-sm ${
-                  step.status === 'done'
-                    ? 'text-gray-900 dark:text-white font-medium'
-                    : step.status === 'running'
-                    ? 'text-indigo-600 dark:text-indigo-400 font-medium'
-                    : 'text-gray-400 dark:text-gray-600'
-                }`}
-              >
-                {step.name}
-              </span>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         {status === 'failed' && (
-          <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
-            <p className="text-sm font-semibold text-red-700 dark:text-red-400 mb-1">Análisis fallido</p>
-            <p className="text-xs text-red-600 dark:text-red-400 font-mono break-words">
+          <div style={{
+            marginTop: T.space.lg,
+            padding: T.space.md,
+            backgroundColor: T.accent.red + '10',
+            borderRadius: T.radius.sm,
+            border: `1px solid ${T.accent.red}30`,
+          }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: T.accent.red, margin: '0 0 4px' }}>Análisis fallido</p>
+            <p style={{ fontSize: 11, color: T.accent.red, fontFamily: T.font.mono, wordBreak: 'break-all', margin: 0 }}>
               {errorMessage || 'Error desconocido. Revisá las credenciales e intentá nuevamente.'}
             </p>
           </div>

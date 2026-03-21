@@ -21,6 +21,7 @@ import {
   Link as LinkIcon,
 } from 'lucide-react'
 import Link from 'next/link'
+import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -64,15 +65,15 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">
+    <h2 style={{ fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 16 }}>
       {children}
     </h2>
   )
 }
 
-function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+function Card({ children, style: extraStyle = {} }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div className={`bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm ${className}`}>
+    <div style={{ backgroundColor: T.bg.card, borderRadius: T.radius.lg, border: T.border.card, ...extraStyle }}>
       {children}
     </div>
   )
@@ -268,23 +269,23 @@ export default function ClientSettingsPage() {
 
   // ── Loading skeleton ────────────────────────────────────────────────────────
   if (loadingSettings) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
-      <div className="max-w-6xl mx-auto space-y-6 animate-pulse">
-        <div className="h-8 bg-gray-200 dark:bg-gray-800 rounded-xl w-48" />
-        <div className="h-64 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
-        <div className="h-48 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, padding: 32 }}>
+      <div style={{ maxWidth: 1152, margin: '0 auto' }}>
+        <div style={{ height: 32, backgroundColor: T.bg.elevated, borderRadius: T.radius.md, width: 192, marginBottom: 24 }} />
+        <div style={{ height: 256, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg, marginBottom: 24 }} />
+        <div style={{ height: 192, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg }} />
       </div>
     </div>
   )
 
   // ── Error state ─────────────────────────────────────────────────────────────
   if (settingsError) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-      <div className="text-center">
-        <p className="text-gray-500 mb-4">{settingsError}</p>
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center' }}>
+        <p style={{ color: T.text.secondary, marginBottom: 16 }}>{settingsError}</p>
         <button
           onClick={fetchSettings}
-          className="text-violet-600 hover:underline text-sm"
+          style={{ color: T.accent.teal, fontSize: 14, background: 'none', border: 'none', cursor: 'pointer' }}
         >
           Reintentar
         </button>
@@ -292,61 +293,62 @@ export default function ClientSettingsPage() {
     </div>
   )
 
+  // ── Save button style helper ────────────────────────────────────────────────
+  const saveBtnStyle: React.CSSProperties = saveState === 'saved'
+    ? { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', fontSize: 14, fontWeight: 500, borderRadius: T.radius.md, border: `1px solid ${T.accent.teal}40`, backgroundColor: T.accent.teal + '20', color: T.accent.teal, cursor: 'pointer' }
+    : saveState === 'error'
+    ? { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', fontSize: 14, fontWeight: 500, borderRadius: T.radius.md, border: `1px solid ${T.accent.red}40`, backgroundColor: T.accent.red + '20', color: T.accent.red, cursor: 'pointer' }
+    : { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', fontSize: 14, fontWeight: 500, borderRadius: T.radius.md, cursor: 'pointer' }
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary }}>
       {/* ── Header ── */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <header style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: T.bg.card, borderBottom: T.border.card }}>
+        <div style={{ maxWidth: 1152, margin: '0 auto', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <Link
               href="/"
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+              style={{ color: T.text.tertiary }}
             >
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft size={20} />
             </Link>
             <div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-white">{clientName}</h1>
-              <p className="text-xs text-gray-400">Configuración del cliente</p>
+              <h1 style={{ fontSize: 18, fontWeight: 700, color: T.text.primary, margin: 0 }}>{clientName}</h1>
+              <p style={{ fontSize: 12, color: T.text.tertiary, margin: 0 }}>Configuración del cliente</p>
             </div>
           </div>
           {/* Save button */}
           <button
             onClick={handleSave}
             disabled={saveState === 'saving'}
-            className={`flex items-center gap-2 px-4 py-1.5 text-sm font-medium rounded-lg transition-all ${
-              saveState === 'saved'
-                ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-900/30 dark:border-emerald-700'
-                : saveState === 'error'
-                ? 'bg-red-50 text-red-600 border border-red-200 dark:bg-red-900/30 dark:border-red-700'
-                : 'bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-60'
-            }`}
+            className={saveState === 'idle' || saveState === 'saving' ? 'd4c-btn-primary' : ''}
+            style={saveBtnStyle}
           >
             {saveState === 'saving' ? (
-              <><RefreshCw className="h-3.5 w-3.5 animate-spin" />Guardando…</>
+              <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} />Guardando…</>
             ) : saveState === 'saved' ? (
-              <><Check className="h-3.5 w-3.5" />Guardado</>
+              <><Check size={14} />Guardado</>
             ) : saveState === 'error' ? (
-              <><X className="h-3.5 w-3.5" />Error</>
+              <><X size={14} />Error</>
             ) : (
-              <><Save className="h-3.5 w-3.5" />Guardar cambios</>
+              <><Save size={14} />Guardar cambios</>
             )}
           </button>
         </div>
 
         {/* Tab navigation */}
-        <div className="max-w-6xl mx-auto px-6">
-          <nav className="flex gap-1 -mb-px">
+        <div style={{ maxWidth: 1152, margin: '0 auto', padding: '0 24px' }}>
+          <nav style={{ display: 'flex', gap: 4 }}>
             {TABS(clientId).map(tab => {
               const isActive = pathname === tab.href
               return (
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                    isActive
-                      ? 'border-violet-500 text-violet-600 dark:text-violet-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
-                  }`}
+                  style={isActive
+                    ? { borderBottom: `2px solid ${T.accent.teal}`, color: T.accent.teal, padding: '10px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none', display: 'inline-block' }
+                    : { borderBottom: '2px solid transparent', color: T.text.tertiary, padding: '10px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none', display: 'inline-block' }
+                  }
                 >
                   {tab.label}
                 </Link>
@@ -356,16 +358,16 @@ export default function ClientSettingsPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-10">
+      <main style={{ maxWidth: 1152, margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 40 }}>
 
         {/* ── Save error banner ── */}
         {saveState === 'error' && saveError && (
           <motion.div
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-3 px-4 py-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300"
+            style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', backgroundColor: T.accent.red + '20', border: `1px solid ${T.accent.red}40`, borderRadius: T.radius.md, fontSize: 14, color: T.accent.red }}
           >
-            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+            <AlertTriangle size={16} style={{ flexShrink: 0 }} />
             {saveError}
           </motion.div>
         )}
@@ -373,29 +375,28 @@ export default function ClientSettingsPage() {
         {/* ── Analysis depth ── */}
         <section>
           <SectionHeading>
-            <span className="inline-flex items-center gap-2">
-              <Layers className="h-3.5 w-3.5" />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <Layers size={14} />
               Profundidad de análisis
             </span>
           </SectionHeading>
-          <Card className="p-5">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Card style={{ padding: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
               {DEPTH_OPTIONS.map(opt => {
                 const active = settings.preferred_analysis_depth === opt.value
                 return (
                   <button
                     key={opt.value}
                     onClick={() => setSettings(prev => ({ ...prev, preferred_analysis_depth: opt.value as any }))}
-                    className={`text-left px-4 py-3 rounded-xl border-2 transition-all ${
-                      active
-                        ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20'
-                        : 'border-gray-100 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-600'
-                    }`}
+                    style={active
+                      ? { textAlign: 'left', padding: '12px 16px', borderRadius: T.radius.md, border: `2px solid ${T.accent.teal}`, backgroundColor: T.accent.teal + '10', cursor: 'pointer', background: T.accent.teal + '10' }
+                      : { textAlign: 'left', padding: '12px 16px', borderRadius: T.radius.md, border: T.border.card, cursor: 'pointer', background: 'transparent' }
+                    }
                   >
-                    <p className={`text-sm font-semibold mb-0.5 ${active ? 'text-violet-700 dark:text-violet-300' : 'text-gray-800 dark:text-gray-200'}`}>
+                    <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 2, color: active ? T.accent.teal : T.text.primary }}>
                       {opt.label}
                     </p>
-                    <p className="text-xs text-gray-400">{opt.desc}</p>
+                    <p style={{ fontSize: 12, color: T.text.tertiary, margin: 0 }}>{opt.desc}</p>
                   </button>
                 )
               })}
@@ -406,36 +407,36 @@ export default function ClientSettingsPage() {
         {/* ── Focus areas ── */}
         <section>
           <SectionHeading>
-            <span className="inline-flex items-center gap-2">
-              <Settings className="h-3.5 w-3.5" />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <Settings size={14} />
               Áreas de foco
             </span>
           </SectionHeading>
-          <Card className="p-5">
-            <p className="text-xs text-gray-400 mb-4">
+          <Card style={{ padding: 20 }}>
+            <p style={{ fontSize: 12, color: T.text.tertiary, marginBottom: 16, marginTop: 0 }}>
               Selecciona las áreas en las que los agentes deben concentrar el análisis. Puedes elegir varias.
             </p>
-            <div className="flex flex-wrap gap-2">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {FOCUS_AREA_OPTIONS.map(opt => {
                 const active = (settings.focus_areas ?? []).includes(opt.value)
                 return (
                   <button
                     key={opt.value}
                     onClick={() => toggleFocusArea(opt.value)}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
-                      active
-                        ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
-                        : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-violet-400 dark:hover:border-violet-600'
-                    }`}
+                    style={active
+                      ? { backgroundColor: T.accent.teal, color: T.text.inverse, borderRadius: 999, padding: '6px 12px', fontSize: 14, fontWeight: 500, border: `1px solid ${T.accent.teal}`, cursor: 'pointer' }
+                      : { borderRadius: 999, padding: '6px 12px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }
+                    }
+                    className={active ? '' : 'd4c-btn-ghost'}
                   >
-                    {active && <span className="mr-1">✓</span>}
+                    {active && <span style={{ marginRight: 4 }}>✓</span>}
                     {opt.label}
                   </button>
                 )
               })}
             </div>
             {(settings.focus_areas ?? []).length === 0 && (
-              <p className="text-xs text-amber-500 mt-3">
+              <p style={{ fontSize: 12, color: T.accent.yellow, marginTop: 12, marginBottom: 0 }}>
                 Sin áreas seleccionadas: los agentes analizarán todas las áreas disponibles.
               </p>
             )}
@@ -445,27 +446,26 @@ export default function ClientSettingsPage() {
         {/* ── Language ── */}
         <section>
           <SectionHeading>
-            <span className="inline-flex items-center gap-2">
-              <Globe className="h-3.5 w-3.5" />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <Globe size={14} />
               Idioma del reporte
             </span>
           </SectionHeading>
-          <Card className="p-5">
-            <div className="flex gap-3">
+          <Card style={{ padding: 20 }}>
+            <div style={{ display: 'flex', gap: 12 }}>
               {LANGUAGE_OPTIONS.map(opt => {
                 const active = settings.language === opt.value
                 return (
                   <button
                     key={opt.value}
                     onClick={() => setSettings(prev => ({ ...prev, language: opt.value }))}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
-                      active
-                        ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300'
-                        : 'border-gray-100 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600'
-                    }`}
+                    style={active
+                      ? { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: T.radius.md, border: `2px solid ${T.accent.teal}`, backgroundColor: T.accent.teal + '10', fontSize: 14, fontWeight: 500, color: T.accent.teal, cursor: 'pointer' }
+                      : { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: T.radius.md, border: T.border.card, fontSize: 14, fontWeight: 500, color: T.text.secondary, cursor: 'pointer', background: 'transparent' }
+                    }
                   >
                     {opt.label}
-                    {active && <Check className="h-3.5 w-3.5" />}
+                    {active && <Check size={14} />}
                   </button>
                 )
               })}
@@ -476,13 +476,13 @@ export default function ClientSettingsPage() {
         {/* ── Excluded tables ── */}
         <section>
           <SectionHeading>
-            <span className="inline-flex items-center gap-2">
-              <Table2 className="h-3.5 w-3.5" />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <Table2 size={14} />
               Tablas excluidas
             </span>
           </SectionHeading>
-          <Card className="p-5">
-            <p className="text-xs text-gray-400 mb-3">
+          <Card style={{ padding: 20 }}>
+            <p style={{ fontSize: 12, color: T.text.tertiary, marginBottom: 12, marginTop: 0 }}>
               Tablas que los agentes deben ignorar completamente. Separa los nombres con comas.
             </p>
             <textarea
@@ -490,14 +490,15 @@ export default function ClientSettingsPage() {
               onChange={e => setExcludedTablesText(e.target.value)}
               rows={3}
               placeholder="logs, temp_cache, audit_trail, sessions"
-              className="w-full px-3 py-2.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none font-mono"
+              className="d4c-input"
+              style={{ width: '100%', resize: 'none', fontFamily: T.font.mono, boxSizing: 'border-box' }}
             />
             {excludedTablesText.trim() && (
-              <div className="flex flex-wrap gap-1.5 mt-3">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
                 {excludedTablesText.split(',').map(t => t.trim()).filter(Boolean).map(t => (
                   <span
                     key={t}
-                    className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded font-mono"
+                    style={{ padding: '2px 8px', backgroundColor: T.bg.elevated, color: T.text.secondary, fontSize: 12, borderRadius: T.radius.sm, fontFamily: T.font.mono }}
                   >
                     {t}
                   </span>
@@ -510,86 +511,91 @@ export default function ClientSettingsPage() {
         {/* ── Webhooks ── */}
         <section>
           <SectionHeading>
-            <span className="inline-flex items-center gap-2">
-              <Webhook className="h-3.5 w-3.5" />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <Webhook size={14} />
               Webhooks
             </span>
           </SectionHeading>
           <Card>
             {/* Existing webhooks */}
             {loadingWebhooks ? (
-              <div className="p-5 space-y-3 animate-pulse">
+              <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {[1, 2].map(i => (
-                  <div key={i} className="h-10 bg-gray-100 dark:bg-gray-800 rounded-xl" />
+                  <div key={i} style={{ height: 40, backgroundColor: T.bg.elevated, borderRadius: T.radius.md }} />
                 ))}
               </div>
             ) : webhooks.length > 0 ? (
-              <div className="divide-y divide-gray-50 dark:divide-gray-800/50">
+              <div>
                 {webhooks.map((wh, i) => (
                   <motion.div
                     key={wh.id}
                     initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: i * 0.05 }}
-                    className="flex items-center gap-4 px-5 py-3.5"
+                    style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px', borderBottom: i < webhooks.length - 1 ? T.border.subtle : 'none' }}
                   >
-                    <LinkIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-800 dark:text-gray-200 truncate font-mono">
+                    <LinkIcon style={{ height: 16, width: 16, color: T.text.tertiary, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 14, color: T.text.primary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: T.font.mono, margin: 0 }}>
                         {wh.url}
                       </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
+                      <p style={{ fontSize: 12, color: T.text.tertiary, marginTop: 2, marginBottom: 0 }}>
                         Creado {new Date(wh.created_at).toLocaleDateString('es', {
                           day: 'numeric', month: 'short', year: 'numeric',
                         })}
                       </p>
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      wh.active
-                        ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
-                        : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
-                    }`}>
+                    <span style={{
+                      fontSize: 12,
+                      padding: '2px 8px',
+                      borderRadius: 999,
+                      fontWeight: 500,
+                      backgroundColor: wh.active ? T.accent.teal + '20' : T.bg.elevated,
+                      color: wh.active ? T.accent.teal : T.text.tertiary,
+                    }}>
                       {wh.active ? 'Activo' : 'Inactivo'}
                     </span>
                     <button
                       onClick={() => handleDeleteWebhook(wh.id)}
                       title="Eliminar webhook"
-                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                      style={{ padding: 6, color: T.text.tertiary, background: 'none', border: 'none', cursor: 'pointer', borderRadius: T.radius.sm }}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 size={16} />
                     </button>
                   </motion.div>
                 ))}
               </div>
             ) : (
-              <div className="px-5 py-8 text-center">
-                <Webhook className="h-8 w-8 text-gray-300 dark:text-gray-700 mx-auto mb-2" />
-                <p className="text-sm text-gray-400">Sin webhooks configurados</p>
+              <div style={{ padding: '32px 20px', textAlign: 'center' }}>
+                <Webhook style={{ height: 32, width: 32, color: T.text.tertiary, margin: '0 auto 8px' }} />
+                <p style={{ fontSize: 14, color: T.text.tertiary, margin: 0 }}>Sin webhooks configurados</p>
               </div>
             )}
 
             {/* Add webhook form */}
-            <div className="px-5 pb-5 pt-4 border-t border-gray-50 dark:border-gray-800/50">
+            <div style={{ padding: '16px 20px 20px', borderTop: T.border.subtle }}>
               {webhookError && (
-                <p className="text-xs text-red-500 mb-2">{webhookError}</p>
+                <p style={{ fontSize: 12, color: T.accent.red, marginBottom: 8 }}>{webhookError}</p>
               )}
-              <div className="flex gap-2">
+              <div style={{ display: 'flex', gap: 8 }}>
                 <input
                   type="url"
                   value={newWebhookUrl}
                   onChange={e => setNewWebhookUrl(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleAddWebhook()}
                   placeholder="https://hooks.example.com/notify"
-                  className="flex-1 px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                  className="d4c-input"
+                  style={{ flex: 1 }}
                 />
                 <button
                   onClick={handleAddWebhook}
                   disabled={addingWebhook || !newWebhookUrl.trim()}
-                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-violet-600 text-white rounded-xl hover:bg-violet-700 disabled:opacity-50 transition-colors"
+                  className="d4c-btn-primary"
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', fontSize: 14, fontWeight: 500 }}
                 >
                   {addingWebhook
-                    ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                    : <Plus className="h-3.5 w-3.5" />
+                    ? <RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} />
+                    : <Plus size={14} />
                   }
                   Agregar
                 </button>
@@ -601,44 +607,43 @@ export default function ClientSettingsPage() {
         {/* ── Danger zone ── */}
         <section>
           <SectionHeading>
-            <span className="inline-flex items-center gap-2 text-red-400">
-              <AlertTriangle className="h-3.5 w-3.5" />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: T.accent.red }}>
+              <AlertTriangle size={14} />
               Zona de peligro
             </span>
           </SectionHeading>
-          <Card className="border-red-100 dark:border-red-900/40">
-            <div className="p-5 flex items-start justify-between gap-6">
+          <Card style={{ border: `1px solid ${T.accent.red}30` }}>
+            <div style={{ padding: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24 }}>
               <div>
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">
+                <p style={{ fontSize: 14, fontWeight: 500, color: T.text.primary, marginBottom: 4 }}>
                   Restablecer perfil de refinamiento
                 </p>
-                <p className="text-xs text-gray-400 leading-relaxed max-w-md">
+                <p style={{ fontSize: 12, color: T.text.tertiary, lineHeight: 1.6, maxWidth: 480, margin: 0 }}>
                   Borra todas las preferencias de análisis: profundidad, áreas de foco, idioma y tablas excluidas.
                   El historial de runs y los hallazgos no se ven afectados.
                 </p>
               </div>
-              <div className="flex-shrink-0 flex flex-col items-end gap-2">
+              <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
                 <button
                   onClick={handleReset}
                   disabled={resetting}
-                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl border transition-all ${
-                    confirmReset
-                      ? 'bg-red-600 text-white border-red-600 hover:bg-red-700'
-                      : 'bg-white dark:bg-gray-900 text-red-600 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20'
-                  } disabled:opacity-60`}
+                  style={confirmReset
+                    ? { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontSize: 14, fontWeight: 500, borderRadius: T.radius.md, border: 'none', backgroundColor: T.accent.red, color: 'white', cursor: 'pointer' }
+                    : { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontSize: 14, fontWeight: 500, borderRadius: T.radius.md, border: `1px solid ${T.accent.red}40`, backgroundColor: 'transparent', color: T.accent.red, cursor: 'pointer' }
+                  }
                 >
                   {resetting ? (
-                    <><RefreshCw className="h-3.5 w-3.5 animate-spin" />Restableciendo…</>
+                    <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} />Restableciendo…</>
                   ) : confirmReset ? (
-                    <><AlertTriangle className="h-3.5 w-3.5" />Confirmar restablecimiento</>
+                    <><AlertTriangle size={14} />Confirmar restablecimiento</>
                   ) : (
-                    <><Trash2 className="h-3.5 w-3.5" />Restablecer perfil</>
+                    <><Trash2 size={14} />Restablecer perfil</>
                   )}
                 </button>
                 {confirmReset && !resetting && (
                   <button
                     onClick={() => setConfirmReset(false)}
-                    className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                    style={{ fontSize: 12, color: T.text.tertiary, background: 'none', border: 'none', cursor: 'pointer' }}
                   >
                     Cancelar
                   </button>

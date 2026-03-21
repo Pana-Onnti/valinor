@@ -2,22 +2,19 @@
 
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, X, Eye } from 'lucide-react'
+import { X, Eye } from 'lucide-react'
+import { T } from '@/components/d4c/tokens'
 
 // Synthetic demo job ID — the API will serve demo data when this ID is requested
 export const DEMO_JOB_ID = '__demo__'
-
-interface DemoModeProps {
-  onExit?: () => void
-}
 
 export function DemoModeButton({ onEnter }: { onEnter: () => void }) {
   return (
     <button
       onClick={onEnter}
-      className="flex items-center gap-2 px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:border-violet-400 dark:hover:border-violet-600 hover:text-violet-600 dark:hover:text-violet-400 transition-all"
+      className="d4c-btn-ghost"
     >
-      <Eye className="h-4 w-4" />
+      <Eye size={14} />
       Ver demo
     </button>
   )
@@ -95,19 +92,42 @@ export function DemoModeWrapper() {
 
   if (active) {
     return (
-      <div className="relative">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
-              <Eye className="h-3 w-3" />MODO DEMO
+      <div style={{ position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: T.space.lg }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 10,
+              fontWeight: 700,
+              fontFamily: T.font.mono,
+              letterSpacing: '0.08em',
+              padding: '3px 10px',
+              borderRadius: 999,
+              backgroundColor: T.accent.teal + '15',
+              border: `1px solid ${T.accent.teal}40`,
+              color: T.accent.teal,
+            }}>
+              <Eye size={10} />MODO DEMO
             </span>
-            <span className="text-xs text-gray-400">Datos sintéticos — Gloria Pet Distribution</span>
+            <span style={{ fontSize: 12, color: T.text.tertiary }}>Datos sintéticos — Gloria Pet Distribution</span>
           </div>
           <button
             onClick={() => setActive(false)}
-            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 12,
+              color: T.text.tertiary,
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              fontFamily: T.font.display,
+            }}
           >
-            <X className="h-3.5 w-3.5" />Salir del demo
+            <X size={12} />Salir del demo
           </button>
         </div>
         <DemoResultsDisplay />
@@ -116,7 +136,7 @@ export function DemoModeWrapper() {
   }
 
   return (
-    <div className="flex justify-center">
+    <div style={{ display: 'flex', justifyContent: 'center' }}>
       <DemoModeButton onEnter={() => setActive(true)} />
     </div>
   )
@@ -124,55 +144,95 @@ export function DemoModeWrapper() {
 
 // Inline demo results without needing a real job ID
 function DemoResultsDisplay() {
+  const badges = [
+    { label: '✓ Demo completado', color: T.accent.teal },
+    { label: '1 crítico',         color: T.accent.red },
+    { label: '2 altos',           color: T.accent.orange },
+  ]
+
+  const kpis = [
+    { label: 'Facturación Total',   value: '€11.2M' },
+    { label: 'Cobranza Pendiente',  value: '€1.6M' },
+    { label: 'Clientes Activos',    value: '149' },
+    { label: 'Margen Bruto',        value: '40%' },
+  ]
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-20">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-          ✓ Demo completado
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200">
-          ⚠ 1 crítico
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 border border-orange-200">
-          2 altos
-        </span>
+    <div style={{ maxWidth: 900, margin: '0 auto', paddingBottom: 80, display: 'flex', flexDirection: 'column', gap: T.space.lg }}>
+      {/* Status badges */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {badges.map(({ label, color }) => (
+          <span key={label} style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: T.font.mono,
+            padding: '3px 10px',
+            borderRadius: 999,
+            backgroundColor: color + '15',
+            border: `1px solid ${color}40`,
+            color,
+          }}>
+            {label}
+          </span>
+        ))}
       </div>
 
-      <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Gloria Pet Distribution</h1>
-      <p className="text-sm text-gray-400 font-mono">Q1-2026 · EUR · Análisis demo</p>
+      <h1 style={{ fontSize: 28, fontWeight: 700, color: T.text.primary, margin: 0 }}>
+        Gloria Pet Distribution
+      </h1>
+      <p style={{ fontSize: 12, color: T.text.tertiary, fontFamily: T.font.mono, margin: 0 }}>
+        Q1-2026 · EUR · Análisis demo
+      </p>
 
       {/* Hero finding */}
-      <div className="rounded-3xl bg-gradient-to-br from-red-950 via-red-900 to-red-800 border border-red-700 p-7">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
-          <span className="text-xs font-mono tracking-widest text-red-300/80 uppercase">Acción prioritaria · CRIT-1</span>
+      <div style={{
+        borderRadius: T.radius.lg,
+        backgroundColor: T.accent.red + '15',
+        border: `1px solid ${T.accent.red}50`,
+        padding: T.space.xl,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: T.accent.red, animation: 'pulse 1.5s ease-in-out infinite' }} />
+          <span style={{ fontSize: 10, fontFamily: T.font.mono, letterSpacing: '0.1em', textTransform: 'uppercase', color: T.accent.red + 'CC' }}>
+            Acción prioritaria · CRIT-1
+          </span>
         </div>
-        <h2 className="text-2xl font-bold text-white mb-2">Cartera vencida crítica &gt;90 días</h2>
-        <p className="text-red-100/80">42 clientes con facturas sin cobrar. Monto total en riesgo: <strong>€840,000</strong></p>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: T.text.primary, margin: '0 0 8px' }}>
+          Cartera vencida crítica &gt;90 días
+        </h2>
+        <p style={{ fontSize: 14, color: T.text.secondary, margin: 0 }}>
+          42 clientes con facturas sin cobrar. Monto total en riesgo:{' '}
+          <strong style={{ color: T.accent.red }}>€840,000</strong>
+        </p>
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { label: 'Facturación Total', value: '€11.2M' },
-          { label: 'Cobranza Pendiente', value: '€1.6M' },
-          { label: 'Clientes Activos', value: '149' },
-          { label: 'Margen Bruto', value: '40%' },
-        ].map((kpi, i) => (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        {kpis.map((kpi, i) => (
           <motion.div
             key={i}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.08 }}
-            className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm"
+            style={{
+              backgroundColor: T.bg.card,
+              borderRadius: T.radius.md,
+              border: T.border.card,
+              padding: T.space.lg,
+            }}
           >
-            <p className="text-xs text-gray-500 mb-1">{kpi.label}</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">{kpi.value}</p>
+            <p style={{ fontSize: 11, color: T.text.tertiary, marginBottom: 4 }}>{kpi.label}</p>
+            <p style={{ fontSize: 24, fontWeight: 700, color: T.text.primary, fontFamily: T.font.mono, margin: 0 }}>
+              {kpi.value}
+            </p>
           </motion.div>
         ))}
       </div>
 
-      <p className="text-xs text-gray-400 text-center">
+      <p style={{ fontSize: 11, color: T.text.tertiary, textAlign: 'center' }}>
         Esto es una demostración con datos sintéticos. Conectá tu base de datos para ver un análisis real.
       </p>
     </div>

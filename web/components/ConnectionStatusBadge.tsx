@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { T } from '@/components/d4c/tokens';
 
 export default function ConnectionStatusBadge() {
   const [status, setStatus] = useState<'checking' | 'ok' | 'error'>('checking');
@@ -22,20 +23,35 @@ export default function ConnectionStatusBadge() {
 
   if (status === 'checking') return null;
 
+  const ok = status === 'ok';
+  const dotColor = ok ? T.accent.teal : T.accent.red;
+
   return (
-    <div
-      className={`fixed bottom-4 right-4 z-50 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium shadow-md transition-all ${
-        status === 'ok'
-          ? 'bg-green-50 text-green-700 border border-green-200'
-          : 'bg-red-50 text-red-700 border border-red-200'
-      }`}
-    >
-      <div
-        className={`h-1.5 w-1.5 rounded-full ${
-          status === 'ok' ? 'bg-green-500' : 'bg-red-500 animate-pulse'
-        }`}
-      />
-      {status === 'ok' ? 'API conectada' : 'API desconectada'}
+    <div style={{
+      position: 'fixed',
+      bottom: T.space.md,
+      right: T.space.md,
+      zIndex: 50,
+      display: 'flex',
+      alignItems: 'center',
+      gap: T.space.xs,
+      backgroundColor: T.bg.elevated,
+      border: `1px solid ${dotColor}40`,
+      borderRadius: '999px',
+      padding: '4px 12px',
+      fontFamily: T.font.mono,
+      fontSize: 11,
+      fontWeight: 500,
+      color: dotColor,
+    }}>
+      <div style={{
+        width: 6,
+        height: 6,
+        borderRadius: '50%',
+        backgroundColor: dotColor,
+        animation: ok ? 'none' : 'pulse 1.5s ease-in-out infinite',
+      }} />
+      {ok ? 'API conectada' : 'API desconectada'}
     </div>
   );
 }

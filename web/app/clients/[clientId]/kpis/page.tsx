@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'
 import axios from 'axios'
 import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown, Minus, BarChart2 } from 'lucide-react'
 import Link from 'next/link'
+import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -27,24 +28,24 @@ interface KPIsResponse {
 function TrendIndicator({ points }: { points: KPIDataPoint[] }) {
   const numeric = points.filter(p => p.numeric_value !== null)
   if (numeric.length < 2) {
-    return <Minus className="h-4 w-4 text-gray-400" />
+    return <Minus style={{ width: 16, height: 16, color: T.text.tertiary }} />
   }
   const last = numeric[numeric.length - 1].numeric_value as number
   const prev = numeric[numeric.length - 2].numeric_value as number
   if (last > prev) {
-    return <TrendingUp className="h-4 w-4 text-emerald-400" />
+    return <TrendingUp style={{ width: 16, height: 16, color: T.accent.teal }} />
   } else if (last < prev) {
-    return <TrendingDown className="h-4 w-4 text-red-400" />
+    return <TrendingDown style={{ width: 16, height: 16, color: T.accent.red }} />
   }
-  return <Minus className="h-4 w-4 text-gray-400" />
+  return <Minus style={{ width: 16, height: 16, color: T.text.tertiary }} />
 }
 
 function MiniBarChart({ points }: { points: KPIDataPoint[] }) {
   const numeric = points.filter(p => p.numeric_value !== null)
   if (numeric.length === 0) {
     return (
-      <div className="flex items-end gap-0.5 h-12">
-        <span className="text-xs text-gray-500">Sin datos numéricos</span>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 48 }}>
+        <span style={{ fontSize: 11, color: T.text.secondary }}>Sin datos numéricos</span>
       </div>
     )
   }
@@ -55,26 +56,29 @@ function MiniBarChart({ points }: { points: KPIDataPoint[] }) {
   const range = max - min
 
   return (
-    <div className="flex items-end gap-0.5 h-12 overflow-x-auto pb-1">
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 48, overflowX: 'auto', paddingBottom: 4 }}>
       {numeric.map((point, i) => {
         const heightPct = range === 0
           ? 50
           : ((point.numeric_value as number - min) / range) * 80 + 20
         const isLast = i === numeric.length - 1
         return (
-          <div key={i} className="flex flex-col items-center flex-shrink-0" style={{ minWidth: 18 }}>
+          <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0, minWidth: 18 }}>
             <div
               title={`${point.period}: ${point.value}`}
-              className={`w-3 rounded-t transition-all ${
-                isLast
-                  ? 'bg-violet-500'
-                  : 'bg-violet-800/60 hover:bg-violet-600'
-              }`}
-              style={{ height: `${heightPct}%` }}
+              style={{
+                width: 12,
+                borderRadius: '2px 2px 0 0',
+                backgroundColor: isLast ? T.accent.teal : T.bg.hover,
+                height: `${heightPct}%`,
+                transition: 'all 0.2s',
+              }}
             />
             <span
-              className="text-gray-500 mt-1 leading-none"
               style={{
+                color: T.text.tertiary,
+                marginTop: 4,
+                lineHeight: 1,
                 fontSize: '8px',
                 transform: 'rotate(45deg)',
                 transformOrigin: 'left center',
@@ -104,11 +108,19 @@ function KPICard({ label, points, index }: { label: string; points: KPIDataPoint
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05 }}
-      className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm flex flex-col gap-3"
+      style={{
+        backgroundColor: T.bg.card,
+        borderRadius: T.radius.lg,
+        border: T.border.card,
+        padding: T.space.lg,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: T.space.sm,
+      }}
     >
       {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide leading-snug line-clamp-2 flex-1">
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: T.space.sm }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: 1.4, flex: 1, margin: 0 }}>
           {label}
         </p>
         <TrendIndicator points={points} />
@@ -116,24 +128,32 @@ function KPICard({ label, points, index }: { label: string; points: KPIDataPoint
 
       {/* Latest value */}
       <div>
-        <p className="text-2xl font-bold text-white leading-none truncate">
+        <p style={{ fontSize: 24, fontWeight: 700, color: T.text.primary, lineHeight: 1, margin: 0 }}>
           {latest ? latest.value : '—'}
         </p>
         {latest && (
-          <p className="text-xs text-gray-500 mt-1">{latest.period}</p>
+          <p style={{ fontSize: 11, color: T.text.secondary, marginTop: 4, marginBottom: 0 }}>{latest.period}</p>
         )}
       </div>
 
       {/* Mini bar chart */}
-      <div className="pt-1" style={{ paddingBottom: 18 }}>
+      <div style={{ paddingTop: 4, paddingBottom: 18 }}>
         <MiniBarChart points={points} />
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between text-xs text-gray-500 border-t border-gray-800 pt-2">
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        fontSize: 11,
+        color: T.text.secondary,
+        borderTop: T.border.card,
+        paddingTop: T.space.sm,
+      }}>
         <span>{points.length} período{points.length !== 1 ? 's' : ''}</span>
         {latestNumeric && (
-          <span className="font-mono text-gray-400">{latestNumeric.numeric_value}</span>
+          <span style={{ fontFamily: T.font.mono, color: T.text.tertiary }}>{latestNumeric.numeric_value}</span>
         )}
       </div>
     </motion.div>
@@ -160,12 +180,12 @@ export default function ClientKPIsPage() {
   useEffect(() => { fetchKPIs() }, [clientId])
 
   if (loading) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
-      <div className="max-w-6xl mx-auto space-y-6 animate-pulse">
-        <div className="h-8 bg-gray-200 dark:bg-gray-800 rounded-xl w-48" />
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, padding: T.space.xxl }}>
+      <div style={{ maxWidth: 1152, margin: '0 auto' }}>
+        <div style={{ height: 32, backgroundColor: T.bg.elevated, borderRadius: T.radius.md, width: 192, marginBottom: T.space.xl }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: T.space.lg }}>
           {[...Array(8)].map((_, i) => (
-            <div key={i} className="h-44 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+            <div key={i} style={{ height: 176, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg }} />
           ))}
         </div>
       </div>
@@ -173,10 +193,10 @@ export default function ClientKPIsPage() {
   )
 
   if (error || !data) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-      <div className="text-center">
-        <p className="text-gray-500 mb-4">{error || 'No hay datos para este cliente'}</p>
-        <Link href="/" className="text-violet-600 hover:underline text-sm">← Volver</Link>
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center' }}>
+        <p style={{ color: T.text.secondary, marginBottom: T.space.lg }}>{error || 'No hay datos para este cliente'}</p>
+        <Link href="/" style={{ color: T.accent.teal, fontSize: 13, textDecoration: 'none' }}>← Volver</Link>
       </div>
     </div>
   )
@@ -184,20 +204,23 @@ export default function ClientKPIsPage() {
   const kpiEntries = Object.entries(data.kpis)
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary }}>
       {/* Header */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
-            >
-              <ArrowLeft className="h-5 w-5" />
+      <header style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+        backgroundColor: T.bg.card,
+        borderBottom: T.border.card,
+      }}>
+        <div style={{ maxWidth: 1152, margin: '0 auto', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: T.space.lg }}>
+            <Link href="/" style={{ color: T.text.tertiary, display: 'flex', alignItems: 'center' }}>
+              <ArrowLeft style={{ width: 20, height: 20 }} />
             </Link>
             <div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-white">{data.client_name}</h1>
-              <p className="text-xs text-gray-400">
+              <h1 style={{ fontSize: 18, fontWeight: 700, color: T.text.primary, margin: 0 }}>{data.client_name}</h1>
+              <p style={{ fontSize: 11, color: T.text.tertiary, margin: 0 }}>
                 {data.kpi_count} KPI{data.kpi_count !== 1 ? 's' : ''}
                 {data.earliest_period && data.latest_period
                   ? ` · ${data.earliest_period} → ${data.latest_period}`
@@ -207,15 +230,16 @@ export default function ClientKPIsPage() {
           </div>
           <button
             onClick={fetchKPIs}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700 rounded-lg transition-all"
+            className="d4c-btn-ghost"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}
           >
-            <RefreshCw className="h-3.5 w-3.5" />Actualizar
+            <RefreshCw style={{ width: 14, height: 14 }} />Actualizar
           </button>
         </div>
 
         {/* Tab navigation */}
-        <div className="max-w-6xl mx-auto px-6">
-          <nav className="flex gap-1 -mb-px">
+        <div style={{ maxWidth: 1152, margin: '0 auto', padding: '0 24px' }}>
+          <nav style={{ display: 'flex', gap: 4, overflowX: 'auto' }}>
             {[
               { label: 'Historial', href: `/clients/${clientId}/history` },
               { label: 'Hallazgos', href: `/clients/${clientId}/findings` },
@@ -228,11 +252,9 @@ export default function ClientKPIsPage() {
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                    isActive
-                      ? 'border-violet-500 text-violet-600 dark:text-violet-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
-                  }`}
+                  style={isActive
+                    ? { borderBottom: `2px solid ${T.accent.teal}`, color: T.accent.teal, padding: '10px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }
+                    : { borderBottom: '2px solid transparent', color: T.text.tertiary, padding: '10px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}
                 >
                   {tab.label}
                 </Link>
@@ -242,18 +264,25 @@ export default function ClientKPIsPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+      <main style={{ maxWidth: 1152, margin: '0 auto', padding: '32px 24px' }}>
         {/* Summary bar */}
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-violet-900/30">
-            <BarChart2 className="h-4 w-4 text-violet-400" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: T.space.sm, marginBottom: T.space.xxl }}>
+          <div style={{
+            padding: T.space.sm,
+            borderRadius: T.radius.md,
+            backgroundColor: T.accent.teal + '15',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <BarChart2 style={{ width: 16, height: 16, color: T.accent.teal }} />
           </div>
           <div>
-            <p className="text-sm font-semibold text-gray-200">
+            <p style={{ fontSize: 13, fontWeight: 600, color: T.text.primary, margin: 0 }}>
               {data.kpi_count} KPI{data.kpi_count !== 1 ? 's' : ''} rastreados
             </p>
             {data.earliest_period && data.latest_period && (
-              <p className="text-xs text-gray-500">
+              <p style={{ fontSize: 11, color: T.text.secondary, margin: 0 }}>
                 Desde {data.earliest_period} hasta {data.latest_period}
               </p>
             )}
@@ -262,16 +291,16 @@ export default function ClientKPIsPage() {
 
         {/* KPI grid */}
         {kpiEntries.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: T.space.lg }}>
             {kpiEntries.map(([label, points], i) => (
               <KPICard key={label} label={label} points={points} index={i} />
             ))}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <BarChart2 className="h-10 w-10 text-gray-700 mb-4" />
-            <p className="text-gray-400 text-sm">No hay KPIs registrados para este cliente aún.</p>
-            <p className="text-gray-600 text-xs mt-1">
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '96px 0', textAlign: 'center' }}>
+            <BarChart2 style={{ width: 40, height: 40, color: T.text.tertiary, marginBottom: T.space.lg }} />
+            <p style={{ color: T.text.secondary, fontSize: 13, margin: 0 }}>No hay KPIs registrados para este cliente aún.</p>
+            <p style={{ color: T.text.tertiary, fontSize: 11, marginTop: 4, marginBottom: 0 }}>
               Los KPIs se extraen automáticamente en cada análisis.
             </p>
           </div>

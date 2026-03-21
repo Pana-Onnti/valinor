@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, CheckCircle2, XCircle } from 'lucide-react'
+import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -48,30 +49,30 @@ function formatDate(iso?: string): string {
 function scoreColors(score: number) {
   if (score >= 90)
     return {
-      text: 'text-emerald-600 dark:text-emerald-400',
-      bg: 'bg-emerald-50 dark:bg-emerald-900/20',
-      border: 'border-emerald-200 dark:border-emerald-800',
-      ring: '#34d399',
+      textColor: T.accent.teal,
+      bgColor: T.accent.teal + '15',
+      borderColor: T.accent.teal + '40',
+      ring: T.accent.teal,
     }
   if (score >= 75)
     return {
-      text: 'text-amber-600 dark:text-amber-400',
-      bg: 'bg-amber-50 dark:bg-amber-900/20',
-      border: 'border-amber-200 dark:border-amber-800',
-      ring: '#fbbf24',
+      textColor: T.accent.yellow,
+      bgColor: T.accent.yellow + '15',
+      borderColor: T.accent.yellow + '40',
+      ring: T.accent.yellow,
     }
   if (score >= 50)
     return {
-      text: 'text-orange-600 dark:text-orange-400',
-      bg: 'bg-orange-50 dark:bg-orange-900/20',
-      border: 'border-orange-200 dark:border-orange-800',
-      ring: '#fb923c',
+      textColor: T.accent.orange,
+      bgColor: T.accent.orange + '15',
+      borderColor: T.accent.orange + '40',
+      ring: T.accent.orange,
     }
   return {
-    text: 'text-red-600 dark:text-red-400',
-    bg: 'bg-red-50 dark:bg-red-900/20',
-    border: 'border-red-200 dark:border-red-800',
-    ring: '#f87171',
+    textColor: T.accent.red,
+    bgColor: T.accent.red + '15',
+    borderColor: T.accent.red + '40',
+    ring: T.accent.red,
   }
 }
 
@@ -82,13 +83,13 @@ function ScoreRing({ score }: { score: number }) {
   const colors = scoreColors(score)
 
   return (
-    <div className="relative w-28 h-28 flex-shrink-0">
-      <svg className="w-28 h-28 -rotate-90" viewBox="0 0 112 112">
+    <div style={{ position: 'relative', width: 112, height: 112, flexShrink: 0 }}>
+      <svg style={{ width: 112, height: 112, transform: 'rotate(-90deg)' }} viewBox="0 0 112 112">
         <circle
           cx="56" cy="56" r={radius}
           fill="none"
           strokeWidth="8"
-          className="stroke-gray-200 dark:stroke-gray-700"
+          stroke={T.bg.hover}
         />
         <circle
           cx="56" cy="56" r={radius}
@@ -99,9 +100,9 @@ function ScoreRing({ score }: { score: number }) {
           stroke={colors.ring}
         />
       </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={`text-3xl font-bold ${colors.text}`}>{score}</span>
-        <span className="text-xs text-gray-400">/100</span>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ fontSize: 30, fontWeight: 700, color: colors.textColor }}>{score}</span>
+        <span style={{ fontSize: 12, color: T.text.tertiary }}>/100</span>
       </div>
     </div>
   )
@@ -113,29 +114,29 @@ function GateDecisionBadge({ decision }: { decision: GateDecision }) {
   const normalized = decision?.toUpperCase()
   if (normalized === 'PROCEED') {
     return (
-      <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-        <CheckCircle2 className="h-4 w-4" />
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 999, fontSize: 14, fontWeight: 700, backgroundColor: T.accent.teal + '20', color: T.accent.teal, border: `1px solid ${T.accent.teal}40` }}>
+        <CheckCircle2 size={16} />
         PROCEED
       </span>
     )
   }
   if (normalized === 'WARN') {
     return (
-      <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 999, fontSize: 14, fontWeight: 700, backgroundColor: T.accent.yellow + '20', color: T.accent.yellow, border: `1px solid ${T.accent.yellow}40` }}>
         WARN
       </span>
     )
   }
   if (normalized === 'HALT') {
     return (
-      <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-bold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 border border-red-200 dark:border-red-800">
-        <XCircle className="h-4 w-4" />
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 999, fontSize: 14, fontWeight: 700, backgroundColor: T.accent.red + '20', color: T.accent.red, border: `1px solid ${T.accent.red}40` }}>
+        <XCircle size={16} />
         HALT
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center px-4 py-1.5 rounded-full text-sm font-bold bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '6px 16px', borderRadius: 999, fontSize: 14, fontWeight: 700, backgroundColor: T.bg.elevated, color: T.text.secondary }}>
       {decision || '—'}
     </span>
   )
@@ -144,14 +145,15 @@ function GateDecisionBadge({ decision }: { decision: GateDecision }) {
 // ── Severity Badge ────────────────────────────────────────────────────────────
 
 function SeverityBadge({ severity }: { severity: string }) {
-  const map: Record<string, string> = {
-    critical: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
-    high:     'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400',
-    medium:   'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
-    low:      'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  const colorMap: Record<string, { bg: string; color: string }> = {
+    critical: { bg: T.accent.red + '20',    color: T.accent.red },
+    high:     { bg: T.accent.orange + '20', color: T.accent.orange },
+    medium:   { bg: T.accent.yellow + '20', color: T.accent.yellow },
+    low:      { bg: T.bg.elevated,           color: T.text.secondary },
   }
+  const c = colorMap[severity] ?? colorMap.low
   return (
-    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide ${map[severity] ?? map.low}`}>
+    <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.06em', backgroundColor: c.bg, color: c.color }}>
       {severity}
     </span>
   )
@@ -161,13 +163,13 @@ function SeverityBadge({ severity }: { severity: string }) {
 
 function LoadingSkeleton() {
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8 animate-pulse">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div className="h-5 bg-gray-200 dark:bg-gray-800 rounded w-80" />
-        <div className="h-40 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
-        <div className="space-y-3">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, padding: 32 }}>
+      <div style={{ maxWidth: 896, margin: '0 auto' }}>
+        <div style={{ height: 20, backgroundColor: T.bg.elevated, borderRadius: T.radius.md, width: 320, marginBottom: 24 }} />
+        <div style={{ height: 160, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg, marginBottom: 24 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {[...Array(8)].map((_, i) => (
-            <div key={i} className="h-12 bg-gray-200 dark:bg-gray-800 rounded-xl" />
+            <div key={i} style={{ height: 48, backgroundColor: T.bg.elevated, borderRadius: T.radius.md }} />
           ))}
         </div>
       </div>
@@ -201,10 +203,10 @@ export default function QualityReportPage() {
 
   if (error || !report) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-500 mb-4">{error || 'Reporte no disponible'}</p>
-          <Link href={`/clients/${clientId}/reports`} className="text-violet-600 hover:underline text-sm">
+      <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <p style={{ color: T.text.secondary, marginBottom: 16 }}>{error || 'Reporte no disponible'}</p>
+          <Link href={`/clients/${clientId}/reports`} style={{ color: T.accent.teal, fontSize: 14 }}>
             ← Volver a Reportes
           </Link>
         </div>
@@ -217,66 +219,66 @@ export default function QualityReportPage() {
   const totalCount = report.checks.length
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary }}>
       {/* ── Sticky header ── */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <header style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: T.bg.card, borderBottom: T.border.card }}>
+        <div style={{ maxWidth: 896, margin: '0 auto', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <Link
               href={`/clients/${clientId}/reports`}
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+              style={{ color: T.text.tertiary }}
             >
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft size={20} />
             </Link>
             <div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-white">Reporte de Calidad</h1>
-              <p className="text-xs text-gray-400 font-mono">{jobId.slice(0, 8)}</p>
+              <h1 style={{ fontSize: 18, fontWeight: 700, color: T.text.primary, margin: 0 }}>Reporte de Calidad</h1>
+              <p style={{ fontSize: 12, color: T.text.tertiary, fontFamily: T.font.mono, margin: 0 }}>{jobId.slice(0, 8)}</p>
             </div>
           </div>
           {report.run_date && (
-            <span className="text-xs text-gray-400">{formatDate(report.run_date)}</span>
+            <span style={{ fontSize: 12, color: T.text.tertiary }}>{formatDate(report.run_date)}</span>
           )}
         </div>
       </header>
 
       {/* ── Breadcrumb ── */}
-      <div className="max-w-4xl mx-auto px-6 pt-6">
-        <nav className="flex items-center gap-1.5 text-xs text-gray-400">
-          <Link href="/clients" className="hover:text-violet-600 transition-colors">Clientes</Link>
+      <div style={{ maxWidth: 896, margin: '0 auto', padding: '24px 24px 0' }}>
+        <nav style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: T.text.tertiary }}>
+          <Link href="/clients" style={{ color: T.text.tertiary, textDecoration: 'none' }}>Clientes</Link>
           <span>/</span>
-          <Link href={`/clients/${clientId}`} className="hover:text-violet-600 transition-colors">{clientId}</Link>
+          <Link href={`/clients/${clientId}`} style={{ color: T.text.tertiary, textDecoration: 'none' }}>{clientId}</Link>
           <span>/</span>
-          <Link href={`/clients/${clientId}/reports`} className="hover:text-violet-600 transition-colors">Reportes</Link>
+          <Link href={`/clients/${clientId}/reports`} style={{ color: T.text.tertiary, textDecoration: 'none' }}>Reportes</Link>
           <span>/</span>
-          <span className="text-gray-600 dark:text-gray-300 font-medium">Calidad</span>
+          <span style={{ color: T.text.primary, fontWeight: 500 }}>Calidad</span>
         </nav>
       </div>
 
-      <main className="max-w-4xl mx-auto px-6 py-6 space-y-8">
+      <main style={{ maxWidth: 896, margin: '0 auto', padding: '24px 24px', display: 'flex', flexDirection: 'column', gap: 32 }}>
 
         {/* ── Hero score card ── */}
-        <div className={`rounded-2xl border p-6 flex flex-col sm:flex-row items-start sm:items-center gap-6 ${colors.bg} ${colors.border}`}>
+        <div style={{ borderRadius: T.radius.lg, border: `1px solid ${colors.borderColor}`, padding: 24, display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 24, backgroundColor: colors.bgColor, flexWrap: 'wrap' }}>
           <ScoreRing score={report.dq_score} />
 
-          <div className="flex-1 min-w-0 space-y-3">
-            <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ marginBottom: 12 }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4, marginTop: 0 }}>
                 Data Quality Score
               </p>
-              <p className={`text-4xl font-bold tabular-nums ${colors.text}`}>
+              <p style={{ fontSize: 36, fontWeight: 700, color: colors.textColor, margin: 0, fontVariantNumeric: 'tabular-nums' }}>
                 {report.dq_score}
-                <span className="text-base font-normal text-gray-400">/100</span>
+                <span style={{ fontSize: 16, fontWeight: 400, color: T.text.tertiary }}>/100</span>
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginBottom: 12 }}>
               <GateDecisionBadge decision={report.gate_decision} />
-              <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border ${colors.bg} ${colors.border} ${colors.text}`}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, border: `1px solid ${colors.borderColor}`, backgroundColor: colors.bgColor, color: colors.textColor }}>
                 {report.data_quality_tag}
               </span>
             </div>
 
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p style={{ fontSize: 14, color: T.text.secondary, margin: 0 }}>
               {passedCount} de {totalCount} checks superados
             </p>
           </div>
@@ -285,64 +287,58 @@ export default function QualityReportPage() {
         {/* ── Individual checks table ── */}
         {report.checks.length > 0 ? (
           <div>
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+            <h2 style={{ fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 12, marginTop: 0 }}>
               Checks individuales
             </h2>
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
+            <div style={{ backgroundColor: T.bg.card, borderRadius: T.radius.lg, border: T.border.card, overflow: 'hidden' }}>
               {/* Table header */}
-              <div className="grid grid-cols-[2fr_0.8fr_0.8fr_0.8fr] gap-4 px-6 py-3 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 text-xs font-semibold text-gray-400 uppercase tracking-widest">
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 0.8fr 0.8fr 0.8fr', gap: 16, padding: '12px 24px', borderBottom: T.border.card, backgroundColor: T.bg.elevated, fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                 <span>Check</span>
-                <span className="text-center">Resultado</span>
-                <span className="text-center">Severidad</span>
-                <span className="text-right">Impacto</span>
+                <span style={{ textAlign: 'center' }}>Resultado</span>
+                <span style={{ textAlign: 'center' }}>Severidad</span>
+                <span style={{ textAlign: 'right' }}>Impacto</span>
               </div>
 
               {/* Table rows */}
-              <div className="divide-y divide-gray-50 dark:divide-gray-800/50">
+              <div>
                 {report.checks.map((check, idx) => (
                   <div
                     key={idx}
-                    className="grid grid-cols-[2fr_0.8fr_0.8fr_0.8fr] gap-4 px-6 py-3.5 items-center hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
+                    style={{ display: 'grid', gridTemplateColumns: '2fr 0.8fr 0.8fr 0.8fr', gap: 16, padding: '14px 24px', alignItems: 'center', borderTop: idx > 0 ? T.border.subtle : 'none' }}
                   >
                     {/* Check name + optional message */}
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ fontSize: 14, fontWeight: 500, color: T.text.primary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>
                         {check.check_name}
                       </p>
                       {check.message && (
-                        <p className="text-xs text-gray-400 truncate mt-0.5">{check.message}</p>
+                        <p style={{ fontSize: 12, color: T.text.tertiary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2, marginBottom: 0 }}>{check.message}</p>
                       )}
                     </div>
 
                     {/* Passed / Failed */}
-                    <div className="flex justify-center">
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
                       {check.passed ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                          <CheckCircle2 className="h-4 w-4" />
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: T.accent.teal }}>
+                          <CheckCircle2 size={16} />
                           OK
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 dark:text-red-400">
-                          <XCircle className="h-4 w-4" />
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: T.accent.red }}>
+                          <XCircle size={16} />
                           Fail
                         </span>
                       )}
                     </div>
 
                     {/* Severity */}
-                    <div className="flex justify-center">
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
                       <SeverityBadge severity={check.severity} />
                     </div>
 
                     {/* Score impact */}
-                    <div className="text-right">
-                      <span className={`text-sm font-mono font-semibold ${
-                        check.score_impact < 0
-                          ? 'text-red-600 dark:text-red-400'
-                          : check.score_impact > 0
-                          ? 'text-emerald-600 dark:text-emerald-400'
-                          : 'text-gray-400'
-                      }`}>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ fontSize: 14, fontFamily: T.font.mono, fontWeight: 600, color: check.score_impact < 0 ? T.accent.red : check.score_impact > 0 ? T.accent.teal : T.text.tertiary }}>
                         {check.score_impact > 0 ? '+' : ''}{check.score_impact}
                       </span>
                     </div>
@@ -352,8 +348,8 @@ export default function QualityReportPage() {
             </div>
           </div>
         ) : (
-          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 p-10 text-center">
-            <p className="text-sm text-gray-400">No hay checks disponibles para este análisis.</p>
+          <div style={{ backgroundColor: T.bg.card, borderRadius: T.radius.lg, border: `1px dashed ${T.text.tertiary}`, padding: 40, textAlign: 'center' }}>
+            <p style={{ fontSize: 14, color: T.text.tertiary, margin: 0 }}>No hay checks disponibles para este análisis.</p>
           </div>
         )}
 

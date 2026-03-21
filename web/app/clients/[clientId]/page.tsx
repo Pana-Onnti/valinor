@@ -9,6 +9,7 @@ import {
   History, Bell, BarChart2, ShieldAlert, CheckCircle2
 } from 'lucide-react'
 import Link from 'next/link'
+import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -60,23 +61,36 @@ function StatCard({
   sub?: string
   accent?: 'violet' | 'emerald' | 'amber' | 'red'
 }) {
-  const accentMap = {
-    violet: 'bg-violet-50 dark:bg-violet-900/30 text-violet-500',
-    emerald: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-500',
-    amber: 'bg-amber-50 dark:bg-amber-900/30 text-amber-500',
-    red: 'bg-red-50 dark:bg-red-900/30 text-red-500',
+  const accentColor: Record<string, string> = {
+    violet: T.accent.teal,
+    emerald: T.accent.teal,
+    amber: T.accent.yellow,
+    red: T.accent.red,
   }
-  const iconClass = accentMap[accent ?? 'violet']
+  const iconColor = accentColor[accent ?? 'violet']
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm">
-      <div className="flex items-start gap-3">
-        <div className={`p-2 rounded-xl ${iconClass}`}>
-          <Icon className="h-4 w-4" />
+    <div style={{
+      backgroundColor: T.bg.card,
+      borderRadius: T.radius.lg,
+      border: T.border.card,
+      padding: T.space.lg,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: T.space.sm }}>
+        <div style={{
+          padding: T.space.sm,
+          borderRadius: T.radius.sm,
+          backgroundColor: T.bg.elevated,
+          color: iconColor,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <Icon style={{ width: 16, height: 16, color: iconColor }} />
         </div>
         <div>
-          <p className="text-xs text-gray-400 mb-1">{label}</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
-          {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+          <p style={{ fontSize: 11, color: T.text.tertiary, marginBottom: 4 }}>{label}</p>
+          <p style={{ fontSize: 24, fontWeight: 700, color: T.text.primary, fontFamily: T.font.display }}>{value}</p>
+          {sub && <p style={{ fontSize: 11, color: T.text.tertiary, marginTop: 2 }}>{sub}</p>}
         </div>
       </div>
     </div>
@@ -84,14 +98,25 @@ function StatCard({
 }
 
 function SeverityBadge({ severity }: { severity: string }) {
-  const map: Record<string, string> = {
-    critical: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
-    high: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400',
-    medium: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
-    low: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  const colorMap: Record<string, string> = {
+    critical: T.accent.red,
+    high: T.accent.orange,
+    medium: T.accent.yellow,
+    low: T.accent.blue,
   }
+  const color = colorMap[severity] ?? T.accent.blue
   return (
-    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide ${map[severity] ?? map.low}`}>
+    <span style={{
+      fontSize: 10,
+      fontWeight: 600,
+      padding: '2px 8px',
+      borderRadius: 999,
+      textTransform: 'uppercase',
+      letterSpacing: '0.05em',
+      color: T.text.inverse,
+      backgroundColor: color,
+      whiteSpace: 'nowrap',
+    }}>
       {severity}
     </span>
   )
@@ -103,22 +128,53 @@ function FindingCard({ id, finding, idx }: { id: string; finding: any; idx: numb
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: idx * 0.06 }}
-      className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 shadow-sm flex flex-col gap-2"
+      style={{
+        backgroundColor: T.bg.card,
+        borderRadius: T.radius.lg,
+        border: T.border.card,
+        padding: T.space.md,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: T.space.sm,
+      }}
     >
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-snug line-clamp-2">
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: T.space.sm }}>
+        <p style={{
+          fontSize: 13,
+          fontWeight: 600,
+          color: T.text.primary,
+          lineHeight: 1.4,
+          overflow: 'hidden',
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+        }}>
           {finding.title ?? id}
         </p>
         <SeverityBadge severity={finding.severity ?? 'low'} />
       </div>
       {finding.description && (
-        <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{finding.description}</p>
+        <p style={{
+          fontSize: 12,
+          color: T.text.secondary,
+          overflow: 'hidden',
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+        }}>{finding.description}</p>
       )}
       {finding.affected_table && (
-        <p className="text-xs font-mono text-violet-600 dark:text-violet-400 truncate">{finding.affected_table}</p>
+        <p style={{
+          fontSize: 12,
+          fontFamily: T.font.mono,
+          color: T.accent.teal,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}>{finding.affected_table}</p>
       )}
       {finding.first_seen && (
-        <p className="text-xs text-gray-400 mt-auto">
+        <p style={{ fontSize: 11, color: T.text.tertiary, marginTop: 'auto' }}>
           Detectado: {new Date(finding.first_seen).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })}
         </p>
       )}
@@ -131,41 +187,55 @@ function DQSparkline({ dqHistory }: { dqHistory: DQHistory }) {
   if (!dq_history.length) return null
 
   const strokeColor =
-    avg_score !== null && avg_score >= 90 ? '#34d399' :
-    avg_score !== null && avg_score >= 75 ? '#fbbf24' : '#fb923c'
+    avg_score !== null && avg_score >= 90 ? T.accent.teal :
+    avg_score !== null && avg_score >= 75 ? T.accent.yellow : T.accent.orange
 
-  const ringClass =
-    avg_score !== null && avg_score >= 90
-      ? 'border-emerald-400 text-emerald-600 dark:text-emerald-400'
-      : avg_score !== null && avg_score >= 75
-      ? 'border-amber-400 text-amber-600 dark:text-amber-400'
-      : 'border-orange-400 text-orange-600 dark:text-orange-400'
+  const ringColor =
+    avg_score !== null && avg_score >= 90 ? T.accent.teal :
+    avg_score !== null && avg_score >= 75 ? T.accent.yellow : T.accent.orange
 
   const trendLabel =
     trend === 'improving' ? '↑ Mejorando' :
     trend === 'declining' ? '↓ Bajando' :
     trend === 'stable' ? '→ Estable' : '—'
 
-  const trendClass =
-    trend === 'improving' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' :
-    trend === 'declining' ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400' :
-    'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+  const trendColor =
+    trend === 'improving' ? T.accent.teal :
+    trend === 'declining' ? T.accent.red :
+    T.text.tertiary
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm flex items-center gap-6">
+    <div style={{
+      backgroundColor: T.bg.card,
+      borderRadius: T.radius.lg,
+      border: T.border.card,
+      padding: T.space.lg,
+      display: 'flex',
+      alignItems: 'center',
+      gap: T.space.lg,
+    }}>
       {/* Average ring */}
-      <div className="flex-shrink-0 flex flex-col items-center gap-1">
-        <div className={`w-14 h-14 rounded-full flex items-center justify-center border-4 ${ringClass}`}>
-          <span className="text-sm font-bold">{avg_score ?? '—'}</span>
+      <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+        <div style={{
+          width: 56,
+          height: 56,
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: `4px solid ${ringColor}`,
+          color: ringColor,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>{avg_score ?? '—'}</span>
         </div>
-        <span className="text-xs text-gray-400">Promedio</span>
+        <span style={{ fontSize: 11, color: T.text.tertiary }}>Promedio</span>
       </div>
 
       {/* Sparkline */}
-      <div className="flex-1 min-w-0">
+      <div style={{ flex: 1, minWidth: 0 }}>
         <svg
           viewBox={`0 0 ${dq_history.length * 24} 40`}
-          className="w-full h-10"
+          style={{ width: '100%', height: 40 }}
           preserveAspectRatio="none"
         >
           {dq_history.length > 1 && (
@@ -184,7 +254,7 @@ function DQSparkline({ dqHistory }: { dqHistory: DQHistory }) {
               cx={i * 24 + 12}
               cy={40 - (d.score / 100) * 36}
               r="3"
-              fill={d.score >= 90 ? '#34d399' : d.score >= 75 ? '#fbbf24' : '#fb923c'}
+              fill={d.score >= 90 ? T.accent.teal : d.score >= 75 ? T.accent.yellow : T.accent.orange}
             >
               <title>{`${d.run_date?.slice(0, 10)}: ${d.score}`}</title>
             </circle>
@@ -193,11 +263,18 @@ function DQSparkline({ dqHistory }: { dqHistory: DQHistory }) {
       </div>
 
       {/* Trend pill + count */}
-      <div className="flex-shrink-0 flex flex-col items-center gap-1">
-        <span className={`text-sm font-semibold px-3 py-1 rounded-full ${trendClass}`}>
+      <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+        <span style={{
+          fontSize: 13,
+          fontWeight: 600,
+          padding: '4px 12px',
+          borderRadius: 999,
+          backgroundColor: T.bg.elevated,
+          color: trendColor,
+        }}>
           {trendLabel}
         </span>
-        <span className="text-xs text-gray-400">{dq_history.length} runs</span>
+        <span style={{ fontSize: 11, color: T.text.tertiary }}>{dq_history.length} runs</span>
       </div>
     </div>
   )
@@ -208,41 +285,70 @@ function RunRow({ run, i }: { run: ClientProfileData['run_history'][0]; i: numbe
     day: 'numeric', month: 'short', year: 'numeric',
   })
   const scoreColor =
-    run.dq_score === undefined || run.dq_score === null ? 'text-gray-400' :
-    run.dq_score >= 90 ? 'text-emerald-600 dark:text-emerald-400' :
-    run.dq_score >= 75 ? 'text-amber-600 dark:text-amber-400' :
-    'text-red-600 dark:text-red-400'
+    run.dq_score === undefined || run.dq_score === null ? T.text.tertiary :
+    run.dq_score >= 90 ? T.accent.teal :
+    run.dq_score >= 75 ? T.accent.yellow :
+    T.accent.red
 
   return (
     <motion.div
       initial={{ opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: i * 0.05 }}
-      className="flex items-center gap-4 px-5 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: T.space.md,
+        padding: `${T.space.sm} ${T.space.lg}`,
+      }}
     >
-      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${run.success ? 'bg-emerald-400' : 'bg-red-400'}`} />
-      <span className="text-sm text-gray-500 dark:text-gray-400 font-mono w-28 flex-shrink-0">{run.period}</span>
-      <span className="text-sm text-gray-400 flex-1">{date}</span>
-      <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{run.findings_count} hallazgos</span>
+      <span style={{
+        width: 8,
+        height: 8,
+        borderRadius: '50%',
+        flexShrink: 0,
+        backgroundColor: run.success ? T.accent.teal : T.accent.red,
+      }} />
+      <span style={{
+        fontSize: 13,
+        color: T.text.secondary,
+        fontFamily: T.font.mono,
+        width: 112,
+        flexShrink: 0,
+      }}>{run.period}</span>
+      <span style={{ fontSize: 13, color: T.text.tertiary, flex: 1 }}>{date}</span>
+      <span style={{ fontSize: 13, fontWeight: 500, color: T.text.primary }}>{run.findings_count} hallazgos</span>
       {run.new > 0 && (
-        <span className="text-xs text-red-500 bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded-full">
+        <span style={{
+          fontSize: 11,
+          color: T.accent.red,
+          backgroundColor: T.bg.elevated,
+          padding: '2px 8px',
+          borderRadius: 999,
+        }}>
           +{run.new} nuevo{run.new > 1 ? 's' : ''}
         </span>
       )}
       {run.resolved > 0 && (
-        <span className="text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full">
+        <span style={{
+          fontSize: 11,
+          color: T.accent.teal,
+          backgroundColor: T.bg.elevated,
+          padding: '2px 8px',
+          borderRadius: 999,
+        }}>
           -{run.resolved} resuelto{run.resolved > 1 ? 's' : ''}
         </span>
       )}
       {run.dq_score !== undefined && run.dq_score !== null && (
-        <span className={`text-xs font-semibold hidden sm:block ${scoreColor}`}>{run.dq_score}</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: scoreColor }}>{run.dq_score}</span>
       )}
     </motion.div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Tab navigation (shared pattern from history page)
+// Tab navigation
 // ---------------------------------------------------------------------------
 
 function TabNav({ clientId, pathname }: { clientId: string; pathname: string }) {
@@ -258,18 +364,32 @@ function TabNav({ clientId, pathname }: { clientId: string; pathname: string }) 
     { label: 'Configuración', href: `/clients/${clientId}/settings` },
   ]
   return (
-    <nav className="flex gap-1 -mb-px overflow-x-auto">
+    <nav style={{ display: 'flex', gap: 4, overflowX: 'auto', marginBottom: -1 }}>
       {tabs.map(tab => {
         const isActive = pathname === tab.href
         return (
           <Link
             key={tab.href}
             href={tab.href}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-              isActive
-                ? 'border-violet-500 text-violet-600 dark:text-violet-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
-            }`}
+            style={isActive ? {
+              borderBottom: `2px solid ${T.accent.teal}`,
+              color: T.accent.teal,
+              padding: '10px 16px',
+              fontSize: 13,
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              textDecoration: 'none',
+              display: 'inline-block',
+            } : {
+              borderBottom: '2px solid transparent',
+              color: T.text.tertiary,
+              padding: '10px 16px',
+              fontSize: 13,
+              fontWeight: 500,
+              whiteSpace: 'nowrap',
+              textDecoration: 'none',
+              display: 'inline-block',
+            }}
           >
             {tab.label}
           </Link>
@@ -313,32 +433,32 @@ export default function ClientOverviewPage() {
 
   // ----- Loading skeleton -----
   if (loading) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
-      <div className="max-w-6xl mx-auto space-y-6 animate-pulse">
-        <div className="h-8 bg-gray-200 dark:bg-gray-800 rounded-xl w-64" />
-        <div className="grid grid-cols-3 gap-4">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, padding: T.space.xl }}>
+      <div style={{ maxWidth: 1152, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: T.space.lg }}>
+        <div style={{ height: 32, backgroundColor: T.bg.elevated, borderRadius: T.radius.md, width: 256, animation: 'pulse 1.5s ease-in-out infinite' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: T.space.md }}>
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-24 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+            <div key={i} style={{ height: 96, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg, animation: 'pulse 1.5s ease-in-out infinite' }} />
           ))}
         </div>
-        <div className="h-16 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
-        <div className="grid grid-cols-3 gap-4">
+        <div style={{ height: 64, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg, animation: 'pulse 1.5s ease-in-out infinite' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: T.space.md }}>
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-32 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+            <div key={i} style={{ height: 128, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg, animation: 'pulse 1.5s ease-in-out infinite' }} />
           ))}
         </div>
-        <div className="h-40 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
-        <div className="h-40 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+        <div style={{ height: 160, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg, animation: 'pulse 1.5s ease-in-out infinite' }} />
+        <div style={{ height: 160, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg, animation: 'pulse 1.5s ease-in-out infinite' }} />
       </div>
     </div>
   )
 
   // ----- Error state -----
   if (error || !profile) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-      <div className="text-center">
-        <p className="text-gray-500 mb-4">{error || 'No hay datos para este cliente'}</p>
-        <Link href="/" className="text-violet-600 hover:underline text-sm">← Volver</Link>
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center' }}>
+        <p style={{ color: T.text.secondary, marginBottom: T.space.md }}>{error || 'No hay datos para este cliente'}</p>
+        <Link href="/" style={{ color: T.accent.teal, fontSize: 13, textDecoration: 'none' }}>← Volver</Link>
       </div>
     </div>
   )
@@ -364,41 +484,75 @@ export default function ClientOverviewPage() {
 
   const lastThreeRuns = [...profile.run_history].reverse().slice(0, 3)
 
+  // DQ score card colors
+  const dqBgColor =
+    latestDQScore === null ? T.bg.card :
+    latestDQScore >= 90 ? T.bg.elevated :
+    latestDQScore >= 75 ? T.bg.elevated :
+    T.bg.elevated
+
+  const dqTextColor =
+    latestDQScore === null ? T.text.tertiary :
+    latestDQScore >= 90 ? T.accent.teal :
+    latestDQScore >= 75 ? T.accent.yellow :
+    T.accent.orange
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary }}>
       {/* ------------------------------------------------------------------ */}
       {/* Header                                                               */}
       {/* ------------------------------------------------------------------ */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <header style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+        backgroundColor: T.bg.card,
+        borderBottom: T.border.card,
+      }}>
+        <div style={{
+          maxWidth: 1152,
+          margin: '0 auto',
+          padding: `${T.space.md} ${T.space.lg}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: T.space.md }}>
             <Link
               href="/"
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+              style={{ color: T.text.tertiary, display: 'flex', textDecoration: 'none' }}
             >
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft style={{ width: 20, height: 20 }} />
             </Link>
             <div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-white">{profile.client_name}</h1>
-              <p className="text-xs text-gray-400">
+              <h1 style={{ fontSize: 17, fontWeight: 700, color: T.text.primary, margin: 0 }}>{profile.client_name}</h1>
+              <p style={{ fontSize: 11, color: T.text.tertiary, margin: 0 }}>
                 {[profile.industry_inferred, profile.currency_detected].filter(Boolean).join(' · ')}
               </p>
             </div>
           </div>
           <button
             onClick={fetchProfile}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700 rounded-lg transition-all"
+            className="d4c-btn-ghost"
+            style={{ display: 'flex', alignItems: 'center', gap: T.space.sm, fontSize: 13 }}
           >
-            <RefreshCw className="h-3.5 w-3.5" />
+            <RefreshCw style={{ width: 14, height: 14 }} />
             Actualizar
           </button>
         </div>
-        <div className="max-w-6xl mx-auto px-6">
+        <div style={{ maxWidth: 1152, margin: '0 auto', padding: `0 ${T.space.lg}` }}>
           <TabNav clientId={clientId} pathname={pathname} />
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+      <main style={{
+        maxWidth: 1152,
+        margin: '0 auto',
+        padding: `${T.space.xl} ${T.space.lg}`,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: T.space.xl,
+      }}>
 
         {/* ---------------------------------------------------------------- */}
         {/* Hero — client name + subtitle                                     */}
@@ -406,15 +560,15 @@ export default function ClientOverviewPage() {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col gap-1"
+          style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
         >
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+          <h2 style={{ fontSize: 22, fontWeight: 700, color: T.text.primary, margin: 0 }}>
             Bienvenido a {profile.client_name}
           </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p style={{ fontSize: 13, color: T.text.secondary, margin: 0 }}>
             Vista general del estado de inteligencia de negocio para este cliente.
             {profile.last_run_date && (
-              <> Último análisis: <span className="font-medium">{new Date(profile.last_run_date).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })}</span>.</>
+              <> Último análisis: <span style={{ fontWeight: 500 }}>{new Date(profile.last_run_date).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })}</span>.</>
             )}
           </p>
         </motion.div>
@@ -422,17 +576,24 @@ export default function ClientOverviewPage() {
         {/* ---------------------------------------------------------------- */}
         {/* Quick stats row                                                   */}
         {/* ---------------------------------------------------------------- */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
           {/* Total findings */}
           <Link
             href={`/clients/${clientId}/findings`}
-            className="group bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 px-5 py-4 shadow-sm hover:border-violet-200 dark:hover:border-violet-800 transition-colors"
+            style={{
+              backgroundColor: T.bg.card,
+              borderRadius: T.radius.lg,
+              border: T.border.card,
+              padding: `${T.space.md} ${T.space.lg}`,
+              textDecoration: 'none',
+              display: 'block',
+            }}
           >
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">Total Hallazgos</p>
-            <p className="text-2xl font-bold tabular-nums text-gray-900 dark:text-white">
+            <p style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4, margin: '0 0 4px 0' }}>Total Hallazgos</p>
+            <p style={{ fontSize: 24, fontWeight: 700, color: T.text.primary, margin: '0 0 2px 0', fontVariantNumeric: 'tabular-nums' }}>
               {totalFindings}
             </p>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p style={{ fontSize: 11, color: T.text.tertiary, margin: 0 }}>
               {Object.keys(profile.known_findings).length} activos
             </p>
           </Link>
@@ -440,74 +601,81 @@ export default function ClientOverviewPage() {
           {/* Critical count */}
           <Link
             href={`/clients/${clientId}/findings`}
-            className="group bg-red-50 dark:bg-red-900/20 rounded-2xl border border-red-200 dark:border-red-800 px-5 py-4 shadow-sm hover:border-red-300 dark:hover:border-red-700 transition-colors"
+            style={{
+              backgroundColor: T.bg.elevated,
+              borderRadius: T.radius.lg,
+              border: `1px solid ${T.accent.red}40`,
+              padding: `${T.space.md} ${T.space.lg}`,
+              textDecoration: 'none',
+              display: 'block',
+            }}
           >
-            <p className="text-xs font-semibold text-red-400 uppercase tracking-widest mb-1">Críticos</p>
-            <p className="text-2xl font-bold tabular-nums text-red-600 dark:text-red-400">
+            <p style={{ fontSize: 10, fontWeight: 600, color: T.accent.red, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 4px 0' }}>Críticos</p>
+            <p style={{ fontSize: 24, fontWeight: 700, color: T.accent.red, margin: '0 0 2px 0', fontVariantNumeric: 'tabular-nums' }}>
               {Object.values(profile.known_findings).filter((f: any) => f.severity === 'critical').length}
             </p>
-            <p className="text-xs text-red-400 mt-0.5">Requieren atención</p>
+            <p style={{ fontSize: 11, color: T.accent.red, opacity: 0.7, margin: 0 }}>Requieren atención</p>
           </Link>
 
           {/* DQ score */}
-          <div className={`rounded-2xl border px-5 py-4 shadow-sm ${
-            latestDQScore === null
-              ? 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800'
-              : latestDQScore >= 90
-              ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
-              : latestDQScore >= 75
-              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
-              : 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800'
-          }`}>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">Score DQ</p>
-            <p className={`text-2xl font-bold tabular-nums ${
-              latestDQScore === null ? 'text-gray-400 dark:text-gray-500' :
-              latestDQScore >= 90 ? 'text-emerald-600 dark:text-emerald-400' :
-              latestDQScore >= 75 ? 'text-amber-600 dark:text-amber-400' :
-              'text-orange-600 dark:text-orange-400'
-            }`}>
+          <div style={{
+            backgroundColor: dqBgColor,
+            borderRadius: T.radius.lg,
+            border: `1px solid ${dqTextColor}40`,
+            padding: `${T.space.md} ${T.space.lg}`,
+          }}>
+            <p style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 4px 0' }}>Score DQ</p>
+            <p style={{ fontSize: 24, fontWeight: 700, color: dqTextColor, margin: '0 0 2px 0', fontVariantNumeric: 'tabular-nums' }}>
               {latestDQScore !== null ? latestDQScore : '—'}
             </p>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p style={{ fontSize: 11, color: T.text.tertiary, margin: 0 }}>
               {latestDQScore === null ? 'Sin datos' : latestDQScore >= 90 ? 'Excelente' : latestDQScore >= 75 ? 'Aceptable' : 'Revisar'}
             </p>
           </div>
 
           {/* Last run date */}
-          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 px-5 py-4 shadow-sm">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">Último Run</p>
-            <p className="text-sm font-bold text-gray-900 dark:text-white leading-snug">
+          <div style={{
+            backgroundColor: T.bg.card,
+            borderRadius: T.radius.lg,
+            border: T.border.card,
+            padding: `${T.space.md} ${T.space.lg}`,
+          }}>
+            <p style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 4px 0' }}>Último Run</p>
+            <p style={{ fontSize: 14, fontWeight: 700, color: T.text.primary, lineHeight: 1.3, margin: '0 0 2px 0' }}>
               {profile.last_run_date
                 ? new Date(profile.last_run_date).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })
                 : '—'}
             </p>
-            <p className="text-xs text-gray-400 mt-0.5">{profile.run_count} run{profile.run_count !== 1 ? 's' : ''} totales</p>
+            <p style={{ fontSize: 11, color: T.text.tertiary, margin: 0 }}>{profile.run_count} run{profile.run_count !== 1 ? 's' : ''} totales</p>
           </div>
         </div>
 
         {/* ---------------------------------------------------------------- */}
         {/* Quick action buttons                                              */}
         {/* ---------------------------------------------------------------- */}
-        <div className="flex flex-wrap gap-3">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
           <Link
             href={`/new-analysis?client=${encodeURIComponent(clientId)}`}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors"
+            className="d4c-btn-primary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: T.space.sm, textDecoration: 'none' }}
           >
-            <PlayCircle className="h-4 w-4" />
+            <PlayCircle style={{ width: 16, height: 16 }} />
             Ejecutar análisis
           </Link>
           <Link
             href={`/clients/${clientId}/history`}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm transition-colors"
+            className="d4c-btn-ghost"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: T.space.sm, textDecoration: 'none' }}
           >
-            <History className="h-4 w-4" />
+            <History style={{ width: 16, height: 16 }} />
             Ver historial
           </Link>
           <Link
             href={`/clients/${clientId}/alerts`}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm transition-colors"
+            className="d4c-btn-ghost"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: T.space.sm, textDecoration: 'none' }}
           >
-            <Bell className="h-4 w-4" />
+            <Bell style={{ width: 16, height: 16 }} />
             Ver alertas
           </Link>
         </div>
@@ -515,7 +683,7 @@ export default function ClientOverviewPage() {
         {/* ---------------------------------------------------------------- */}
         {/* Stat cards: DQ trend / total findings / total runs               */}
         {/* ---------------------------------------------------------------- */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: T.space.md }}>
           <StatCard
             icon={BarChart2}
             label="Último Score DQ"
@@ -554,7 +722,14 @@ export default function ClientOverviewPage() {
         {/* ---------------------------------------------------------------- */}
         {dqHistory.dq_history.length > 0 && (
           <div>
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+            <h3 style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: T.text.tertiary,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: 12,
+            }}>
               Tendencia de Calidad de Datos
             </h3>
             <DQSparkline dqHistory={dqHistory} />
@@ -566,19 +741,29 @@ export default function ClientOverviewPage() {
         {/* ---------------------------------------------------------------- */}
         {criticalHighFindings.length > 0 && (
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                <ShieldAlert className="h-3.5 w-3.5 text-red-400" />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <h3 style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: T.text.tertiary,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                display: 'flex',
+                alignItems: 'center',
+                gap: T.space.sm,
+                margin: 0,
+              }}>
+                <ShieldAlert style={{ width: 14, height: 14, color: T.accent.red }} />
                 Hallazgos Críticos / Altos
               </h3>
               <Link
                 href={`/clients/${clientId}/findings`}
-                className="text-xs text-violet-600 hover:underline"
+                style={{ fontSize: 12, color: T.accent.teal, textDecoration: 'none' }}
               >
                 Ver todos →
               </Link>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: T.space.md }}>
               {criticalHighFindings.map(([id, finding], idx) => (
                 <FindingCard key={id} id={id} finding={finding} idx={idx} />
               ))}
@@ -591,30 +776,54 @@ export default function ClientOverviewPage() {
         {/* ---------------------------------------------------------------- */}
         {lastThreeRuns.length > 0 && (
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <h3 style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: T.text.tertiary,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                display: 'flex',
+                alignItems: 'center',
+                gap: T.space.sm,
+                margin: 0,
+              }}>
+                <CheckCircle2 style={{ width: 14, height: 14, color: T.accent.teal }} />
                 Runs Recientes
               </h3>
               <Link
                 href={`/clients/${clientId}/history`}
-                className="text-xs text-violet-600 hover:underline"
+                style={{ fontSize: 12, color: T.accent.teal, textDecoration: 'none' }}
               >
                 Ver historial completo →
               </Link>
             </div>
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
+            <div style={{
+              backgroundColor: T.bg.card,
+              borderRadius: T.radius.lg,
+              border: T.border.card,
+              overflow: 'hidden',
+            }}>
               {/* Column headers */}
-              <div className="flex items-center gap-4 px-5 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
-                <span className="w-2 flex-shrink-0" />
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest w-28 flex-shrink-0">Período</span>
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest flex-1">Fecha</span>
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Hallazgos</span>
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest hidden sm:block">Cal. Datos</span>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: T.space.md,
+                padding: `${T.space.sm} ${T.space.lg}`,
+                borderBottom: T.border.subtle,
+                backgroundColor: T.bg.elevated,
+              }}>
+                <span style={{ width: 8, flexShrink: 0 }} />
+                <span style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em', width: 112, flexShrink: 0 }}>Período</span>
+                <span style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>Fecha</span>
+                <span style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Hallazgos</span>
+                <span style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Cal. Datos</span>
               </div>
-              <div className="divide-y divide-gray-50 dark:divide-gray-800/50">
+              <div style={{ borderTop: T.border.subtle }}>
                 {lastThreeRuns.map((run, i) => (
-                  <RunRow key={i} run={run} i={i} />
+                  <div key={i} style={{ borderBottom: i < lastThreeRuns.length - 1 ? T.border.subtle : 'none' }}>
+                    <RunRow run={run} i={i} />
+                  </div>
                 ))}
               </div>
             </div>
@@ -628,22 +837,39 @@ export default function ClientOverviewPage() {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="bg-white dark:bg-gray-900 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 p-10 flex flex-col items-center gap-4 text-center"
+            style={{
+              backgroundColor: T.bg.card,
+              borderRadius: T.radius.lg,
+              border: `1px dashed ${T.text.tertiary}`,
+              padding: T.space.xxl,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: T.space.md,
+              textAlign: 'center',
+            }}
           >
-            <div className="p-4 rounded-2xl bg-violet-50 dark:bg-violet-900/20">
-              <PlayCircle className="h-8 w-8 text-violet-400" />
+            <div style={{
+              padding: T.space.md,
+              borderRadius: T.radius.lg,
+              backgroundColor: T.bg.elevated,
+              color: T.accent.teal,
+              display: 'flex',
+            }}>
+              <PlayCircle style={{ width: 32, height: 32, color: T.accent.teal }} />
             </div>
             <div>
-              <p className="font-semibold text-gray-800 dark:text-gray-100 mb-1">Sin análisis todavía</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p style={{ fontWeight: 600, color: T.text.primary, margin: '0 0 4px 0' }}>Sin análisis todavía</p>
+              <p style={{ fontSize: 13, color: T.text.secondary, margin: 0 }}>
                 Lanza el primer análisis para empezar a ver datos de inteligencia de negocio para {profile.client_name}.
               </p>
             </div>
             <Link
               href={`/new-analysis?client=${encodeURIComponent(clientId)}`}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors"
+              className="d4c-btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: T.space.sm, textDecoration: 'none' }}
             >
-              <PlayCircle className="h-4 w-4" />
+              <PlayCircle style={{ width: 16, height: 16 }} />
               Ejecutar análisis
             </Link>
           </motion.div>

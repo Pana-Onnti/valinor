@@ -3,14 +3,13 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import SkeletonCard from '@/components/SkeletonCard'
+import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-// ── Types ──────────────────────────────────────────────────────────────────────
-
 interface ClientComparison {
   client_name?: string
-  name?: string          // API returns "name" — normalised on render
+  name?: string
   avg_dq_score: number
   dq_trend: string
   critical_findings: number
@@ -19,142 +18,154 @@ interface ClientComparison {
   run_count?: number
 }
 
-// ── DQ Score Badge (inline, compact pill) ─────────────────────────────────────
+function dqColor(score: number | null): string {
+  if (score === null || score === undefined) return T.text.tertiary
+  if (score >= 90) return T.accent.teal
+  if (score >= 75) return T.accent.yellow
+  if (score >= 50) return T.accent.orange
+  return T.accent.red
+}
 
 function DQBadge({ score }: { score: number | null }) {
-  if (score === null || score === undefined) {
-    return (
-      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-400">
-        DQ —
-      </span>
-    )
-  }
-  const cls =
-    score >= 90
-      ? 'bg-emerald-100 text-emerald-700'
-      : score >= 75
-      ? 'bg-amber-100 text-amber-700'
-      : score >= 50
-      ? 'bg-orange-100 text-orange-700'
-      : 'bg-red-100 text-red-700'
+  const color = dqColor(score)
   return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${cls}`}>
-      DQ {score}
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      fontSize: 11,
+      fontWeight: 600,
+      fontFamily: T.font.mono,
+      padding: '2px 10px',
+      borderRadius: 999,
+      backgroundColor: color + '15',
+      border: `1px solid ${color}40`,
+      color,
+    }}>
+      DQ {score ?? '—'}
     </span>
   )
 }
-
-// ── Trend indicator ───────────────────────────────────────────────────────────
 
 function TrendBadge({ trend }: { trend?: string }) {
-  if (trend === 'improving') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-600">
-        ↑ Mejorando
-      </span>
-    )
-  }
-  if (trend === 'declining' || trend === 'degrading') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600">
-        ↓ Bajando
-      </span>
-    )
-  }
+  const isImproving = trend === 'improving'
+  const isDeclining = trend === 'declining' || trend === 'degrading'
+  const color = isImproving ? T.accent.teal : isDeclining ? T.accent.red : T.text.tertiary
+  const label = isImproving ? '↑ Mejorando' : isDeclining ? '↓ Bajando' : '→ Estable'
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
-      → Estable
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4,
+      fontSize: 11,
+      fontWeight: 500,
+      padding: '2px 8px',
+      borderRadius: 999,
+      backgroundColor: color + '10',
+      border: `1px solid ${color}30`,
+      color,
+    }}>
+      {label}
     </span>
   )
 }
 
-// ── Client Card ───────────────────────────────────────────────────────────────
-
 function ClientCard({ client }: { client: ClientComparison }) {
+  const name = client.client_name ?? (client as any).name ?? ''
   const formatDate = (iso: string) => {
     if (!iso) return 'Nunca'
     try {
-      return new Date(iso).toLocaleDateString('es-ES', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      })
-    } catch {
-      return iso
-    }
+      return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
+    } catch { return iso }
   }
 
   return (
-    <Link href={`/clients/${encodeURIComponent(client.client_name ?? (client as any).name)}`}>
-      <div className="bg-white rounded-2xl border border-gray-100 hover:border-violet-300 hover:shadow-md transition-all p-5 cursor-pointer h-full flex flex-col gap-4">
+    <Link href={`/clients/${encodeURIComponent(name)}`} style={{ textDecoration: 'none', display: 'block' }}>
+      <div style={{
+        backgroundColor: T.bg.card,
+        borderRadius: T.radius.md,
+        border: T.border.card,
+        padding: T.space.lg,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: T.space.md,
+        cursor: 'pointer',
+        transition: 'border-color 150ms ease',
+      }}>
         {/* Header */}
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h3 className="font-semibold text-gray-900 truncate">{client.client_name ?? (client as any).name}</h3>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ fontWeight: 600, color: T.text.primary, fontSize: 14, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {name}
+            </h3>
             {client.industry && (
-              <p className="text-xs text-gray-400 mt-0.5 truncate">{client.industry}</p>
+              <p style={{ fontSize: 11, color: T.text.tertiary, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {client.industry}
+              </p>
             )}
           </div>
           {client.critical_findings > 0 && (
-            <span className="flex-shrink-0 px-2 py-0.5 bg-red-100 text-red-700 text-xs font-bold rounded-full">
+            <span style={{
+              flexShrink: 0,
+              fontSize: 10,
+              fontWeight: 700,
+              fontFamily: T.font.mono,
+              padding: '2px 8px',
+              borderRadius: 999,
+              backgroundColor: T.accent.red + '15',
+              border: `1px solid ${T.accent.red}40`,
+              color: T.accent.red,
+            }}>
               {client.critical_findings} CRIT
             </span>
           )}
         </div>
 
-        {/* Metrics row */}
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div>
-            <p className="text-xl font-bold text-gray-900">{client.run_count ?? '—'}</p>
-            <p className="text-xs text-gray-400 mt-0.5">análisis</p>
-          </div>
-          <div>
-            <p className="text-xl font-bold text-gray-900">{client.critical_findings}</p>
-            <p className="text-xs text-gray-400 mt-0.5">críticos</p>
-          </div>
-          <div className="flex flex-col items-center gap-1">
+        {/* Metrics */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, textAlign: 'center' }}>
+          {[
+            { value: client.run_count ?? '—', label: 'análisis' },
+            { value: client.critical_findings, label: 'críticos' },
+          ].map(({ value, label }) => (
+            <div key={label}>
+              <p style={{ fontSize: 20, fontWeight: 700, color: T.text.primary, margin: 0, fontFamily: T.font.mono }}>{value}</p>
+              <p style={{ fontSize: 11, color: T.text.tertiary, marginTop: 2 }}>{label}</p>
+            </div>
+          ))}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
             <DQBadge score={client.avg_dq_score} />
             <TrendBadge trend={client.dq_trend} />
           </div>
         </div>
 
         {/* Footer */}
-        <div className="mt-auto pt-3 border-t border-gray-50 flex items-center justify-between text-xs text-gray-400">
-          <span>Último: {formatDate(client.last_run)}</span>
-          <span className="text-violet-600 font-medium">Ver detalle →</span>
+        <div style={{ marginTop: 'auto', paddingTop: T.space.sm, borderTop: T.border.subtle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
+          <span style={{ color: T.text.tertiary }}>Último: {formatDate(client.last_run)}</span>
+          <span style={{ color: T.accent.teal, fontWeight: 500 }}>Ver detalle →</span>
         </div>
       </div>
     </Link>
   )
 }
 
-// ── Empty state ───────────────────────────────────────────────────────────────
-
 function EmptyClients() {
   return (
-    <div className="col-span-full flex flex-col items-center justify-center py-20 text-center">
-      <div className="p-4 rounded-2xl bg-violet-50 mb-4">
-        <svg className="h-10 w-10 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+    <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: `${T.space.xxl} ${T.space.lg}`, textAlign: 'center' }}>
+      <div style={{ padding: T.space.md, borderRadius: T.radius.md, backgroundColor: T.accent.teal + '10', marginBottom: T.space.md }}>
+        <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke={T.accent.teal} strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round"
             d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
           />
         </svg>
       </div>
-      <h3 className="text-lg font-semibold text-gray-900">Sin clientes todavía</h3>
-      <p className="text-sm text-gray-500 mt-1 max-w-sm">
+      <h3 style={{ fontSize: 16, fontWeight: 600, color: T.text.primary, margin: '0 0 8px' }}>Sin clientes todavía</h3>
+      <p style={{ fontSize: 13, color: T.text.secondary, maxWidth: 360, margin: '0 0 20px' }}>
         Ejecuta tu primer análisis para que un cliente aparezca aquí.
       </p>
-      <Link
-        href="/new-analysis"
-        className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors"
-      >
-        Nuevo análisis
-      </Link>
+      <Link href="/new-analysis" className="d4c-btn-primary">Nuevo análisis</Link>
     </div>
   )
 }
-
-// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ClientsPage() {
   const [clients, setClients] = useState<ClientComparison[]>([])
@@ -163,10 +174,7 @@ export default function ClientsPage() {
 
   useEffect(() => {
     fetch(`${API_URL}/api/clients/comparison`)
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
-      })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then((data: { clients: ClientComparison[] } | ClientComparison[]) => {
         const list = Array.isArray(data) ? data : (data as { clients: ClientComparison[] }).clients || []
         setClients(list)
@@ -176,49 +184,43 @@ export default function ClientsPage() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* ── Header ── */}
-        <div className="flex items-center justify-between mb-6">
+    <div style={{ minHeight: '100vh', padding: T.space.xl }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: T.space.xl }}>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Clientes</h1>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: T.text.primary, margin: 0 }}>Clientes</h1>
             {!loading && (
-              <p className="text-sm text-gray-500 mt-0.5">
+              <p style={{ fontSize: 12, color: T.text.secondary, marginTop: 4 }}>
                 {clients.length} cliente{clients.length !== 1 ? 's' : ''} activo{clients.length !== 1 ? 's' : ''}
               </p>
             )}
           </div>
-          <div className="flex items-center gap-3">
-            <Link
-              href="/dashboard"
-              className="text-sm text-gray-500 hover:text-violet-600 transition-colors"
-            >
-              Dashboard
-            </Link>
-            <Link
-              href="/new-analysis"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors"
-            >
-              Nuevo análisis
-            </Link>
+          <div style={{ display: 'flex', alignItems: 'center', gap: T.space.sm }}>
+            <Link href="/dashboard" style={{ fontSize: 12, color: T.text.secondary, textDecoration: 'none' }}>Dashboard</Link>
+            <Link href="/new-analysis" className="d4c-btn-primary">Nuevo análisis</Link>
           </div>
         </div>
 
-        {/* ── Error state ── */}
+        {/* Error */}
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 rounded-xl px-5 py-3 text-sm">
+          <div style={{
+            marginBottom: T.space.lg,
+            backgroundColor: T.accent.red + '10',
+            border: `1px solid ${T.accent.red}30`,
+            color: T.accent.red,
+            borderRadius: T.radius.sm,
+            padding: `${T.space.sm} ${T.space.md}`,
+            fontSize: 13,
+          }}>
             Error al cargar clientes: {error}
           </div>
         )}
 
-        {/* ── Grid ── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: T.space.md }}>
           {loading ? (
-            <>
-              {[1, 2, 3, 4, 5, 6].map(i => (
-                <SkeletonCard key={i} hasHeader hasStats lines={2} />
-              ))}
-            </>
+            [1, 2, 3, 4, 5, 6].map(i => <SkeletonCard key={i} hasHeader hasStats lines={2} />)
           ) : clients.length === 0 ? (
             <EmptyClients />
           ) : (

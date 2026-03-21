@@ -1,5 +1,7 @@
 'use client'
 
+import { T } from '@/components/d4c/tokens'
+
 export interface ProvenanceBadgeProps {
   score: number
   source: string
@@ -9,12 +11,23 @@ export interface ProvenanceBadgeProps {
 // [94/100 · GL accounts · FINAL]
 export function ProvenanceBadge({ score, source, tag }: ProvenanceBadgeProps) {
   return (
-    <span className="inline-flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 font-mono bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-0.5">
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4,
+      fontSize: 11,
+      fontFamily: T.font.mono,
+      color: T.text.tertiary,
+      backgroundColor: T.bg.elevated,
+      border: T.border.subtle,
+      borderRadius: T.radius.sm,
+      padding: '2px 8px',
+    }}>
       <span>{score}/100</span>
-      <span className="opacity-50">·</span>
+      <span style={{ opacity: 0.4 }}>·</span>
       <span>{source}</span>
-      <span className="opacity-50">·</span>
-      <span className="font-semibold">{tag}</span>
+      <span style={{ opacity: 0.4 }}>·</span>
+      <span style={{ fontWeight: 600, color: T.text.secondary }}>{tag}</span>
     </span>
   )
 }
