@@ -8,11 +8,12 @@ network connections are required.
 
 import sys
 import types
+import asyncio
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock, patch
 
-from fastapi.testclient import TestClient
+from httpx import AsyncClient, ASGITransport
 
 # ---------------------------------------------------------------------------
 # Ensure project root is on sys.path
@@ -134,8 +135,8 @@ if _shared_stub is not None:
     _shared_stub.pdf_generator = _pdf_stub
 
 # ---------------------------------------------------------------------------
-# Build a synchronous TestClient from the FastAPI app.
-# We patch Redis/storage at the api.main level so imports succeed.
+# Build a synchronous ASGI client from the FastAPI app.
+# Uses httpx.AsyncClient + ASGITransport for httpx 0.28 compatibility.
 # ---------------------------------------------------------------------------
 
 from api.main import app  # noqa: E402
@@ -146,12 +147,38 @@ _redis_mock.ping = MagicMock(return_value=True)
 _storage_mock = MagicMock()
 _storage_mock.health_check = AsyncMock(return_value=True)
 
-# Patch at module level so the TestClient can be reused across all tests.
-with (
-    patch("api.main.metadata_storage", _storage_mock),
-    patch("api.main.redis_client", _redis_mock),
-):
-    _test_client = TestClient(app, raise_server_exceptions=False)
+
+class _SyncAsgiClient:
+    """Sync wrapper around httpx.AsyncClient + ASGITransport."""
+
+    def __init__(self, _app):
+        self._app = _app
+        self._loop = asyncio.new_event_loop()
+
+    def _run(self, coro):
+        return self._loop.run_until_complete(coro)
+
+    def _request(self, method: str, url: str, **kwargs):
+        async def _inner():
+            async with AsyncClient(
+                transport=ASGITransport(app=self._app),
+                base_url="http://testserver",
+            ) as c:
+                return await getattr(c, method)(url, **kwargs)
+        with (
+            patch("api.main.metadata_storage", _storage_mock),
+            patch("api.main.redis_client", _redis_mock),
+        ):
+            return self._run(_inner())
+
+    def get(self, url, **kwargs): return self._request("get", url, **kwargs)
+    def post(self, url, **kwargs): return self._request("post", url, **kwargs)
+    def put(self, url, **kwargs): return self._request("put", url, **kwargs)
+    def delete(self, url, **kwargs): return self._request("delete", url, **kwargs)
+    def patch(self, url, **kwargs): return self._request("patch", url, **kwargs)
+
+
+_test_client = _SyncAsgiClient(app)
 
 
 # ---------------------------------------------------------------------------

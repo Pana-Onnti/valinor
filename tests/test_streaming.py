@@ -78,6 +78,7 @@ for _m in ("shared.memory", "shared.memory.profile_store", "shared.memory.client
 
 _ps = sys.modules["shared.memory.profile_store"]
 _ps.get_profile_store = MagicMock(return_value=MagicMock(
+    _get_pool=AsyncMock(return_value=None),
     load=AsyncMock(return_value=None),
     load_or_create=AsyncMock(return_value=MagicMock(webhooks=[])),
     save=AsyncMock(),

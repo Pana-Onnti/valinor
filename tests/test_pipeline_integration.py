@@ -1771,3 +1771,327 @@ class TestDQGatePipelineIntegration:
         score_str = f"{dq_report.overall_score:.0f}"
         assert score_str in ctx
         assert dq_report.gate_decision in ctx
+
+
+# ---------------------------------------------------------------------------
+# TestDQGateHaltAndWarnScenarios  (new tests – DQ gate HALT / WARN flows)
+# ---------------------------------------------------------------------------
+
+class TestDQGateHaltAndWarnScenarios:
+    """
+    Scenarios that verify the gate HALT and PROCEED_WITH_WARNINGS paths,
+    cross-table reconciliation discrepancies, null-density failures, and
+    schema-integrity failures for missing tables.
+    """
+
+    # ------------------------------------------------------------------
+    # 1. HALT scenario — FATAL check injected
+    # ------------------------------------------------------------------
+
+    def test_halt_run_sets_gate_decision_halt(self, populated_engine):
+        """Injecting a FATAL check result forces gate_decision == HALT."""
+        gate = _sqlite_gate(populated_engine)
+        with patch.object(
+            gate, "_check_schema_integrity",
+            return_value=QualityCheckResult(
+                "schema_integrity", False, 15, "FATAL",
+                "Missing table: account_account"
+            ),
+        ):
+            report = gate.run()
+        assert report.gate_decision == "HALT"
+
+    def test_halt_run_sets_can_proceed_false(self, populated_engine):
+        """A HALT report must have can_proceed == False."""
+        gate = _sqlite_gate(populated_engine)
+        with patch.object(
+            gate, "_check_schema_integrity",
+            return_value=QualityCheckResult(
+                "schema_integrity", False, 15, "FATAL",
+                "Missing table: account_account"
+            ),
+        ):
+            report = gate.run()
+        assert report.can_proceed is False
+
+    def test_halt_run_populates_blocking_issues(self, populated_engine):
+        """blocking_issues must contain the FATAL check detail."""
+        gate = _sqlite_gate(populated_engine)
+        fatal_detail = "Core tables missing: ['account_move']"
+        with patch.object(
+            gate, "_check_schema_integrity",
+            return_value=QualityCheckResult(
+                "schema_integrity", False, 15, "FATAL", fatal_detail
+            ),
+        ):
+            report = gate.run()
+        assert len(report.blocking_issues) >= 1
+        assert fatal_detail in report.blocking_issues
+
+    def test_halt_report_returns_dq_report_instance(self, populated_engine):
+        """Even when halted, run() must return a DataQualityReport."""
+        gate = _sqlite_gate(populated_engine)
+        with patch.object(
+            gate, "_check_schema_integrity",
+            return_value=QualityCheckResult(
+                "schema_integrity", False, 100, "FATAL", "Fatal schema error"
+            ),
+        ):
+            report = gate.run()
+        assert isinstance(report, DataQualityReport)
+
+    # ------------------------------------------------------------------
+    # 2. WARN scenario — CRITICAL/WARNING check injected
+    # ------------------------------------------------------------------
+
+    def test_warn_run_sets_proceed_with_warnings(self, populated_engine):
+        """A CRITICAL (non-FATAL) check failure must yield PROCEED_WITH_WARNINGS."""
+        gate = _sqlite_gate(populated_engine)
+        with patch.object(
+            gate, "_check_schema_integrity",
+            return_value=QualityCheckResult(
+                "schema_integrity", True, 0, "INFO", "ok"
+            ),
+        ):
+            with patch.object(
+                gate, "_check_duplicate_rate",
+                return_value=QualityCheckResult(
+                    "duplicate_rate", False, 10, "CRITICAL",
+                    "Duplicate invoice names: 5/50 (10.00%)"
+                ),
+            ):
+                report = gate.run()
+        assert report.gate_decision == "PROCEED_WITH_WARNINGS"
+
+    def test_warn_run_can_proceed_is_true(self, populated_engine):
+        """PROCEED_WITH_WARNINGS means can_proceed is still True."""
+        gate = _sqlite_gate(populated_engine)
+        with patch.object(
+            gate, "_check_schema_integrity",
+            return_value=QualityCheckResult(
+                "schema_integrity", True, 0, "INFO", "ok"
+            ),
+        ):
+            with patch.object(
+                gate, "_check_duplicate_rate",
+                return_value=QualityCheckResult(
+                    "duplicate_rate", False, 10, "CRITICAL",
+                    "Duplicate invoice names: 5/50 (10.00%)"
+                ),
+            ):
+                report = gate.run()
+        assert report.can_proceed is True
+
+    def test_warn_run_populates_warnings_list(self, populated_engine):
+        """warnings list must contain the CRITICAL check detail."""
+        gate = _sqlite_gate(populated_engine)
+        warn_detail = "Duplicate invoice names: 5/50 (10.00%)"
+        with patch.object(
+            gate, "_check_schema_integrity",
+            return_value=QualityCheckResult("schema_integrity", True, 0, "INFO", "ok"),
+        ):
+            with patch.object(
+                gate, "_check_duplicate_rate",
+                return_value=QualityCheckResult(
+                    "duplicate_rate", False, 10, "CRITICAL", warn_detail
+                ),
+            ):
+                report = gate.run()
+        assert warn_detail in report.warnings
+
+    # ------------------------------------------------------------------
+    # 3. Profile extractor updates after completed run
+    # ------------------------------------------------------------------
+
+    def test_profile_extractor_run_history_grows_after_run(self):
+        """Each call to update_from_run() increments run_history length."""
+        extractor = ProfileExtractor()
+        profile = ClientProfile.new("RunHistory Corp")
+        findings = {"analyst": {"findings": []}}
+
+        for idx in range(1, 4):
+            extractor.update_from_run(profile, findings, {}, {}, period=f"2025-0{idx}")
+
+        assert len(profile.run_history) == 3
+
+    def test_profile_extractor_baseline_history_updated_after_run(self):
+        """After a run with KPIs in the report, baseline_history must be non-empty."""
+        extractor = ProfileExtractor()
+        profile = ClientProfile.new("KPI Corp")
+        report_md = (
+            "## Resumen\n\n"
+            "**Facturación Total**: $5.0M en el periodo.\n"
+        )
+        extractor.update_from_run(profile, {}, {}, {"executive": report_md}, period="2025-01")
+
+        assert len(profile.baseline_history) >= 1
+        assert "Facturación Total" in profile.baseline_history
+
+    def test_profile_extractor_run_history_records_period(self):
+        """Each run_history entry must store the period string."""
+        extractor = ProfileExtractor()
+        profile = ClientProfile.new("Period Corp")
+
+        extractor.update_from_run(profile, {}, {}, {}, period="2025-06")
+
+        assert len(profile.run_history) == 1
+        entry = profile.run_history[0]
+        assert "2025-06" in str(entry)
+
+    # ------------------------------------------------------------------
+    # 4. Cross-table reconciliation check
+    # ------------------------------------------------------------------
+
+    def test_cross_table_reconcile_returns_result_object(self, populated_engine):
+        """
+        The cross-table reconciliation check must always return a
+        QualityCheckResult regardless of the data state.
+        """
+        gate = _sqlite_gate(populated_engine)
+        result = gate._check_cross_table_reconciliation()
+        assert isinstance(result, QualityCheckResult)
+        assert result.check_name == "cross_table_reconcile"
+
+    def test_cross_table_reconcile_detects_large_gap(self):
+        """
+        Build an engine where invoice headers sum to 100k but ledger 7xx
+        lines sum to 1k (>10% gap) → check must fail as CRITICAL.
+        """
+        engine = create_engine("sqlite:///:memory:")
+        with engine.connect() as conn:
+            for ddl in _DDL:
+                conn.execute(text(ddl))
+
+            # account_account: code 7000 = income
+            conn.execute(text("INSERT INTO account_account VALUES (1, '7000', 'income')"))
+            conn.execute(text("INSERT INTO account_account VALUES (2, '1100', 'asset_current')"))
+
+            # 5 posted out_invoices totalling 100,000
+            for i in range(1, 6):
+                conn.execute(text(f"""
+                    INSERT INTO account_move VALUES (
+                        {i}, 'INV/2025/{i:04d}', 'out_invoice', 'posted',
+                        20000, 24200, 1, '2025-01-15', 1
+                    )
+                """))
+
+            # GL line for account 7000 totals only 1000 (large gap)
+            conn.execute(text(
+                "INSERT INTO account_move_line VALUES (1, 1, 1, 0, 1000, '2025-01-15', 1)"
+            ))
+            conn.commit()
+
+        gate = _sqlite_gate(engine)
+        result = gate._check_cross_table_reconciliation()
+        assert result.passed is False
+        assert result.severity == "CRITICAL"
+
+    # ------------------------------------------------------------------
+    # 5. Null density check with high null rate
+    # ------------------------------------------------------------------
+
+    def test_null_density_fails_with_high_null_rate(self):
+        """
+        Build an engine where most account_move rows have NULL partner_id
+        (threshold is 5%) → null_density check must fail.
+        """
+        engine = create_engine("sqlite:///:memory:")
+        with engine.connect() as conn:
+            for ddl in _DDL:
+                conn.execute(text(ddl))
+
+            # Insert 20 invoices; 18 have NULL partner_id (90% null rate >> 5% threshold)
+            for i in range(1, 21):
+                partner = "NULL" if i <= 18 else str(i - 18)
+                conn.execute(text(f"""
+                    INSERT INTO account_move VALUES (
+                        {i}, 'INV/2025/{i:04d}', 'out_invoice', 'posted',
+                        1000, 1210, {partner}, '2025-01-15', 1
+                    )
+                """))
+            conn.commit()
+
+        gate = _sqlite_gate(engine)
+        result = gate._check_null_density()
+        assert result.passed is False
+        assert result.severity == "CRITICAL"
+        assert "partner_id" in result.detail
+
+    def test_null_density_detail_mentions_violation(self):
+        """The detail string must mention the violating column."""
+        engine = create_engine("sqlite:///:memory:")
+        with engine.connect() as conn:
+            for ddl in _DDL:
+                conn.execute(text(ddl))
+            # All rows have NULL invoice_date (100% null >> 5% threshold)
+            for i in range(1, 6):
+                conn.execute(text(f"""
+                    INSERT INTO account_move VALUES (
+                        {i}, 'INV/2025/{i:04d}', 'out_invoice', 'posted',
+                        500, 605, 1, NULL, 1
+                    )
+                """))
+            conn.commit()
+
+        gate = _sqlite_gate(engine)
+        result = gate._check_null_density()
+        assert "invoice_date" in result.detail or "partner_id" in result.detail
+
+    # ------------------------------------------------------------------
+    # 6. Schema integrity check — missing expected tables
+    # ------------------------------------------------------------------
+
+    def test_schema_integrity_fails_when_table_missing(self):
+        """
+        If _table_exists returns False for a required table, the check
+        must fail with severity FATAL.
+        """
+        engine = create_engine("sqlite:///:memory:")
+        # Build an engine but only create some tables (omit account_account)
+        with engine.connect() as conn:
+            for ddl in _DDL[:3]:  # res_partner, account_move, account_move_line only
+                conn.execute(text(ddl))
+            conn.commit()
+
+        gate = DataQualityGate(engine, "2025-01-01", "2025-12-31")
+        # Patch _table_exists to report account_account as missing
+        original_table_exists = gate._table_exists
+
+        def _patched_table_exists(conn, table_name):
+            if table_name == "account_account":
+                return False
+            return True
+
+        gate._table_exists = _patched_table_exists
+        gate._column_exists = lambda conn, t, c: True
+
+        result = gate._check_schema_integrity()
+        assert result.passed is False
+        assert result.severity == "FATAL"
+        assert "account_account" in result.detail
+
+    def test_schema_integrity_halt_propagates_in_full_run(self):
+        """
+        When schema_integrity returns FATAL, the full gate.run() must
+        return gate_decision == HALT and can_proceed == False.
+        """
+        engine = create_engine("sqlite:///:memory:")
+        with engine.connect() as conn:
+            for ddl in _DDL:
+                conn.execute(text(ddl))
+            conn.commit()
+
+        gate = DataQualityGate(engine, "2025-01-01", "2025-12-31")
+
+        def _patched_table_exists(conn, table_name):
+            if table_name == "res_partner":
+                return False
+            return True
+
+        gate._table_exists = _patched_table_exists
+        gate._column_exists = lambda conn, t, c: True
+
+        report = gate.run()
+        assert report.gate_decision == "HALT"
+        assert report.can_proceed is False
+        assert len(report.blocking_issues) >= 1

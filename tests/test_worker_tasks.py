@@ -105,7 +105,105 @@ for _m in ("shared.memory", "shared.memory.profile_store", "shared.memory.client
     _stub_missing(_m)
 
 _profile_store_stub = sys.modules["shared.memory.profile_store"]
-_profile_store_stub.get_profile_store = MagicMock(return_value=MagicMock(load=AsyncMock(return_value=None)))
+_profile_store_stub.get_profile_store = MagicMock(return_value=MagicMock(
+    _get_pool=AsyncMock(return_value=None),
+    load=AsyncMock(return_value=None),
+    load_or_create=AsyncMock(return_value=MagicMock(webhooks=[])),
+    save=AsyncMock(return_value=None),
+))
+
+# celery
+_stub_missing("celery", "celery.utils", "celery.utils.log", "celery.exceptions")
+
+
+class _CeleryRetry(Exception):
+    pass
+
+
+class _FakeCeleryConf:
+    def __init__(self, broker_url=None, result_backend=None):
+        self._data = {
+            "broker_url": broker_url,
+            "result_backend": result_backend,
+        }
+
+    def update(self, **kwargs):
+        self._data.update(kwargs)
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self._data.get(name)
+
+
+class _FakeCeleryRequest:
+    id = "fake-celery-request-id"
+
+
+class _FakeCeleryTask:
+    def __init__(self, func, bind=False, max_retries=3, default_retry_delay=60, retry_backoff=False, name=None):
+        self._func = func
+        self._bind = bind
+        self.max_retries = max_retries
+        self.default_retry_delay = default_retry_delay
+        self.retry_backoff = retry_backoff
+        self.name = name or getattr(func, "__name__", "")
+        self.request = _FakeCeleryRequest()
+        self.__name__ = self.name
+        self.__module__ = getattr(func, "__module__", "")
+
+    def run(self, *args, **kwargs):
+        if self._bind:
+            return self._func(self, *args, **kwargs)
+        return self._func(*args, **kwargs)
+
+    def delay(self, *args, **kwargs):
+        return MagicMock(id="fake-task-id")
+
+    def apply_async(self, args=None, kwargs=None, countdown=None, **options):
+        return MagicMock(id="fake-task-id")
+
+    def retry(self, exc=None, countdown=None, max_retries=None, **kwargs):
+        raise exc if exc is not None else _CeleryRetry("retry")
+
+    def __call__(self, *args, **kwargs):
+        return self.run(*args, **kwargs)
+
+
+class _FakeCelery:
+    def __init__(self, name, broker=None, backend=None, include=None):
+        self.conf = _FakeCeleryConf(broker_url=broker, result_backend=backend)
+
+    def task(self, *args, **kwargs):
+        bind = kwargs.get("bind", False)
+        max_retries = kwargs.get("max_retries", 3)
+        default_retry_delay = kwargs.get("default_retry_delay", 60)
+        retry_backoff = kwargs.get("retry_backoff", False)
+        name = kwargs.get("name", None)
+
+        def decorator(func):
+            return _FakeCeleryTask(
+                func, bind=bind, max_retries=max_retries,
+                default_retry_delay=default_retry_delay,
+                retry_backoff=retry_backoff, name=name,
+            )
+
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return decorator(args[0])
+        return decorator
+
+    def config_from_object(self, *a, **kw):
+        pass
+
+    def autodiscover_tasks(self, *a, **kw):
+        pass
+
+
+sys.modules["celery"].Celery = _FakeCelery
+sys.modules["celery.exceptions"].Retry = _CeleryRetry
+sys.modules["celery.utils.log"].get_task_logger = MagicMock(
+    return_value=MagicMock(info=MagicMock(), error=MagicMock(), warning=MagicMock())
+)
 
 # api.webhooks
 _stub_missing("api.webhooks")
