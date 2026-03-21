@@ -165,10 +165,16 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Add CORS middleware for development
+# CORS — dev + production origins
+_CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:8080",
+    "https://valinor-saas.vercel.app",
+    *([o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]),
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:8080"],
+    allow_origins=_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -407,7 +413,7 @@ async def health_check():
         },
         "version": "2.0.0",
         "uptime_seconds": round(uptime_seconds, 1),
-        "environment": os.getenv("ENVIRONMENT", "development"),
+        "environment": os.getenv("APP_ENV", "development"),
     }
 
 @app.get("/api/version", summary="API version info", tags=["System"])

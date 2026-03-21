@@ -758,3 +758,5 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
     </div>
   )
 }
+
+export default AnalysisForm

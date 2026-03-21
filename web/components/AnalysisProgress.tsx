@@ -307,3 +307,5 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
     </motion.div>
   )
 }
+
+export default AnalysisProgress
