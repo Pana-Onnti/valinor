@@ -150,6 +150,7 @@ def _make_redis_mock(job_data: dict | None = None):
     mock.hget = AsyncMock(return_value=None)
     mock.hset = AsyncMock(return_value=True)
     mock.expire = AsyncMock(return_value=True)
+    mock.incr = AsyncMock(return_value=1)  # monthly limit counter
     mock.get = AsyncMock(return_value=None)
     mock.info = AsyncMock(return_value={"redis_version": "7.0.0", "uptime_in_days": 1})
     mock.close = AsyncMock()
