@@ -10,6 +10,12 @@ services:
       - redis_data:/data
     command: redis-server --appendonly yes
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -29,6 +35,12 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./deploy/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U valinor"]
       interval: 10s
@@ -40,13 +52,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
-    ports:
-      - "8000:8000"
+    network_mode: host
     environment:
-      # Database
-      DATABASE_URL: postgresql://valinor:valinor_secret@postgres:5432/valinor_metadata
-      REDIS_URL: redis://redis:6379
-      
+      # Database (host ports — network_mode: host bypasses Docker DNS)
+      DATABASE_URL: postgresql://valinor:valinor_secret@localhost:5450/valinor_metadata
+      REDIS_URL: redis://localhost:6380
+
       # LLM Provider Configuration
       # console_cli = usa el CLI local (Plan Max, sin API key)
       # anthropic_api = usa ANTHROPIC_API_KEY
@@ -65,7 +76,7 @@ services:
 
       # API Configuration
       CORS_ORIGINS: "*"
-      LOG_LEVEL: INFO
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       WORKERS: 4
     volumes:
       - ./core:/app/core
@@ -77,8 +88,12 @@ services:
       - ${HOME}/.nvm/versions/node/v20.20.1/bin/claude:/usr/local/bin/claude:ro
       - ${HOME}/.nvm/versions/node/v20.20.1/bin/node:/usr/local/bin/node:ro
       - ${HOME}/.claude:/root/.claude:ro
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+        tag: "{{.Name}}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -104,14 +119,22 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-console_cli}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CLAUDE_CLI_PATH: /usr/local/bin/claude
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - ${HOME}/.nvm/versions/node/v20.20.1/bin/claude:/usr/local/bin/claude:ro
       - ${HOME}/.nvm/versions/node/v20.20.1/bin/node:/usr/local/bin/node:ro
       - ${HOME}/.claude:/root/.claude:ro
       - ./core:/app/core
+      - ./api:/app/api
       - ./worker:/app/worker
       - ./shared:/app/shared
       - ./ssh_keys:/app/ssh_keys:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+        tag: "{{.Name}}"
     restart: unless-stopped
     mem_limit: 512m
     depends_on:
@@ -135,10 +158,99 @@ services:
       - ./web:/app
       - /app/node_modules
       - /app/.next
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
     depends_on:
       api:
         condition: service_healthy
     command: npm run dev
+
+  # Loki — log aggregation backend
+  loki:
+    image: grafana/loki:2.9.8
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./deploy/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+    restart: unless-stopped
+
+  # Promtail — recoge logs de todos los contenedores y los manda a Loki
+  promtail:
+    image: grafana/promtail:2.9.8
+    user: root
+    volumes:
+      - ./deploy/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/config.yml
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  # Prometheus — scrapes /metrics every 15s
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+    restart: unless-stopped
+
+  # Grafana — dashboards sobre Prometheus
+  grafana:
+    image: grafana/grafana:10.3.0
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: valinor
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: http://localhost:3001
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/valinor.json
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
 
   # Nginx (Production-like)
   nginx:
@@ -171,6 +283,9 @@ volumes:
   redis_data:
   postgres_data:
   valinor_profiles:
+  prometheus_data:
+  grafana_data:
+  loki_data:
 
 networks:
   default:

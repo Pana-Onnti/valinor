@@ -1,0 +1,185 @@
+{
+  "title": "Valinor — Logs",
+  "uid": "valinor-logs",
+  "schemaVersion": 38,
+  "version": 3,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["valinor", "logs"],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "custom",
+        "label": "Servicio",
+        "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+        "options": [
+          { "text": "All",    "value": ".*",    "selected": true },
+          { "text": "api",    "value": "api",   "selected": false },
+          { "text": "worker", "value": "worker","selected": false }
+        ],
+        "current": { "text": "All", "value": ".*" },
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "name": "level",
+        "type": "custom",
+        "label": "Nivel",
+        "options": [
+          { "text": "All",     "value": "",        "selected": true },
+          { "text": "error",   "value": "error",   "selected": false },
+          { "text": "warning", "value": "warning", "selected": false },
+          { "text": "info",    "value": "info",    "selected": false }
+        ],
+        "current": { "text": "All", "value": "" },
+        "includeAll": false,
+        "multi": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Volumen de logs por servicio",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 6 },
+      "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 1, "fillOpacity": 20 } }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+          "expr": "sum(rate({job=\"docker\", service=~\"$service\"}[2m])) by (service)",
+          "legendFormat": "{{service}}",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Errores y Warnings",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 6, "w": 24, "h": 6 },
+      "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "error" },   "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "warning" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+          "expr": "sum(rate({job=\"docker\", service=~\"$service\", level=\"error\"}[2m])) by (service)",
+          "legendFormat": "error — {{service}}",
+          "queryType": "range",
+          "refId": "A"
+        },
+        {
+          "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+          "expr": "sum(rate({job=\"docker\", service=~\"$service\", level=\"warning\"}[2m])) by (service)",
+          "legendFormat": "warning — {{service}}",
+          "queryType": "range",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Logs — API",
+      "type": "logs",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 10 },
+      "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+      "options": {
+        "dedupStrategy": "none",
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+          "expr": "{job=\"docker\", service=\"api\"}",
+          "queryType": "range",
+          "maxLines": 200,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Logs — Worker",
+      "type": "logs",
+      "gridPos": { "x": 0, "y": 22, "w": 12, "h": 10 },
+      "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+      "options": {
+        "dedupStrategy": "none",
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+          "expr": "{job=\"docker\", service=\"worker\"}",
+          "queryType": "range",
+          "maxLines": 200,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Logs — Todos los servicios",
+      "type": "logs",
+      "gridPos": { "x": 12, "y": 22, "w": 12, "h": 10 },
+      "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+      "options": {
+        "dedupStrategy": "none",
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+          "expr": "{job=\"docker\", service=~\"$service\"}",
+          "queryType": "range",
+          "maxLines": 200,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Logs — Errores solamente",
+      "type": "logs",
+      "gridPos": { "x": 0, "y": 32, "w": 24, "h": 10 },
+      "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+      "options": {
+        "dedupStrategy": "none",
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "P8E80F9AEF21F6940", "type": "loki" },
+          "expr": "{job=\"docker\", service=~\"$service\", level=\"error\"}",
+          "queryType": "range",
+          "maxLines": 200,
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

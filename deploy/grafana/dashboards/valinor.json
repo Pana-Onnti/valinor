@@ -1,0 +1,207 @@
+{
+  "title": "Valinor SaaS",
+  "uid": "valinor-main",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["valinor"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Jobs Completados",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "green" },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "valinor_jobs_total{status=\"completed\"}",
+          "legendFormat": "Completados"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Jobs Fallidos",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "red" },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "valinor_jobs_total{status=\"failed\"}",
+          "legendFormat": "Fallidos"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Jobs Activos",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "valinor_active_jobs",
+          "legendFormat": "En ejecución"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Clientes",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "purple" },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "valinor_clients_total",
+          "legendFormat": "Clientes"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Costo Estimado (USD)",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "orange" },
+          "unit": "currencyUSD",
+          "decimals": 2
+        }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "valinor_analysis_cost_usd_total",
+          "legendFormat": "Costo total"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "HTTP Request Rate",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(valinor_http_requests_total[1m])) by (method, path)",
+          "legendFormat": "{{method}} {{path}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "HTTP Error Rate (4xx + 5xx)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2 },
+          "color": { "mode": "fixed", "fixedColor": "red" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(valinor_http_requests_total{status_code=~\"[45]..\"}[1m]))",
+          "legendFormat": "Errores"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Latencia HTTP (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "lineWidth": 2 } }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.50, sum(rate(valinor_http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, sum(rate(valinor_http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, sum(rate(valinor_http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Jobs por Status (tasa)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2 } }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "rate(valinor_jobs_total[5m])",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Data Quality — Checks (tasa)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2 } }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(valinor_dq_checks_total[5m])) by (check_name, result)",
+          "legendFormat": "{{check_name}} — {{result}}"
+        }
+      ]
+    }
+  ]
+}
