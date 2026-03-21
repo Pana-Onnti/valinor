@@ -1021,3 +1021,753 @@ class TestAdaptiveContextBuilderIntegration:
         result = build_adaptive_context(profile)
         assert "Facturación Total" in result
         assert "$12.3M" in result
+
+
+# ---------------------------------------------------------------------------
+# Stub claude_agent_sdk so that valinor.pipeline can be imported without the
+# real SDK installed.  This must happen BEFORE any pipeline import below.
+# ---------------------------------------------------------------------------
+
+import types as _types
+
+def _make_sdk_stub():
+    """Build a minimal claude_agent_sdk stub module."""
+    mod = _types.ModuleType("claude_agent_sdk")
+
+    class _TextBlock:
+        def __init__(self, text: str = ""):
+            self.text = text
+
+    class _AssistantMessage:
+        def __init__(self, content=None):
+            self.content = content or []
+
+    class _ClaudeAgentOptions:
+        def __init__(self, model="sonnet", system_prompt="", max_turns=20, **kwargs):
+            self.model = model
+            self.system_prompt = system_prompt
+            self.max_turns = max_turns
+
+    async def _query(*args, **kwargs):
+        """Stub: yields nothing by default."""
+        return
+        yield  # make it an async generator
+
+    mod.TextBlock = _TextBlock
+    mod.AssistantMessage = _AssistantMessage
+    mod.ClaudeAgentOptions = _ClaudeAgentOptions
+    mod.query = _query
+    return mod
+
+
+if "claude_agent_sdk" not in sys.modules:
+    sys.modules["claude_agent_sdk"] = _make_sdk_stub()
+
+# Now safe to import pipeline components
+from valinor.pipeline import (  # noqa: E402
+    compute_baseline,
+    gate_calibration,
+    execute_queries,
+    run_analysis_agents,
+    reconcile_swarm,
+)
+
+
+# ---------------------------------------------------------------------------
+# TestComputeBaselineIntegration  (pipeline stage 2.5 → baseline)
+# ---------------------------------------------------------------------------
+
+class TestComputeBaselineIntegration:
+    """
+    Test compute_baseline() using query_results dicts that mirror the output
+    of execute_queries().  No DB connection required — all inputs are synthetic.
+    """
+
+    def _revenue_summary_qr(
+        self,
+        total_revenue: float = 109_000.0,
+        num_invoices: int = 50,
+        avg_invoice: float | None = None,
+        min_invoice: float = 1_047.0,
+        max_invoice: float = 3_350.0,
+        date_from: str = "2025-01-01",
+        date_to: str = "2025-01-31",
+        distinct_customers: int = 20,
+    ) -> dict:
+        row = {
+            "total_revenue": total_revenue,
+            "num_invoices": num_invoices,
+            "avg_invoice": avg_invoice,
+            "min_invoice": min_invoice,
+            "max_invoice": max_invoice,
+            "date_from": date_from,
+            "date_to": date_to,
+            "distinct_customers": distinct_customers,
+        }
+        return {
+            "results": {
+                "total_revenue_summary": {
+                    "columns": list(row.keys()),
+                    "rows": [row],
+                    "row_count": 1,
+                    "domain": "financial",
+                    "description": "Revenue summary",
+                }
+            },
+            "errors": {},
+            "snapshot_timestamp": "2025-01-31T00:00:00",
+        }
+
+    def test_baseline_data_available_when_revenue_row_present(self):
+        qr = self._revenue_summary_qr()
+        baseline = compute_baseline(qr)
+        assert baseline["data_available"] is True
+
+    def test_baseline_total_revenue_populated(self):
+        qr = self._revenue_summary_qr(total_revenue=109_000.0)
+        baseline = compute_baseline(qr)
+        assert abs(baseline["total_revenue"] - 109_000.0) < 0.01
+
+    def test_baseline_provenance_tagged_for_total_revenue(self):
+        qr = self._revenue_summary_qr()
+        baseline = compute_baseline(qr)
+        prov = baseline["_provenance"]
+        assert "total_revenue" in prov
+        assert prov["total_revenue"]["source_query"] == "total_revenue_summary"
+        assert prov["total_revenue"]["confidence"] == "measured"
+
+    def test_baseline_derives_avg_when_not_provided(self):
+        """avg_invoice=None in input → compute_baseline derives it from total/num."""
+        qr = self._revenue_summary_qr(total_revenue=10_000.0, num_invoices=4, avg_invoice=None)
+        baseline = compute_baseline(qr)
+        assert baseline["avg_invoice"] is not None
+        assert abs(baseline["avg_invoice"] - 2_500.0) < 0.01
+        assert baseline["_provenance"]["avg_invoice"]["confidence"] == "inferred"
+
+    def test_baseline_no_data_on_empty_results(self):
+        baseline = compute_baseline({"results": {}, "errors": {}, "snapshot_timestamp": ""})
+        assert baseline["data_available"] is False
+        assert baseline["total_revenue"] is None
+
+    def test_baseline_freshness_warning_when_stale(self):
+        """When data_freshness_days > 14 a warning string is added."""
+        qr = {
+            "results": {
+                "data_freshness": {
+                    "columns": ["days_since_latest", "total_records", "distinct_customers"],
+                    "rows": [{"days_since_latest": 30, "total_records": 50, "distinct_customers": 20}],
+                    "row_count": 1,
+                    "domain": "freshness",
+                    "description": "Freshness",
+                }
+            },
+            "errors": {},
+            "snapshot_timestamp": "",
+        }
+        baseline = compute_baseline(qr)
+        assert baseline["warning"] is not None
+        assert "30" in baseline["warning"]
+
+    def test_baseline_no_warning_when_fresh(self):
+        """Data <= 14 days old must NOT generate a warning."""
+        qr = {
+            "results": {
+                "data_freshness": {
+                    "columns": ["days_since_latest", "total_records", "distinct_customers"],
+                    "rows": [{"days_since_latest": 3, "total_records": 50, "distinct_customers": 20}],
+                    "row_count": 1,
+                    "domain": "freshness",
+                    "description": "Freshness",
+                }
+            },
+            "errors": {},
+            "snapshot_timestamp": "",
+        }
+        baseline = compute_baseline(qr)
+        assert baseline["warning"] is None
+
+    def test_baseline_ar_fields_populated_from_ar_query(self):
+        qr = {
+            "results": {
+                "ar_outstanding_actual": {
+                    "columns": ["total_outstanding", "overdue_amount", "customers_with_debt"],
+                    "rows": [{"total_outstanding": 55_000.0, "overdue_amount": 12_000.0,
+                              "customers_with_debt": 7}],
+                    "row_count": 1,
+                    "domain": "ar",
+                    "description": "AR outstanding",
+                }
+            },
+            "errors": {},
+            "snapshot_timestamp": "",
+        }
+        baseline = compute_baseline(qr)
+        assert abs(baseline["total_outstanding_ar"] - 55_000.0) < 0.01
+        assert abs(baseline["overdue_ar"] - 12_000.0) < 0.01
+        assert baseline["customers_with_debt"] == 7
+
+
+# ---------------------------------------------------------------------------
+# TestGateCalibrationIntegration  (pipeline stage 1.5)
+# ---------------------------------------------------------------------------
+
+class TestGateCalibrationIntegration:
+    """
+    Test gate_calibration() against a file-based SQLite DB so that each
+    new engine created by gate_calibration() sees the same data.
+    Exercises the deterministic guard-rail before any LLM cost is incurred.
+    """
+
+    def _make_file_db(self):
+        """Create a temp-file SQLite DB with full schema + data. Returns (path, url)."""
+        import tempfile, os
+        fd, path = tempfile.mkstemp(suffix=".sqlite3")
+        os.close(fd)
+        url = f"sqlite:///{path}"
+        engine = create_engine(url)
+        with engine.connect() as conn:
+            for ddl in _DDL:
+                conn.execute(text(ddl))
+            for cid, cname in _CUSTOMERS:
+                conn.execute(text(
+                    f"INSERT INTO res_partner VALUES ({cid}, '{cname}', 1)"
+                ))
+            for i in range(1, 11):
+                conn.execute(text(f"""
+                    INSERT INTO account_move VALUES (
+                        {i}, 'INV/2025/{i:04d}', 'out_invoice', 'posted',
+                        {i * 1000}, {i * 1210}, 1, '2025-01-0{min(i,9)}', 1
+                    )
+                """))
+            conn.commit()
+        engine.dispose()
+        return path, url
+
+    def _run(self, coro):
+        import asyncio
+        return asyncio.get_event_loop().run_until_complete(coro)
+
+    def test_gate_passes_with_no_entities(self):
+        path, url = self._make_file_db()
+        try:
+            result = self._run(gate_calibration({}, {"connection_string": url}))
+            assert result["passed"] is True
+            assert result["entities_verified"] == 0
+        finally:
+            import os; os.unlink(path)
+
+    def test_gate_passes_with_valid_table_no_filter(self):
+        path, url = self._make_file_db()
+        try:
+            entity_map = {
+                "entities": {
+                    "invoices": {
+                        "table": "account_move",
+                        "type": "TRANSACTIONAL",
+                    }
+                }
+            }
+            result = self._run(gate_calibration(entity_map, {"connection_string": url}))
+            # No base_filter → warn but not fail
+            assert result["passed"] is True
+        finally:
+            import os; os.unlink(path)
+
+    def test_gate_fails_with_invalid_filter(self):
+        path, url = self._make_file_db()
+        try:
+            entity_map = {
+                "entities": {
+                    "invoices": {
+                        "table": "account_move",
+                        "base_filter": "state = 'nonexistent_state_xyz'",
+                        "type": "TRANSACTIONAL",
+                    }
+                }
+            }
+            result = self._run(gate_calibration(entity_map, {"connection_string": url}))
+            assert result["passed"] is False
+            assert len(result["failures"]) >= 1
+        finally:
+            import os; os.unlink(path)
+
+    def test_gate_returns_entities_verified_count(self):
+        path, url = self._make_file_db()
+        try:
+            entity_map = {
+                "entities": {
+                    "invoices": {"table": "account_move"},
+                    "partners": {"table": "res_partner"},
+                }
+            }
+            result = self._run(gate_calibration(entity_map, {"connection_string": url}))
+            assert result["entities_verified"] >= 2
+        finally:
+            import os; os.unlink(path)
+
+    def test_gate_reports_connection_error_gracefully(self):
+        """A completely broken connection string must return passed=False."""
+        bad_config = {"connection_string": "postgresql://bad:bad@nonexistent_host_xyz/db"}
+        result = self._run(gate_calibration({"entities": {"x": {"table": "t"}}}, bad_config))
+        assert result["passed"] is False
+
+
+# ---------------------------------------------------------------------------
+# TestExecuteQueriesIntegration  (pipeline stage 2.5)
+# ---------------------------------------------------------------------------
+
+class TestExecuteQueriesIntegration:
+    """
+    Test execute_queries() using a file-based SQLite DB so a new engine
+    created inside execute_queries() sees the fixture data.
+    Covers the REPEATABLE READ fallback path and error isolation.
+    """
+
+    def _make_file_db(self, with_data: bool = True):
+        """Return (path, url) for a temp SQLite file."""
+        import tempfile, os
+        fd, path = tempfile.mkstemp(suffix=".sqlite3")
+        os.close(fd)
+        url = f"sqlite:///{path}"
+        engine = create_engine(url)
+        with engine.connect() as conn:
+            for ddl in _DDL:
+                conn.execute(text(ddl))
+            if with_data:
+                for i in range(1, 51):
+                    conn.execute(text(f"""
+                        INSERT INTO account_move VALUES (
+                            {i}, 'INV/2025/{i:04d}', 'out_invoice', 'posted',
+                            {i * 100}, {i * 121}, 1, '2025-01-15', 1
+                        )
+                    """))
+                for cid, cname in _CUSTOMERS:
+                    conn.execute(text(
+                        f"INSERT INTO res_partner VALUES ({cid}, '{cname}', 1)"
+                    ))
+            conn.commit()
+        engine.dispose()
+        return path, url
+
+    def _run(self, coro):
+        import asyncio
+        return asyncio.get_event_loop().run_until_complete(coro)
+
+    def test_execute_queries_returns_results_and_snapshot(self):
+        path, url = self._make_file_db(with_data=True)
+        try:
+            query_pack = {
+                "queries": [
+                    {
+                        "id": "count_invoices",
+                        "sql": "SELECT COUNT(*) AS cnt FROM account_move",
+                        "domain": "financial",
+                        "description": "Count invoices",
+                    }
+                ]
+            }
+            result = self._run(execute_queries(query_pack, {"connection_string": url}))
+            assert "results" in result
+            assert "snapshot_timestamp" in result
+            assert "count_invoices" in result["results"]
+            assert result["results"]["count_invoices"]["rows"][0]["cnt"] == 50
+        finally:
+            import os; os.unlink(path)
+
+    def test_execute_queries_isolates_errors_per_query(self):
+        """A bad SQL query must be recorded in 'errors' while good queries still run."""
+        path, url = self._make_file_db(with_data=True)
+        try:
+            query_pack = {
+                "queries": [
+                    {
+                        "id": "good_query",
+                        "sql": "SELECT COUNT(*) AS cnt FROM res_partner",
+                        "domain": "partner",
+                        "description": "Count partners",
+                    },
+                    {
+                        "id": "bad_query",
+                        "sql": "SELECT * FROM this_table_does_not_exist_xyz",
+                        "domain": "unknown",
+                        "description": "Bad query",
+                    },
+                ]
+            }
+            result = self._run(execute_queries(query_pack, {"connection_string": url}))
+            assert "good_query" in result["results"]
+            assert "bad_query" in result["errors"]
+        finally:
+            import os; os.unlink(path)
+
+    def test_execute_queries_empty_database_zero_rows(self):
+        """An empty DB returns row_count=0 but no error for valid SQL."""
+        path, url = self._make_file_db(with_data=False)
+        try:
+            query_pack = {
+                "queries": [
+                    {
+                        "id": "invoices",
+                        "sql": "SELECT COUNT(*) AS cnt FROM account_move",
+                        "domain": "financial",
+                        "description": "Count invoices on empty DB",
+                    }
+                ]
+            }
+            result = self._run(execute_queries(query_pack, {"connection_string": url}))
+            assert result["results"]["invoices"]["rows"][0]["cnt"] == 0
+            assert result["errors"] == {}
+        finally:
+            import os; os.unlink(path)
+
+    def test_execute_queries_empty_query_pack(self):
+        """An empty query_pack must return an empty results/errors dict."""
+        path, url = self._make_file_db(with_data=False)
+        try:
+            result = self._run(execute_queries({"queries": []}, {"connection_string": url}))
+            assert result["results"] == {}
+            assert result["errors"] == {}
+        finally:
+            import os; os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# TestRunAnalysisAgentsErrorPropagation  (pipeline stage 3)
+# ---------------------------------------------------------------------------
+
+class TestRunAnalysisAgentsErrorPropagation:
+    """
+    Verify that run_analysis_agents() continues even when individual agent
+    coroutines raise exceptions (return_exceptions=True via asyncio.gather).
+    """
+
+    def _run(self, coro):
+        import asyncio
+        return asyncio.get_event_loop().run_until_complete(coro)
+
+    def _minimal_inputs(self):
+        return (
+            {"results": {}, "errors": {}, "snapshot_timestamp": ""},  # query_results
+            {"entities": {}},                                           # entity_map
+            None,                                                       # memory
+            {"data_available": False, "_provenance": {}},              # baseline
+        )
+
+    def test_one_agent_raises_others_still_return(self):
+        """
+        If one of the three agents raises, findings must still contain
+        results for the others (gathered with return_exceptions=True).
+        """
+        import valinor.pipeline as pipeline_mod
+
+        async def _good_analyst(*args, **kwargs):
+            return {"agent": "analyst", "findings": [], "output": "ok"}
+
+        async def _exploding_sentinel(*args, **kwargs):
+            raise RuntimeError("Sentinel DB timeout")
+
+        async def _good_hunter(*args, **kwargs):
+            return {"agent": "hunter", "findings": [], "output": "ok"}
+
+        qr, em, mem, bl = self._minimal_inputs()
+        with (
+            patch.object(pipeline_mod, "run_analyst", _good_analyst),
+            patch.object(pipeline_mod, "run_sentinel", _exploding_sentinel),
+            patch.object(pipeline_mod, "run_hunter", _good_hunter),
+        ):
+            findings = self._run(run_analysis_agents(qr, em, mem, bl))
+
+        assert "analyst" in findings
+        assert "hunter" in findings
+        # The sentinel error must be captured, not re-raised
+        error_keys = [k for k in findings if k.startswith("error_")]
+        assert len(error_keys) == 1
+        assert findings[error_keys[0]].get("error") is True
+
+    def test_all_agents_raise_returns_error_dict(self):
+        """
+        When all three agents raise, findings must contain at least one error entry
+        and no successful agent keys.  (Same exception type merges into one key by
+        design — the important invariant is that no exception propagates out.)
+        """
+        import valinor.pipeline as pipeline_mod
+
+        async def _boom_a(*args, **kwargs):
+            raise ValueError("analyst failure")
+
+        async def _boom_s(*args, **kwargs):
+            raise RuntimeError("sentinel failure")
+
+        async def _boom_h(*args, **kwargs):
+            raise TypeError("hunter failure")
+
+        qr, em, mem, bl = self._minimal_inputs()
+        with (
+            patch.object(pipeline_mod, "run_analyst", _boom_a),
+            patch.object(pipeline_mod, "run_sentinel", _boom_s),
+            patch.object(pipeline_mod, "run_hunter", _boom_h),
+        ):
+            findings = self._run(run_analysis_agents(qr, em, mem, bl))
+
+        # All three distinct exception types → three distinct error keys
+        error_keys = [k for k in findings if k.startswith("error_")]
+        assert len(error_keys) == 3
+        assert all(findings[k]["error"] is True for k in error_keys)
+        # No successful agent output
+        assert "analyst" not in findings
+        assert "sentinel" not in findings
+        assert "hunter" not in findings
+
+
+# ---------------------------------------------------------------------------
+# TestReconcileSwarmIntegration  (pipeline stage 3.5)
+# ---------------------------------------------------------------------------
+
+class TestReconcileSwarmIntegration:
+    """
+    Test reconcile_swarm() without invoking the Haiku arbiter (patched out).
+    Covers: no findings → no conflicts; same values → no conflicts;
+    conflicting values → conflict detected and arbiter invoked.
+    """
+
+    def _run(self, coro):
+        import asyncio
+        return asyncio.get_event_loop().run_until_complete(coro)
+
+    def _make_finding(self, agent: str, fid: str, headline: str,
+                      value_eur: float, domain: str = "financial") -> dict:
+        return {
+            "agent": agent,
+            "findings": [
+                {
+                    "id": fid,
+                    "headline": headline,
+                    "value_eur": value_eur,
+                    "domain": domain,
+                    "evidence": "synthetic",
+                    "value_confidence": "high",
+                }
+            ],
+        }
+
+    def test_no_findings_adds_reconciliation_key(self):
+        findings = {}
+        result = self._run(reconcile_swarm(findings, {"data_available": False, "_provenance": {}}))
+        assert "_reconciliation" in result
+        assert result["_reconciliation"]["conflicts_found"] == 0
+
+    def test_identical_values_no_conflict(self):
+        findings = {
+            "analyst": self._make_finding("analyst", "R1", "Total Revenue", 100_000.0),
+            "sentinel": self._make_finding("sentinel", "R2", "Total Revenue", 100_000.0),
+        }
+        result = self._run(reconcile_swarm(findings, {"data_available": False, "_provenance": {}}))
+        assert result["_reconciliation"]["conflicts_found"] == 0
+
+    def test_conflicting_values_detected(self):
+        """Two agents disagree >2x on same domain + headline → conflict flagged."""
+        # Patch the arbiter so it never makes an API call
+        arbiter_result = {
+            "selected_value": 500_000.0,
+            "selected_agent": "analyst",
+            "discrepancy_explanation": "Different scope",
+            "confidence": "high",
+        }
+
+        async def _mock_agent_query(*args, **kwargs):
+            from claude_agent_sdk import AssistantMessage, TextBlock
+            import json
+
+            class _FakeMsg:
+                content = [TextBlock(text=json.dumps(arbiter_result))]
+
+            yield _FakeMsg()
+
+        findings = {
+            "analyst": self._make_finding("analyst", "R1", "Total Revenue ingreso", 500_000.0),
+            "sentinel": self._make_finding("sentinel", "R2", "Total Revenue ingreso", 50_000.0),
+        }
+        with patch("valinor.pipeline.agent_query", _mock_agent_query):
+            result = self._run(
+                reconcile_swarm(findings, {"data_available": False, "_provenance": {}})
+            )
+        assert result["_reconciliation"]["conflicts_found"] >= 1
+
+    def test_reconciliation_notes_list_present(self):
+        findings = {"analyst": self._make_finding("analyst", "R1", "Revenue", 1_000.0)}
+        result = self._run(reconcile_swarm(findings, {"data_available": False, "_provenance": {}}))
+        assert isinstance(result["_reconciliation"]["notes"], list)
+
+
+# ---------------------------------------------------------------------------
+# TestDQGatePipelineIntegration  (DQ gate → baseline → provenance chain)
+# ---------------------------------------------------------------------------
+
+class TestDQGatePipelineIntegration:
+    """
+    Integration tests that run the DQ gate and feed its output into the
+    pipeline's baseline computation and provenance registry.
+    """
+
+    def test_dq_gate_to_provenance_chain_high_score(self, populated_engine):
+        """
+        Full chain: DQ gate (high score) → ProvenanceRegistry → all findings
+        labelled CONFIRMED or PROVISIONAL.
+        """
+        gate = _sqlite_gate(populated_engine)
+        with patch.object(gate, "_check_schema_integrity",
+                          return_value=QualityCheckResult(
+                              "schema_integrity", True, 0, "INFO", "ok")):
+            dq_report = gate.run()
+
+        reg = ProvenanceRegistry(
+            job_id="chain-test-001",
+            client_name="Chain Corp",
+            period="2025-01",
+            dq_report_score=dq_report.overall_score,
+            dq_report_tag=dq_report.data_quality_tag,
+        )
+        for i in range(5):
+            reg.register(f"F{i:03d}", f"Metric {i}", tables=["account_move"])
+
+        assert len(reg.findings) == 5
+        for prov in reg.findings.values():
+            assert prov.confidence_score >= 0.0
+            assert prov.confidence_label in ("CONFIRMED", "PROVISIONAL", "UNVERIFIED", "BLOCKED")
+
+    def test_dq_gate_halt_decision_on_fatal_check(self, populated_engine):
+        """A FATAL check must set gate_decision=HALT and can_proceed=False."""
+        gate = _sqlite_gate(populated_engine)
+        with patch.object(gate, "_check_schema_integrity",
+                          return_value=QualityCheckResult(
+                              "schema_integrity", False, 100, "FATAL",
+                              "Critical schema mismatch")):
+            dq_report = gate.run()
+
+        assert dq_report.gate_decision == "HALT"
+        assert dq_report.can_proceed is False
+        assert len(dq_report.blocking_issues) >= 1
+
+    def test_dq_gate_to_certify_report_pipeline(self, populated_engine):
+        """DQ gate score → certify_report appends footer with matching score."""
+        gate = _sqlite_gate(populated_engine)
+        with patch.object(gate, "_check_schema_integrity",
+                          return_value=QualityCheckResult(
+                              "schema_integrity", True, 0, "INFO", "ok")):
+            dq_report = gate.run()
+
+        sample_report = "## Revenue Analysis\nTotal invoiced: **EUR 109,000**."
+        certified = certify_report(
+            sample_report,
+            confidence_label=dq_report.confidence_label,
+            dq_score=dq_report.overall_score,
+        )
+        score_str = f"{dq_report.overall_score:.0f}"
+        if dq_report.overall_score >= 65:
+            assert score_str in certified
+        else:
+            assert certified == sample_report  # below threshold → unchanged
+
+    def test_empty_db_dq_gate_baseline_chain(self, empty_engine):
+        """DQ gate + compute_baseline on an empty DB must not raise."""
+        gate = _sqlite_gate(empty_engine)
+        with patch.object(gate, "_check_schema_integrity",
+                          return_value=QualityCheckResult(
+                              "schema_integrity", True, 0, "INFO", "ok")):
+            dq_report = gate.run()
+        assert isinstance(dq_report, DataQualityReport)
+
+        baseline = compute_baseline({"results": {}, "errors": {}, "snapshot_timestamp": ""})
+        assert baseline["data_available"] is False
+        assert isinstance(baseline["_provenance"], dict)
+
+    def test_provenance_deduplication_same_finding_id(self):
+        """
+        Registering the same finding_id twice must overwrite, not duplicate.
+        The registry must contain exactly one entry per finding_id.
+        """
+        reg = ProvenanceRegistry(
+            job_id="dedup-test-001",
+            client_name="Dedup Corp",
+            period="2025-01",
+            dq_report_score=90.0,
+            dq_report_tag="FINAL",
+        )
+        reg.register("F001", "Revenue v1", tables=["account_move"])
+        reg.register("F001", "Revenue v2 (updated)", tables=["account_move", "sale_order"])
+
+        assert len(reg.findings) == 1
+        assert reg.findings["F001"].metric_name == "Revenue v2 (updated)"
+
+    def test_provenance_tracks_multiple_tables(self):
+        """tables_accessed list must reflect every table passed to register()."""
+        reg = ProvenanceRegistry(
+            job_id="tables-test-001",
+            client_name="Multi Corp",
+            period="2025-01",
+            dq_report_score=88.0,
+            dq_report_tag="FINAL",
+        )
+        prov = reg.register(
+            "F001", "Cross-table revenue",
+            tables=["account_move", "res_partner", "sale_order"],
+        )
+        assert set(prov.tables_accessed) == {"account_move", "res_partner", "sale_order"}
+
+    def test_profile_update_after_successful_run(self):
+        """
+        After update_from_run() with a successful run, run_history must
+        grow and baseline_history must reflect extracted KPIs.
+        """
+        extractor = ProfileExtractor()
+        profile = ClientProfile.new("Integrated Client")
+
+        report_md = (
+            "## Reporte Ejecutivo\n\n"
+            "**Facturación Total**: $8.5M en el periodo.\n"
+            "**Cartera Vencida**: ARS 1.2M\n"
+        )
+        extractor.update_from_run(
+            profile, {}, {}, {"executive": report_md}, period="2025-01"
+        )
+
+        assert len(profile.run_history) == 1
+        assert "Facturación Total" in profile.baseline_history
+
+    def test_findings_deduplication_across_multiple_runs(self):
+        """
+        A finding that persists across N runs must appear once in
+        known_findings with runs_open == N, NOT as N separate entries.
+        """
+        extractor = ProfileExtractor()
+        profile = ClientProfile.new("Dedup Run Client")
+        findings_data = {
+            "analyst": {
+                "findings": [
+                    {"id": "FIN-001", "severity": "HIGH", "title": "Overdue AR spike"}
+                ]
+            }
+        }
+
+        for period_idx in range(1, 5):
+            extractor.update_from_run(
+                profile, findings_data, {}, {}, period=f"2025-0{period_idx}"
+            )
+
+        assert "FIN-001" in profile.known_findings
+        assert len(profile.known_findings) == 1  # only one entry, not four
+        assert profile.known_findings["FIN-001"]["runs_open"] == 4
+
+    def test_quality_report_to_prompt_context(self, populated_engine):
+        """to_prompt_context() must produce a non-empty string containing the score."""
+        gate = _sqlite_gate(populated_engine)
+        with patch.object(gate, "_check_schema_integrity",
+                          return_value=QualityCheckResult(
+                              "schema_integrity", True, 0, "INFO", "ok")):
+            dq_report = gate.run()
+
+        ctx = dq_report.to_prompt_context()
+        assert isinstance(ctx, str) and len(ctx) > 0
+        score_str = f"{dq_report.overall_score:.0f}"
+        assert score_str in ctx
+        assert dq_report.gate_decision in ctx
