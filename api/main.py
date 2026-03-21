@@ -34,7 +34,10 @@ from adapters.valinor_adapter import ValinorAdapter, PipelineExecutor
 from shared.storage import MetadataStorage
 from api.routes.quality import router as quality_router
 from api.routes.onboarding import router as onboarding_router
+from api.logging_config import setup_logging
+from api.metrics import PrometheusMiddleware, metrics_response
 
+setup_logging()
 logger = structlog.get_logger()
 
 # ═══ IN-MEMORY LRU CACHE FOR COMPLETED JOB RESULTS ═══
@@ -151,16 +154,19 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
-# Request ID tracing middleware
+# Request ID tracing middleware — binds request_id into structlog context per request
 class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         request_id = request.headers.get("X-Request-ID", str(_uuid.uuid4())[:8])
         request.state.request_id = request_id
+        structlog.contextvars.clear_contextvars()
+        structlog.contextvars.bind_contextvars(request_id=request_id)
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
 
 app.add_middleware(RequestIDMiddleware)
+app.add_middleware(PrometheusMiddleware)
 
 # ═══ GLOBAL EXCEPTION HANDLERS ═══
 
@@ -374,8 +380,8 @@ async def get_version():
 @app.post("/api/analyze", response_model=Dict[str, str], summary="Start analysis", tags=["Analysis"])
 @limiter.limit("10/minute")
 async def start_analysis(
-    http_request: Request,
-    request: AnalysisRequest,
+    request: Request,
+    body: AnalysisRequest,
     background_tasks: BackgroundTasks,
     redis_client: redis.Redis = Depends(get_redis)
 ):
@@ -385,20 +391,20 @@ async def start_analysis(
     Returns immediately with job ID. Use /api/jobs/{job_id}/status to track progress.
     """
     # Input validation
-    if request.client_name:
+    if body.client_name:
         try:
-            _validate_client_name(request.client_name)
+            _validate_client_name(body.client_name)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    if request.period:
+    if body.period:
         try:
-            _validate_period(request.period)
+            _validate_period(body.period)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    if request.db_config.port < 1 or request.db_config.port > 65535:
+    if body.db_config.port < 1 or body.db_config.port > 65535:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="db_config.port must be between 1 and 65535")
-    if request.ssh_config:
-        ssh_host = request.ssh_config.host
+    if body.ssh_config:
+        ssh_host = body.ssh_config.host
         if not ssh_host or not _re.match(r'^[a-zA-Z0-9\.\-\_]+$', ssh_host):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="ssh_config.host contains invalid characters")
 
@@ -407,14 +413,14 @@ async def start_analysis(
     logger.info(
         "Starting analysis",
         job_id=job_id,
-        client=request.client_name,
-        period=request.period
+        client=body.client_name,
+        period=body.period
     )
 
     try:
         # Store job request in Redis
-        client_name = request.client_name or request.db_config.get_db_name() or "unknown"
-        period = request.period or "unspecified"
+        client_name = body.client_name or body.db_config.get_db_name() or "unknown"
+        period = body.period or "unspecified"
 
         # Per-client monthly analysis limit: max 25 analyses per client per month
         current_month = datetime.utcnow().strftime("%Y-%m")
@@ -435,9 +441,15 @@ async def start_analysis(
             )
 
         # Per-client concurrent job limit: max 2 running jobs per client_name
+        # Note: scan pattern excludes sub-keys like job:UUID:results (which are strings, not hashes)
         running_count = 0
         async for key in redis_client.scan_iter("job:*"):
-            job_status_val = await redis_client.hget(key, "status")
+            if b":" in key[4:] if isinstance(key, bytes) else ":" in key[4:]:
+                continue  # skip job:UUID:sub-key entries
+            try:
+                job_status_val = await redis_client.hget(key, "status")
+            except Exception:
+                continue
             if job_status_val == "running":
                 job_client = await redis_client.hget(key, "client_name")
                 if job_client == client_name:
@@ -454,7 +466,7 @@ async def start_analysis(
                 }
             )
         # Build a sanitized copy of the request for retry support (no passwords)
-        request_dict = request.model_dump()
+        request_dict = body.model_dump()
         safe_request = json.loads(json.dumps(request_dict, default=str))
         for sensitive_key in ("password", "ssh_password", "private_key", "ssh_private_key"):
             if "db_config" in safe_request and isinstance(safe_request["db_config"], dict):
@@ -468,7 +480,7 @@ async def start_analysis(
             "client_name": client_name,
             "period": period,
             "created_at": datetime.utcnow().isoformat(),
-            "request": json.dumps(request.model_dump()),
+            "request": json.dumps(body.model_dump()),
             "request_data": json.dumps(safe_request),
         }
 
@@ -491,19 +503,19 @@ async def start_analysis(
             try:
                 from worker.tasks import run_analysis_task as _celery_run_analysis_task
 
-                _req_dict = request.model_dump()
+                _req_dict = body.model_dump()
                 _connection_config = {
                     "ssh_config": _req_dict.get("ssh_config"),
                     "db_config": _req_dict.get("db_config"),
                 }
                 _analysis_config = {
-                    "sector": request.sector,
-                    "country": request.country or "US",
-                    "currency": request.currency or "USD",
-                    "language": request.language or "en",
-                    "erp": request.erp,
-                    "fiscal_context": request.fiscal_context or "generic",
-                    "overrides": request.overrides or {},
+                    "sector": body.sector,
+                    "country": body.country or "US",
+                    "currency": body.currency or "USD",
+                    "language": body.language or "en",
+                    "erp": body.erp,
+                    "fiscal_context": body.fiscal_context or "generic",
+                    "overrides": body.overrides or {},
                 }
                 _celery_run_analysis_task.apply_async(
                     kwargs={
@@ -522,12 +534,12 @@ async def start_analysis(
                     job_id=job_id,
                     error=str(_celery_err),
                 )
-                background_tasks.add_task(run_analysis_task, job_id, request.model_dump())
+                background_tasks.add_task(run_analysis_task, job_id, body.model_dump())
         else:
             background_tasks.add_task(
                 run_analysis_task,
                 job_id,
-                request.model_dump(),
+                body.model_dump(),
             )
 
         return {
@@ -2328,61 +2340,10 @@ async def system_metrics():
     }
 
 
-@app.get("/metrics", tags=["System"])
+@app.get("/metrics", tags=["System"], include_in_schema=False)
 async def prometheus_metrics():
-    """
-    Prometheus-compatible metrics endpoint (text/plain exposition format).
-    Reads job counts from Redis and client count from ProfileStore.
-    """
-    from fastapi.responses import Response
-
-    redis_client = await get_redis()
-
-    # Count jobs by status
-    status_counts = {"completed": 0, "failed": 0, "running": 0, "pending": 0, "cancelled": 0}
-
-    async for key in redis_client.scan_iter("job:*"):
-        key_str = key if isinstance(key, str) else key.decode()
-        if ":results" in key_str:
-            continue
-        job_data = await redis_client.hgetall(key_str)
-        job_status = job_data.get("status", "unknown")
-        if job_status in status_counts:
-            status_counts[job_status] += 1
-
-    # Estimate cost from completed jobs (~$8 per analysis average)
-    estimated_cost_usd = round(status_counts["completed"] * 8.0, 2)
-
-    # Count clients
-    from shared.memory.profile_store import get_profile_store
-    store = get_profile_store()
-    client_count = 0
-    pool = await store._get_pool()
-    if pool:
-        try:
-            async with pool.acquire() as conn:
-                client_count = await conn.fetchval("SELECT COUNT(*) FROM client_profiles")
-        except Exception:
-            pass
-
-    lines = [
-        "# HELP valinor_jobs_total Total jobs by status",
-        "# TYPE valinor_jobs_total counter",
-    ]
-    for s, count in status_counts.items():
-        lines.append(f'valinor_jobs_total{{status="{s}"}} {count}')
-
-    lines += [
-        "# HELP valinor_analysis_cost_usd_total Estimated total analysis cost",
-        "# TYPE valinor_analysis_cost_usd_total counter",
-        f"valinor_analysis_cost_usd_total {estimated_cost_usd}",
-        "# HELP valinor_clients_total Total client profiles",
-        "# TYPE valinor_clients_total gauge",
-        f"valinor_clients_total {client_count}",
-        "",
-    ]
-
-    return Response(content="\n".join(lines), media_type="text/plain")
+    """Prometheus text exposition — scraped by Prometheus every 15s."""
+    return metrics_response()
 
 
 @app.post("/api/clients/{client_name}/webhooks")
