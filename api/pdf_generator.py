@@ -16,6 +16,7 @@ from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, HRFlowable,
     Table, TableStyle, KeepTogether
 )
+from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.pdfgen import canvas
 

@@ -232,14 +232,14 @@ def build_digest_html(
         <!-- DQ row -->
         {dq_row_section}
 
+        <!-- Triggered alerts -->
+        {alerts_section}
+
         <!-- Findings -->
         {findings_section}
 
         <!-- KPIs -->
         {kpis_section}
-
-        <!-- Triggered alerts -->
-        {alerts_section}
 
         <!-- CTA -->
         <tr>
@@ -272,12 +272,58 @@ def build_digest_html(
 
 
 def build_alerts_section(alerts: List[Dict]) -> str:
+    """Build the '⚠️ Alertas Disparadas' section as a colored severity table."""
     if not alerts:
         return ""
-    items = ""
-    for a in alerts[:3]:
-        items += f'<li style="font-size:12px;color:#DC2626;margin-bottom:4px;">⚠️ {a.get("threshold_label", "Alerta")}: {a.get("current_value", "")} ({a.get("operator", ">")} {a.get("threshold_value", "")})</li>'
-    return f'<tr><td style="padding:0 32px;"><div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px;"><div style="font-size:11px;font-weight:700;color:#DC2626;margin-bottom:6px;">ALERTAS ACTIVADAS</div><ul style="margin:0;padding-left:16px;">{items}</ul></div></td></tr>'
+
+    _severity_styles = {
+        "CRITICAL": ("#FEF2F2", "#DC2626"),
+        "HIGH":     ("#FFF7ED", "#EA580C"),
+        "MEDIUM":   ("#FFFBEB", "#D97706"),
+    }
+    _default_style = ("#F9FAFB", "#6B7280")
+
+    header = (
+        '<tr style="background:#F3F4F6;">'
+        '<th style="padding:6px 10px;font-size:10px;color:#6B7280;font-weight:700;text-align:left;text-transform:uppercase;">Alerta</th>'
+        '<th style="padding:6px 10px;font-size:10px;color:#6B7280;font-weight:700;text-align:left;text-transform:uppercase;">Métrica</th>'
+        '<th style="padding:6px 10px;font-size:10px;color:#6B7280;font-weight:700;text-align:right;text-transform:uppercase;">Valor</th>'
+        '<th style="padding:6px 10px;font-size:10px;color:#6B7280;font-weight:700;text-align:right;text-transform:uppercase;">Umbral</th>'
+        '</tr>'
+    )
+
+    rows = ""
+    for a in alerts:
+        sev = a.get("severity", a.get("level", "HIGH")).upper()
+        bg, fg = _severity_styles.get(sev, _default_style)
+        name = a.get("name", a.get("threshold_label", "Alerta"))
+        metric = a.get("metric", a.get("metric_name", "—"))
+        value = a.get("computed_value", a.get("current_value", "—"))
+        threshold = a.get("threshold", a.get("threshold_value", "—"))
+        operator = a.get("operator", ">")
+        rows += (
+            f'<tr style="background:{bg};">'
+            f'<td style="padding:8px 10px;font-size:12px;font-weight:600;color:{fg};border-left:3px solid {fg};">{name}</td>'
+            f'<td style="padding:8px 10px;font-size:12px;color:#374151;">{metric}</td>'
+            f'<td style="padding:8px 10px;font-size:12px;font-weight:700;color:{fg};text-align:right;">{value}</td>'
+            f'<td style="padding:8px 10px;font-size:12px;color:#6B7280;text-align:right;">{operator} {threshold}</td>'
+            '</tr>'
+        )
+
+    table = (
+        '<table width="100%" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse;border:1px solid #FECACA;border-radius:8px;overflow:hidden;">'
+        + header + rows +
+        '</table>'
+    )
+
+    return (
+        '<tr><td style="padding:0 32px 16px;">'
+        '<div style="font-size:11px;font-weight:700;color:#DC2626;letter-spacing:0.08em;'
+        'text-transform:uppercase;margin-bottom:8px;">⚠️ ALERTAS DISPARADAS</div>'
+        + table +
+        '</td></tr>'
+    )
 
 
 async def send_digest(

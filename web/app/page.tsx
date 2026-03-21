@@ -60,6 +60,12 @@ export default function HomePage() {
                 Provider: {process.env.NEXT_PUBLIC_LLM_PROVIDER || 'Anthropic API'}
               </span>
               <Link
+                href="/docs"
+                className="text-sm text-gray-500 hover:text-violet-600 dark:text-gray-400 dark:hover:text-violet-400 transition-colors"
+              >
+                API docs
+              </Link>
+              <Link
                 href="/dashboard"
                 className="text-sm text-gray-500 hover:text-violet-600 dark:text-gray-400 dark:hover:text-violet-400 transition-colors"
               >
@@ -251,9 +257,9 @@ export default function HomePage() {
               <a href="#" className="text-gray-600 hover:text-indigo-600 dark:text-gray-400 dark:hover:text-indigo-400">
                 Documentation
               </a>
-              <a href="#" className="text-gray-600 hover:text-indigo-600 dark:text-gray-400 dark:hover:text-indigo-400">
+              <Link href="/docs" className="text-gray-600 hover:text-indigo-600 dark:text-gray-400 dark:hover:text-indigo-400">
                 API
-              </a>
+              </Link>
               <a href="#" className="text-gray-600 hover:text-indigo-600 dark:text-gray-400 dark:hover:text-indigo-400">
                 Support
               </a>
