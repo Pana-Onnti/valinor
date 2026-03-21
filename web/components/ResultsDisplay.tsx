@@ -736,3 +736,5 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
     </motion.div>
   )
 }
+
+export default ResultsDisplay
