@@ -35,6 +35,7 @@ from adapters.valinor_adapter import ValinorAdapter, PipelineExecutor
 from shared.storage import MetadataStorage
 from api.routes.quality import router as quality_router
 from api.routes.onboarding import router as onboarding_router
+from api.routers.nl_query import router as nl_query_router
 from api.logging_config import setup_logging
 from api.metrics import PrometheusMiddleware, metrics_response
 
@@ -258,6 +259,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # Register routers
 app.include_router(quality_router)
 app.include_router(onboarding_router)
+app.include_router(nl_query_router)  # VAL-32: NL→SQL conversational layer
 
 
 # ═══ SENTRY DEBUG ENDPOINT (non-production only) ═══
