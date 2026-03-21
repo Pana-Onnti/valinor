@@ -405,6 +405,16 @@ RETURN ONLY THE JSON OBJECT."""
             logger.info("ClientProfile loaded", client=client_name, run_count=profile.run_count,
                         has_cache=profile.is_entity_map_fresh())
 
+            # Initialize default alert thresholds for new clients
+            if not profile.alert_thresholds:
+                try:
+                    from shared.memory.alert_engine import create_default_thresholds
+                    profile.alert_thresholds = create_default_thresholds(profile)
+                    logger.info("Default alert thresholds initialized", client=client_name,
+                                count=len(profile.alert_thresholds))
+                except Exception as _init_err:
+                    logger.warning("Failed to init default thresholds", error=str(_init_err))
+
             # ═══ STAGE 1: CARTOGRAPHER ═══
             if profile.is_entity_map_fresh():
                 # Use cached entity_map — skip expensive LLM cartographer call
