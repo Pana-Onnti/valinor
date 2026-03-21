@@ -82,3 +82,4 @@ pyodbc==5.0.1
 oracledb==2.3.0
 scipy>=1.11.0
 statsmodels>=0.14.0
+dlt>=1.0.0
