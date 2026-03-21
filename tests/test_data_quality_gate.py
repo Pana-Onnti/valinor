@@ -858,3 +858,96 @@ class TestDataQualityReportFurtherExtended:
         """gate_decision is stored exactly as assigned."""
         r = self._r(60.0, "PROCEED_WITH_WARNINGS")
         assert r.gate_decision == "PROCEED_WITH_WARNINGS"
+
+
+# ---------------------------------------------------------------------------
+# Additional DataQualityReport tests
+# ---------------------------------------------------------------------------
+
+class TestDataQualityReportAdditional:
+    """Additional tests for DataQualityReport fields and behavior."""
+
+    def _r(self, score=100.0, decision="PROCEED"):
+        r = DataQualityReport(period_start="2025-01-01", period_end="2025-03-31")
+        r.overall_score = score
+        r.gate_decision = decision
+        return r
+
+    def test_default_data_quality_tag_is_preliminary(self):
+        """A freshly created report has data_quality_tag='PRELIMINARY'."""
+        r = DataQualityReport(period_start="2025-01-01", period_end="2025-03-31")
+        assert r.data_quality_tag == "PRELIMINARY"
+
+    def test_checks_list_initially_empty(self):
+        """checks list starts empty."""
+        r = DataQualityReport(period_start="2025-01-01", period_end="2025-03-31")
+        assert r.checks == []
+
+    def test_blocking_issues_initially_empty(self):
+        """blocking_issues starts empty."""
+        r = DataQualityReport(period_start="2025-01-01", period_end="2025-03-31")
+        assert r.blocking_issues == []
+
+    def test_warnings_initially_empty(self):
+        """warnings starts empty."""
+        r = DataQualityReport(period_start="2025-01-01", period_end="2025-03-31")
+        assert r.warnings == []
+
+    def test_can_proceed_proceed_with_warnings(self):
+        """gate_decision='PROCEED_WITH_WARNINGS' → can_proceed True."""
+        r = self._r(75.0, "PROCEED_WITH_WARNINGS")
+        assert r.can_proceed is True
+
+    def test_halt_can_proceed_false(self):
+        """gate_decision='HALT' → can_proceed False."""
+        r = self._r(30.0, "HALT")
+        assert r.can_proceed is False
+
+    def test_overall_score_stored(self):
+        """overall_score is stored precisely."""
+        r = self._r(67.89)
+        assert abs(r.overall_score - 67.89) < 1e-9
+
+    def test_period_start_stored(self):
+        """period_start is stored on the report."""
+        r = DataQualityReport(period_start="2025-04-01", period_end="2025-06-30")
+        assert r.period_start == "2025-04-01"
+
+    def test_period_end_stored(self):
+        """period_end is stored on the report."""
+        r = DataQualityReport(period_start="2025-04-01", period_end="2025-06-30")
+        assert r.period_end == "2025-06-30"
+
+    def test_to_prompt_context_returns_string(self):
+        """to_prompt_context must return a string."""
+        r = self._r(90.0, "PROCEED")
+        ctx = r.to_prompt_context()
+        assert isinstance(ctx, str)
+
+    def test_to_prompt_context_non_empty(self):
+        """to_prompt_context must return a non-empty string."""
+        r = self._r(90.0, "PROCEED")
+        ctx = r.to_prompt_context()
+        assert len(ctx) > 0
+
+    def test_confidence_label_blocked_at_zero(self):
+        """overall_score=0, HALT → confidence_label BLOCKED."""
+        r = self._r(0.0, "HALT")
+        assert r.confidence_label == "BLOCKED"
+
+    def test_confidence_label_confirmed_at_100(self):
+        """overall_score=100, PROCEED → confidence_label CONFIRMED."""
+        r = self._r(100.0, "PROCEED")
+        assert r.confidence_label == "CONFIRMED"
+
+    def test_add_multiple_blocking_issues(self):
+        """Multiple blocking issues can be added."""
+        r = self._r(20.0, "HALT")
+        r.blocking_issues.extend(["check_1", "check_2", "check_3"])
+        assert len(r.blocking_issues) == 3
+
+    def test_add_multiple_warnings(self):
+        """Multiple warnings can be added."""
+        r = self._r(70.0, "PROCEED_WITH_WARNINGS")
+        r.warnings.extend(["warn_a", "warn_b"])
+        assert len(r.warnings) == 2

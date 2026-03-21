@@ -470,3 +470,325 @@ class TestBuildAdaptiveContext:
         }
         result = build_adaptive_context(p)
         assert "$12M" in result
+
+
+# ---------------------------------------------------------------------------
+# 7. IndustryDetector — heuristic matching
+# ---------------------------------------------------------------------------
+
+from memory.industry_detector import IndustryDetector
+
+
+class TestIndustryDetector:
+
+    def _detector(self) -> IndustryDetector:
+        return IndustryDetector()
+
+    def _entity_map(self, *table_names: str) -> dict:
+        return {"entities": {t: {"table": t} for t in table_names}}
+
+    def test_detects_distribucion_mayorista_from_schema(self):
+        det = self._detector()
+        em = self._entity_map("c_invoice", "c_bpartner", "m_product", "m_inout")
+        result = det.detect(em, {})
+        assert result["industry"] == "distribución mayorista"
+
+    def test_detects_retail_from_pos_tables(self):
+        det = self._detector()
+        em = self._entity_map("pos_order", "pos_session", "ticket")
+        result = det.detect(em, {})
+        assert result["industry"] == "retail / punto de venta"
+
+    def test_detects_manufactura(self):
+        det = self._detector()
+        em = self._entity_map("mrp_production", "bom", "workcenter")
+        result = det.detect(em, {})
+        assert result["industry"] == "manufactura"
+
+    def test_defaults_to_desconocida_when_no_match(self):
+        det = self._detector()
+        em = self._entity_map("random_table_xyz", "another_random_table")
+        result = det.detect(em, {})
+        assert result["industry"] == "desconocida"
+
+    def test_currency_from_config_overrides_heuristic(self):
+        det = self._detector()
+        em = self._entity_map("c_invoice", "c_bpartner")
+        # Pass explicit currency in config
+        result = det.detect(em, {"currency": "EUR"})
+        assert result["currency"] == "EUR"
+
+    def test_currency_heuristic_detects_ars_from_table_prefix(self):
+        det = self._detector()
+        em = self._entity_map("ar_invoice", "ar_payment")
+        result = det.detect(em, {})
+        assert result["currency"] == "ARS"
+
+    def test_update_profile_sets_industry_and_currency(self):
+        det = self._detector()
+        p = ClientProfile.new("DetectCo")
+        em = self._entity_map("pos_order", "pos_session")
+        det.update_profile(p, em, {})
+        assert p.industry_inferred == "retail / punto de venta"
+        assert p.currency_detected is not None
+
+    def test_update_profile_does_not_override_existing_currency(self):
+        """Once a currency is set, update_profile must not overwrite it."""
+        det = self._detector()
+        p = ClientProfile.new("CurrencyCo")
+        p.currency_detected = "BRL"
+        em = self._entity_map("ar_invoice")  # would normally hint ARS
+        det.update_profile(p, em, {})
+        assert p.currency_detected == "BRL"
+
+
+# ---------------------------------------------------------------------------
+# 8. AlertEngine & helpers
+# ---------------------------------------------------------------------------
+
+from memory.alert_engine import (
+    AlertEngine,
+    _evaluate_condition,
+    _z_score,
+    _pct_change,
+    create_default_thresholds,
+)
+
+
+class TestAlertEngineHelpers:
+
+    def test_pct_change_positive(self):
+        assert _pct_change(100.0, 120.0) == pytest.approx(20.0)
+
+    def test_pct_change_negative(self):
+        assert _pct_change(100.0, 80.0) == pytest.approx(-20.0)
+
+    def test_pct_change_returns_none_when_prev_near_zero(self):
+        assert _pct_change(0.0, 50.0) is None
+
+    def test_z_score_returns_none_for_short_series(self):
+        assert _z_score([1.0, 2.0]) is None
+
+    def test_z_score_detects_outlier(self):
+        # Last value is a clear outlier
+        series = [10.0, 10.5, 9.8, 10.2, 10.1, 50.0]
+        z = _z_score(series)
+        assert z is not None
+        assert abs(z) > 3
+
+    def test_evaluate_absolute_below_triggers(self):
+        fired, val = _evaluate_condition("absolute_below", 100.0, [90.0])
+        assert fired is True
+        assert val == pytest.approx(90.0)
+
+    def test_evaluate_absolute_above_does_not_trigger_when_equal(self):
+        fired, _ = _evaluate_condition("absolute_above", 100.0, [100.0])
+        assert fired is False
+
+    def test_evaluate_pct_change_below_triggers(self):
+        fired, pct = _evaluate_condition("pct_change_below", -10.0, [1000.0, 800.0])
+        assert fired is True
+        assert pct == pytest.approx(-20.0)
+
+    def test_evaluate_unknown_condition_never_triggers(self):
+        fired, val = _evaluate_condition("nonexistent_condition", 5.0, [1.0, 2.0, 3.0])
+        assert fired is False
+        assert val is None
+
+    def test_evaluate_pct_change_requires_two_values(self):
+        fired, val = _evaluate_condition("pct_change_below", -10.0, [500.0])
+        assert fired is False
+        assert val is None
+
+
+class TestAlertEngine:
+
+    def _engine(self) -> AlertEngine:
+        return AlertEngine()
+
+    def test_no_thresholds_returns_empty_list(self):
+        engine = self._engine()
+        p = ClientProfile.new("NoThreshCo")
+        result = engine.check_thresholds(p, {}, {})
+        assert result == []
+
+    def test_absolute_below_threshold_fires(self):
+        engine = self._engine()
+        p = ClientProfile.new("ThreshCo")
+        p.alert_thresholds = [
+            {
+                "label": "low_revenue",
+                "metric": "total_revenue",
+                "condition": "absolute_below",
+                "value": 1000.0,
+                "severity": "HIGH",
+                "message": "Revenue is low",
+            }
+        ]
+        baseline = {
+            "total_revenue": [
+                {"period": "2026-01", "numeric_value": 500.0}
+            ]
+        }
+        result = engine.check_thresholds(p, baseline, {})
+        assert len(result) == 1
+        assert result[0]["threshold_label"] == "low_revenue"
+        assert result[0]["severity"] == "HIGH"
+
+    def test_critical_finding_generates_implicit_alert(self):
+        engine = self._engine()
+        p = ClientProfile.new("CritCo")
+        findings = _make_findings("sentinel", [
+            {"id": "F_CRIT", "title": "DB corruption", "severity": "CRITICAL"}
+        ])
+        result = engine.check_thresholds(p, {}, findings)
+        assert any(a["condition"] == "implicit" for a in result)
+        assert any("CRITICAL" in str(a.get("severity", "")) for a in result)
+
+    def test_triggered_alerts_stored_in_profile(self):
+        engine = self._engine()
+        p = ClientProfile.new("StoreCo")
+        p.alert_thresholds = [
+            {
+                "label": "rev_alert",
+                "metric": "revenue",
+                "condition": "absolute_below",
+                "value": 9999.0,
+                "severity": "MEDIUM",
+                "message": "",
+            }
+        ]
+        baseline = {"revenue": [{"period": "2026-01", "numeric_value": 1.0}]}
+        engine.check_thresholds(p, baseline, {})
+        assert len(p.triggered_alerts) >= 1
+
+    def test_triggered_alerts_capped_at_20(self):
+        engine = self._engine()
+        p = ClientProfile.new("CapAlertCo")
+        # Pre-fill with 18 existing alerts
+        p.triggered_alerts = [{"dummy": i} for i in range(18)]
+        p.alert_thresholds = [
+            {
+                "label": "rev",
+                "metric": "revenue",
+                "condition": "absolute_below",
+                "value": 9999.0,
+                "severity": "HIGH",
+                "message": "",
+            }
+        ]
+        baseline = {"revenue": [{"period": "2026-01", "numeric_value": 1.0}]}
+        # Fire twice
+        engine.check_thresholds(p, baseline, {})
+        engine.check_thresholds(p, baseline, {})
+        assert len(p.triggered_alerts) <= 20
+
+
+class TestCreateDefaultThresholds:
+
+    def test_always_includes_zero_revenue_threshold(self):
+        p = ClientProfile.new("DefThreshCo")
+        thresholds = create_default_thresholds(p)
+        labels = [t["label"] for t in thresholds]
+        assert "consecutive_zero_revenue" in labels
+
+    def test_distribucion_mayorista_gets_extra_thresholds(self):
+        p = ClientProfile.new("DistribCo")
+        p.industry_inferred = "distribución mayorista"
+        thresholds = create_default_thresholds(p)
+        labels = [t["label"] for t in thresholds]
+        assert "revenue_drop" in labels
+        assert "receivables_spike" in labels
+
+    def test_unknown_industry_only_gets_base_threshold(self):
+        p = ClientProfile.new("UnknownIndustryCo")
+        p.industry_inferred = "desconocida"
+        thresholds = create_default_thresholds(p)
+        assert len(thresholds) == 1
+
+
+# ---------------------------------------------------------------------------
+# 9. ProfileExtractor — additional edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestProfileExtractorEdgeCases:
+
+    def _extractor(self) -> ProfileExtractor:
+        return ProfileExtractor()
+
+    def test_run_success_false_recorded_in_history(self):
+        ext = self._extractor()
+        p = ClientProfile.new("FailCo")
+        ext.update_from_run(p, {}, {}, {}, "2026-01", run_success=False)
+        assert p.run_history[0]["success"] is False
+
+    def test_kpi_not_duplicated_for_same_period(self):
+        ext = self._extractor()
+        p = ClientProfile.new("DupKPICo")
+        report = "**Revenue**: $5M"
+        ext.update_from_run(p, {}, {}, {"executive": report}, "2026-01")
+        ext.update_from_run(p, {}, {}, {"executive": report}, "2026-01")
+        # Same period — must have exactly one data point
+        assert len(p.baseline_history.get("Revenue", [])) == 1
+
+    def test_kpi_billion_shorthand_parsed(self):
+        ext = self._extractor()
+        p = ClientProfile.new("BillionCo")
+        report = "**Total Assets**: $1.5B"
+        ext.update_from_run(p, {}, {}, {"executive": report}, "2026-01")
+        dp = p.baseline_history.get("Total Assets", [])
+        assert dp, "KPI 'Total Assets' not found"
+        assert dp[0]["numeric_value"] == pytest.approx(1_500_000_000, rel=1e-3)
+
+    def test_kpi_thousand_shorthand_parsed(self):
+        ext = self._extractor()
+        p = ClientProfile.new("ThousandCo")
+        report = "**Unidades Vendidas**: 250K"
+        ext.update_from_run(p, {}, {}, {"executive": report}, "2026-01")
+        dp = p.baseline_history.get("Unidades Vendidas", [])
+        assert dp, "KPI 'Unidades Vendidas' not found"
+        assert dp[0]["numeric_value"] == pytest.approx(250_000, rel=1e-3)
+
+    def test_finding_reappears_after_resolve(self):
+        """A finding that was resolved should come back as 'new' if it reappears."""
+        ext = self._extractor()
+        p = ClientProfile.new("ReappearCo")
+        findings = _make_findings("analyst", [{"id": "F_REAPP", "title": "X", "severity": "LOW"}])
+        ext.update_from_run(p, findings, {}, {}, "2026-01")
+        # Disappears — should be moved to resolved
+        ext.update_from_run(p, {}, {}, {}, "2026-02")
+        assert "F_REAPP" in p.resolved_findings
+        assert "F_REAPP" not in p.known_findings
+        # Reappears — finding_id classified as 'new' in delta
+        delta3 = ext.update_from_run(p, findings, {}, {}, "2026-03")
+        assert "F_REAPP" in delta3["new"]
+        # Re-appears in known_findings
+        assert "F_REAPP" in p.known_findings
+
+    def test_get_profile_extractor_returns_singleton(self):
+        from memory.profile_extractor import get_profile_extractor
+        a = get_profile_extractor()
+        b = get_profile_extractor()
+        assert a is b
+
+
+# ---------------------------------------------------------------------------
+# 10. detect_schema_drift — exact boundary
+# ---------------------------------------------------------------------------
+
+
+class TestDetectSchemaDriftBoundary:
+
+    def test_exactly_10pct_change_is_not_drift(self):
+        """10% is the boundary — drift_ratio must be *strictly* > 0.10."""
+        base = {"entities": {f"t{i}": {} for i in range(10)}}
+        # Add exactly 1 table → 1/10 = 10% → NOT drift (> 0.10 is required)
+        extended = {"entities": {f"t{i}": {} for i in range(11)}}
+        assert detect_schema_drift(base, extended) is False
+
+    def test_one_table_above_10pct_is_drift(self):
+        """11 tables added to a 10-table base gives 11/10 = 110% → drift."""
+        base = {"entities": {f"t{i}": {} for i in range(10)}}
+        extended = {"entities": {f"t{i}": {} for i in range(21)}}
+        assert detect_schema_drift(base, extended) is True

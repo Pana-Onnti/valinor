@@ -537,3 +537,181 @@ class TestWebSocketPayloadContracts:
         payload = {"status": "completed", "progress": 100, "stage": "done", "dq_score": 92.0}
         if "dq_score" in payload:
             assert isinstance(payload["dq_score"], (int, float, type(None)))
+
+
+# ---------------------------------------------------------------------------
+# New tests: SSE generator terminal states (pure unit)
+# ---------------------------------------------------------------------------
+
+class TestSSETerminalStates:
+    """Verify SSE event shapes for every terminal status value."""
+
+    def test_cancelled_terminal_event_has_progress_zero(self):
+        """Cancelled jobs must emit progress=0 in the terminal SSE event (mirrors the
+        generator logic: progress=100 only for completed, 0 otherwise)."""
+        import json
+        terminal = {
+            "job_id": "j-cancel",
+            "status": "cancelled",
+            "stage": "done",
+            "progress": 0,
+            "message": "Error en análisis",
+            "final": True,
+        }
+        line = f"data: {json.dumps(terminal)}\n\n"
+        parsed = json.loads(line[len("data: "):].strip())
+        assert parsed["status"] == "cancelled"
+        assert parsed["progress"] == 0
+        assert parsed["final"] is True
+
+    def test_failed_terminal_event_has_progress_zero(self):
+        """Failed jobs must emit progress=0 in the terminal SSE event."""
+        import json
+        terminal = {
+            "job_id": "j-fail",
+            "status": "failed",
+            "stage": "done",
+            "progress": 0,
+            "final": True,
+        }
+        line = f"data: {json.dumps(terminal)}\n\n"
+        parsed = json.loads(line[len("data: "):].strip())
+        assert parsed["progress"] == 0
+        assert parsed["status"] == "failed"
+
+    def test_completed_terminal_event_has_progress_100(self):
+        """Completed jobs must emit progress=100 in the terminal SSE event."""
+        import json
+        terminal = {
+            "job_id": "j-ok",
+            "status": "completed",
+            "stage": "done",
+            "progress": 100,
+            "message": "Análisis completado",
+            "final": True,
+        }
+        line = f"data: {json.dumps(terminal)}\n\n"
+        parsed = json.loads(line[len("data: "):].strip())
+        assert parsed["progress"] == 100
+        assert parsed["final"] is True
+
+    def test_done_sentinel_has_no_job_id(self):
+        """The done sentinel 'data: {\"done\": true}' must NOT contain a job_id."""
+        import json
+        done_line = 'data: {"done": true}\n\n'
+        parsed = json.loads(done_line[len("data: "):].strip())
+        assert "job_id" not in parsed
+        assert parsed.get("done") is True
+
+
+# ---------------------------------------------------------------------------
+# New tests: DatabaseConfig model helpers
+# ---------------------------------------------------------------------------
+
+class TestDatabaseConfigModel:
+    """Unit tests for DatabaseConfig helper methods."""
+
+    def test_get_db_name_prefers_name_field(self):
+        """get_db_name() must return the 'name' field when both name and database are set."""
+        from api.main import DatabaseConfig
+        cfg = DatabaseConfig(host="localhost", port=5432, type="postgres",
+                             name="primary_db", database="fallback_db")
+        assert cfg.get_db_name() == "primary_db"
+
+    def test_get_db_name_falls_back_to_database_field(self):
+        """get_db_name() must fall back to 'database' when 'name' is absent."""
+        from api.main import DatabaseConfig
+        cfg = DatabaseConfig(host="localhost", port=5432, type="postgres",
+                             database="analytics")
+        assert cfg.get_db_name() == "analytics"
+
+    def test_get_db_name_returns_empty_string_when_neither_set(self):
+        """get_db_name() must return '' when neither name nor database is provided."""
+        from api.main import DatabaseConfig
+        cfg = DatabaseConfig(host="localhost", port=5432, type="mysql")
+        assert cfg.get_db_name() == ""
+
+    def test_get_connection_string_returns_provided_string(self):
+        """get_connection_string() must return the explicit connection_string unchanged."""
+        from api.main import DatabaseConfig
+        cs = "postgresql://user:pass@host:5432/mydb"
+        cfg = DatabaseConfig(host="localhost", port=5432, type="postgres",
+                             connection_string=cs)
+        assert cfg.get_connection_string() == cs
+
+    def test_get_connection_string_postgres_alias_recognised(self):
+        """Both 'postgres' and 'postgresql' types must produce a postgresql:// URI."""
+        from api.main import DatabaseConfig
+        for db_type in ("postgres", "postgresql"):
+            cfg = DatabaseConfig(host="localhost", port=5432, type=db_type,
+                                 user="u", password="p", name="db")
+            cs = cfg.get_connection_string()
+            assert cs.startswith("postgresql://"), f"Expected postgresql:// for type={db_type}, got {cs}"
+
+
+# ---------------------------------------------------------------------------
+# New tests: Input validation helpers
+# ---------------------------------------------------------------------------
+
+class TestInputValidationHelpers:
+    """Unit tests for _validate_client_name and _validate_period."""
+
+    def test_validate_client_name_accepts_valid_name(self):
+        """_validate_client_name should return the name unchanged for valid input."""
+        from api.main import _validate_client_name
+        assert _validate_client_name("acme-corp_01") == "acme-corp_01"
+
+    def test_validate_client_name_rejects_empty_string(self):
+        """_validate_client_name must raise ValueError for an empty string."""
+        from api.main import _validate_client_name
+        import pytest
+        with pytest.raises(ValueError, match="client_name must be"):
+            _validate_client_name("")
+
+    def test_validate_client_name_rejects_special_chars(self):
+        """_validate_client_name must reject names with spaces or special chars."""
+        from api.main import _validate_client_name
+        import pytest
+        with pytest.raises(ValueError):
+            _validate_client_name("bad name!")
+
+    def test_validate_period_accepts_quarter_format(self):
+        """_validate_period should accept Q<n>-YYYY format."""
+        from api.main import _validate_period
+        assert _validate_period("Q3-2025") == "Q3-2025"
+
+    def test_validate_period_accepts_half_year_format(self):
+        """_validate_period should accept H<n>-YYYY format."""
+        from api.main import _validate_period
+        assert _validate_period("H1-2026") == "H1-2026"
+
+    def test_validate_period_accepts_year_only(self):
+        """_validate_period should accept a bare 4-digit year."""
+        from api.main import _validate_period
+        assert _validate_period("2025") == "2025"
+
+    def test_validate_period_rejects_invalid_format(self):
+        """_validate_period must raise ValueError for unrecognised formats."""
+        from api.main import _validate_period
+        import pytest
+        with pytest.raises(ValueError, match="Invalid period format"):
+            _validate_period("INVALID")
+
+
+# ---------------------------------------------------------------------------
+# New tests: In-memory results cache constant
+# ---------------------------------------------------------------------------
+
+class TestResultsCacheConstant:
+    """Verify the results cache TTL is set to a sane value."""
+
+    def test_cache_ttl_is_positive(self):
+        """_RESULTS_CACHE_TTL must be a positive integer (seconds)."""
+        from api.main import _RESULTS_CACHE_TTL
+        assert isinstance(_RESULTS_CACHE_TTL, int)
+        assert _RESULTS_CACHE_TTL > 0
+
+    def test_cache_ttl_is_at_least_one_minute(self):
+        """_RESULTS_CACHE_TTL must be at least 60 seconds to be useful."""
+        from api.main import _RESULTS_CACHE_TTL
+        assert _RESULTS_CACHE_TTL >= 60

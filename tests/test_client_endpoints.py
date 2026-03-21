@@ -685,3 +685,287 @@ class TestGetClientStats:
             response = await client.get("/api/clients/acme/stats")
         data = response.json()
         assert data["run_count"] == 5
+
+
+# ---------------------------------------------------------------------------
+# GET /api/clients/{name}/profile/export
+# ---------------------------------------------------------------------------
+
+class TestExportClientProfile:
+    @pytest.mark.asyncio
+    async def test_export_returns_200_when_found(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/profile/export")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_export_returns_attachment_header(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/profile/export")
+        assert response.status_code == 200
+        cd = response.headers.get("content-disposition", "")
+        assert "attachment" in cd
+        assert "acme" in cd
+
+    @pytest.mark.asyncio
+    async def test_export_returns_404_when_missing(self, client):
+        with _store_patch(None):
+            response = await client.get("/api/clients/ghost/profile/export")
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/clients/{name}/refinement
+# ---------------------------------------------------------------------------
+
+class TestGetClientRefinement:
+    @pytest.mark.asyncio
+    async def test_refinement_returns_200_when_found(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/refinement")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_refinement_has_required_keys(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/refinement")
+        data = response.json()
+        assert "client_name" in data
+        assert "refinement" in data
+
+    @pytest.mark.asyncio
+    async def test_refinement_returns_404_when_missing(self, client):
+        with _store_patch(None):
+            response = await client.get("/api/clients/ghost/refinement")
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/clients/{name}/refinement
+# ---------------------------------------------------------------------------
+
+class TestPatchClientRefinement:
+    @pytest.mark.asyncio
+    async def test_patch_refinement_returns_200(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.patch(
+                "/api/clients/acme/refinement",
+                json={"depth": "deep", "language": "es"},
+            )
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_patch_refinement_response_has_refinement_key(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.patch(
+                "/api/clients/acme/refinement",
+                json={"depth": "deep"},
+            )
+        data = response.json()
+        assert "refinement" in data
+        assert "client_name" in data
+
+    @pytest.mark.asyncio
+    async def test_patch_refinement_returns_404_when_missing(self, client):
+        with _store_patch(None):
+            response = await client.patch(
+                "/api/clients/ghost/refinement",
+                json={"depth": "deep"},
+            )
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/clients/{name}/findings/{finding_id}
+# ---------------------------------------------------------------------------
+
+class TestGetClientFindingById:
+    @pytest.mark.asyncio
+    async def test_finding_by_id_returns_200_when_found(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/findings/f1")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_finding_by_id_has_finding_key(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/findings/f1")
+        data = response.json()
+        assert "finding" in data
+        assert "client" in data
+        assert data["finding"]["id"] == "f1"
+
+    @pytest.mark.asyncio
+    async def test_finding_by_id_returns_404_when_not_found(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/findings/nonexistent")
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/clients/{name}/costs
+# ---------------------------------------------------------------------------
+
+class TestGetClientCosts:
+    @pytest.mark.asyncio
+    async def test_costs_returns_200(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/costs")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_costs_has_required_keys(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/costs")
+        data = response.json()
+        for key in ("client_name", "total_runs", "estimated_total_cost_usd", "avg_cost_per_run_usd"):
+            assert key in data, f"Missing key: {key}"
+
+    @pytest.mark.asyncio
+    async def test_costs_returns_404_for_missing_client(self, client):
+        with _store_patch(None):
+            response = await client.get("/api/clients/ghost/costs")
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/clients/{name}/analytics
+# ---------------------------------------------------------------------------
+
+class TestGetClientAnalytics:
+    @pytest.mark.asyncio
+    async def test_analytics_returns_200(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/analytics")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_analytics_has_required_keys(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/analytics")
+        data = response.json()
+        for key in ("client_name", "total_runs", "success_rate", "avg_findings_per_run",
+                    "runs_by_month", "finding_velocity", "last_5_runs"):
+            assert key in data, f"Missing key: {key}"
+
+    @pytest.mark.asyncio
+    async def test_analytics_total_runs_matches_run_history(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/analytics")
+        data = response.json()
+        assert data["total_runs"] == len(profile.run_history)
+
+    @pytest.mark.asyncio
+    async def test_analytics_returns_404_for_missing_client(self, client):
+        with _store_patch(None):
+            response = await client.get("/api/clients/ghost/analytics")
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/clients/{name}/webhooks
+# ---------------------------------------------------------------------------
+
+class TestGetClientWebhooks:
+    @pytest.mark.asyncio
+    async def test_webhooks_returns_200(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/webhooks")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_webhooks_has_webhooks_key(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/webhooks")
+        data = response.json()
+        assert "webhooks" in data
+        assert isinstance(data["webhooks"], list)
+
+    @pytest.mark.asyncio
+    async def test_webhooks_returns_404_for_missing_client(self, client):
+        with _store_patch(None):
+            response = await client.get("/api/clients/ghost/webhooks")
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST /api/clients/{name}/webhooks
+# ---------------------------------------------------------------------------
+
+class TestPostClientWebhook:
+    @pytest.mark.asyncio
+    async def test_register_webhook_returns_200(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.post(
+                "/api/clients/acme/webhooks",
+                json={"url": "https://example.com/hook"},
+            )
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_register_webhook_response_structure(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.post(
+                "/api/clients/acme/webhooks",
+                json={"url": "https://example.com/hook"},
+            )
+        data = response.json()
+        assert data["status"] == "registered"
+        assert data["url"] == "https://example.com/hook"
+
+    @pytest.mark.asyncio
+    async def test_register_webhook_invalid_url_returns_400(self, client):
+        profile = _make_full_profile("acme")
+        with _store_patch(profile):
+            response = await client.post(
+                "/api/clients/acme/webhooks",
+                json={"url": "not-a-url"},
+            )
+        assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# GET /api/clients/{name}/segmentation
+# ---------------------------------------------------------------------------
+
+class TestGetClientSegmentation:
+    @pytest.mark.asyncio
+    async def test_segmentation_returns_200_no_history(self, client):
+        profile = _make_full_profile("acme")
+        profile.segmentation_history = []
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/segmentation")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_segmentation_message_when_no_data(self, client):
+        profile = _make_full_profile("acme")
+        profile.segmentation_history = []
+        with _store_patch(profile):
+            response = await client.get("/api/clients/acme/segmentation")
+        data = response.json()
+        assert "message" in data or "segmentation" in data
+
+    @pytest.mark.asyncio
+    async def test_segmentation_returns_404_for_missing_client(self, client):
+        with _store_patch(None):
+            response = await client.get("/api/clients/ghost/segmentation")
+        assert response.status_code == 404

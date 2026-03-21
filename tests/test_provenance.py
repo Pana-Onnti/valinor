@@ -409,3 +409,112 @@ class TestFindingProvenanceExtended:
         """reconciliation_discrepancy_pct defaults to 0.0."""
         fp = FindingProvenance(finding_id="f1", metric_name="revenue")
         assert fp.reconciliation_discrepancy_pct == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# Additional FindingProvenance tests
+# ---------------------------------------------------------------------------
+
+class TestFindingProvenanceFurther:
+    """Further coverage for FindingProvenance edge cases."""
+
+    def test_analysis_timestamp_has_date_component(self):
+        """analysis_timestamp should contain the year 2026 (or current year)."""
+        fp = FindingProvenance(finding_id="f1", metric_name="revenue")
+        assert len(fp.analysis_timestamp) >= 10  # at least YYYY-MM-DD
+
+    def test_confidence_score_in_valid_range(self):
+        """confidence_score must be in [0.0, 1.0] at creation."""
+        fp = FindingProvenance(finding_id="f1", metric_name="revenue")
+        assert 0.0 <= fp.confidence_score <= 1.0
+
+    def test_dq_score_default_100(self):
+        """dq_score defaults to 100.0."""
+        fp = FindingProvenance(finding_id="f1", metric_name="revenue")
+        assert fp.dq_score == pytest.approx(100.0)
+
+    def test_dq_warnings_default_empty_list(self):
+        """dq_warnings defaults to empty list."""
+        fp = FindingProvenance(finding_id="f1", metric_name="revenue")
+        assert fp.dq_warnings == []
+
+    def test_tables_accessed_default_empty(self):
+        """tables_accessed defaults to empty list."""
+        fp = FindingProvenance(finding_id="f1", metric_name="revenue")
+        assert fp.tables_accessed == []
+
+    def test_row_counts_default_empty_dict(self):
+        """row_counts defaults to empty dict."""
+        fp = FindingProvenance(finding_id="f1", metric_name="revenue")
+        assert fp.row_counts == {}
+
+    def test_to_dict_contains_confidence_score(self):
+        """to_dict() contains confidence_score key."""
+        fp = FindingProvenance(finding_id="f1", metric_name="revenue")
+        d = fp.to_dict()
+        assert "confidence_score" in d
+
+    def test_to_dict_contains_metric_name(self):
+        """to_dict() contains metric_name key."""
+        fp = FindingProvenance(finding_id="f1", metric_name="net_margin")
+        d = fp.to_dict()
+        assert d["metric_name"] == "net_margin"
+
+    def test_to_dict_contains_dq_score(self):
+        """to_dict() contains dq_score key."""
+        fp = FindingProvenance(finding_id="f1", metric_name="revenue")
+        d = fp.to_dict()
+        assert "dq_score" in d
+
+    def test_badge_shows_score_as_integer(self):
+        """Badge shows confidence score scaled to 100 as integer."""
+        reg = make_registry(dq_score=100.0)
+        fp = reg.register("f1", "revenue")
+        badge = fp.to_display_badge()
+        assert "100" in badge
+
+    def test_badge_shows_dq_tag(self):
+        """Badge includes the DQ tag from the registry."""
+        reg = make_registry(dq_score=100.0, tag="CERTIFIED")
+        fp = reg.register("f1", "revenue")
+        badge = fp.to_display_badge()
+        assert "CERTIFIED" in badge
+
+
+# ---------------------------------------------------------------------------
+# Additional ProvenanceRegistry tests
+# ---------------------------------------------------------------------------
+
+class TestProvenanceRegistryFurther:
+    """Further coverage for ProvenanceRegistry."""
+
+    def test_summary_for_report_is_string(self):
+        """summary_for_report must return a string."""
+        reg = make_registry()
+        assert isinstance(reg.summary_for_report(), str)
+
+    def test_summary_for_report_non_empty(self):
+        """summary_for_report must return a non-empty string."""
+        reg = make_registry()
+        assert len(reg.summary_for_report()) > 0
+
+    def test_findings_dict_initially_empty(self):
+        """A new registry has no registered findings."""
+        reg = make_registry()
+        assert reg.findings == {}
+
+    def test_register_returns_finding_with_correct_metric(self):
+        """register() sets metric_name on the returned FindingProvenance."""
+        reg = make_registry()
+        fp = reg.register("fx", "gross_profit")
+        assert fp.metric_name == "gross_profit"
+
+    def test_to_dict_dq_report_score(self):
+        """to_dict()['dq_report_score'] matches the registry score."""
+        reg = make_registry(dq_score=88.5)
+        assert reg.to_dict()["dq_report_score"] == pytest.approx(88.5)
+
+    def test_to_dict_dq_report_tag(self):
+        """to_dict()['dq_report_tag'] matches the registry tag."""
+        reg = make_registry(tag="VALIDATED")
+        assert reg.to_dict()["dq_report_tag"] == "VALIDATED"
