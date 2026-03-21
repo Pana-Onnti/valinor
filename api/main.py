@@ -8,6 +8,7 @@ import sys
 import uuid
 import uuid as _uuid
 import json
+import time
 import asyncio
 import re as _re
 from typing import Dict, Any, Optional
@@ -34,6 +35,11 @@ from api.routes.quality import router as quality_router
 from api.routes.onboarding import router as onboarding_router
 
 logger = structlog.get_logger()
+
+# ═══ IN-MEMORY LRU CACHE FOR COMPLETED JOB RESULTS ═══
+# Keyed by job_id → (results_dict, cached_at_timestamp)
+_results_cache: dict[str, tuple[dict, float]] = {}
+_RESULTS_CACHE_TTL = 300  # seconds (5 minutes)
 
 # ═══ INPUT VALIDATION HELPERS ═══
 

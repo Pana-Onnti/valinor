@@ -12,7 +12,13 @@ Key design:
 """
 
 import json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+ROW_COUNT_CAP = 100_000
+MAX_ENTITIES = 20
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -369,6 +375,79 @@ QUERY_TEMPLATES = {
         """,
     },
 }
+
+
+def prioritize_entities(entity_map: dict, profile: dict) -> dict:
+    """
+    Score and sort entities in entity_map by priority, then return a filtered
+    entity_map containing only the top MAX_ENTITIES entities.
+
+    Scoring rules (all additive):
+    - Base weight from profile.table_weights[table_name]  → 0.1–1.0 (default 0.5)
+    - Row count contribution  → min(row_count, ROW_COUNT_CAP) / ROW_COUNT_CAP
+      (capped at 100k so a 10M-row table doesn't dominate unfairly)
+    - focus_tables multiplier → final score × 2 if table is in profile.focus_tables
+
+    The modified entity_map is returned with entities sorted and capped.
+    The original entity_map is not mutated.
+
+    Args:
+        entity_map: Dict with at least an 'entities' key.
+        profile:    Dict that may contain:
+                      - table_weights: {table_name: float}  (0.1–1.0)
+                      - focus_tables:  list[str]
+
+    Returns:
+        A new entity_map dict with entities limited to the top MAX_ENTITIES.
+    """
+    entities: dict = entity_map.get("entities", {})
+    if not entities:
+        return entity_map
+
+    table_weights: dict = profile.get("table_weights", {})
+    focus_tables: list = profile.get("focus_tables", [])
+
+    scored: list[tuple[str, dict, float]] = []
+    for entity_name, entity_cfg in entities.items():
+        table_name: str = entity_cfg.get("table", entity_name)
+
+        # 1. Base weight from profile (default 0.5 if not specified)
+        weight: float = float(table_weights.get(table_name, 0.5))
+
+        # 2. Row count contribution (normalised, capped at ROW_COUNT_CAP)
+        row_count: int = int(entity_cfg.get("row_count", 0))
+        row_score: float = min(row_count, ROW_COUNT_CAP) / ROW_COUNT_CAP
+
+        score: float = weight + row_score
+
+        # 3. focus_tables 2× multiplier
+        if table_name in focus_tables or entity_name in focus_tables:
+            score *= 2.0
+
+        scored.append((entity_name, entity_cfg, score))
+
+    # Sort descending by score
+    scored.sort(key=lambda t: t[2], reverse=True)
+
+    # Log top 5 for visibility
+    top5 = scored[:5]
+    logger.info(
+        "Top %d prioritized tables: %s",
+        len(top5),
+        ", ".join(f"{name}(score={s:.3f})" for name, _, s in top5),
+    )
+
+    # Cap to MAX_ENTITIES
+    capped = scored[:MAX_ENTITIES]
+    if len(scored) > MAX_ENTITIES:
+        logger.info(
+            "Entity map trimmed from %d to %d entities (MAX_ENTITIES cap).",
+            len(scored),
+            MAX_ENTITIES,
+        )
+
+    new_entities = {name: cfg for name, cfg, _ in capped}
+    return {**entity_map, "entities": new_entities}
 
 
 def _get_entity_filter(entity: dict, prefix: str = "AND") -> str:
