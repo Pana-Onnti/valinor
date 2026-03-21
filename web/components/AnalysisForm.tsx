@@ -7,10 +7,11 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import axios from 'axios'
 import {
-  Database, Server, ChevronRight, ChevronLeft, Zap,
+  ChevronRight, ChevronLeft, Zap,
   CheckCircle2, Shield, Clock, AlertTriangle, Lock,
   ArrowRight, Loader2, Calendar
 } from 'lucide-react'
+import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -20,7 +21,7 @@ const ERP_OPTIONS = [
     id: 'openbravo',
     name: 'Openbravo',
     description: 'ERP para distribución, manufactura y retail',
-    icon: '📦',
+    abbr: 'OB',
     db: 'postgresql',
     popular: true,
     hints: ['c_invoice', 'c_bpartner', 'm_product'],
@@ -29,7 +30,7 @@ const ERP_OPTIONS = [
     id: 'odoo',
     name: 'Odoo',
     description: 'ERP open source todo-en-uno',
-    icon: '🔧',
+    abbr: 'OD',
     db: 'postgresql',
     hints: ['account_move', 'res_partner', 'product_template'],
   },
@@ -37,7 +38,7 @@ const ERP_OPTIONS = [
     id: 'sap',
     name: 'SAP',
     description: 'SAP ECC / S/4HANA',
-    icon: '🏢',
+    abbr: 'SP',
     db: 'sqlserver',
     hints: ['BKPF', 'VBAK', 'KNA1'],
   },
@@ -45,7 +46,7 @@ const ERP_OPTIONS = [
     id: 'mysql_generic',
     name: 'MySQL / MariaDB',
     description: 'Base de datos relacional genérica',
-    icon: '🐬',
+    abbr: 'MY',
     db: 'mysql',
     hints: [],
   },
@@ -53,7 +54,7 @@ const ERP_OPTIONS = [
     id: 'postgres_generic',
     name: 'PostgreSQL',
     description: 'Base de datos relacional avanzada',
-    icon: '🐘',
+    abbr: 'PG',
     db: 'postgresql',
     hints: [],
   },
@@ -61,7 +62,7 @@ const ERP_OPTIONS = [
     id: 'excel',
     name: 'Excel / CSV',
     description: 'Archivos exportados desde cualquier sistema',
-    icon: '📊',
+    abbr: 'XL',
     db: 'sqlite',
     hints: [],
     comingSoon: true,
@@ -93,8 +94,8 @@ interface TestResult {
   erp_detected?: string
   error?: string
   table_count?: number
-  data_from?: string   // "YYYY-MM"
-  data_to?: string     // "YYYY-MM"
+  data_from?: string
+  data_to?: string
 }
 
 interface AnalysisFormProps {
@@ -158,28 +159,59 @@ function buildYearOptions(dataFrom?: string, dataTo?: string) {
 // ── Step indicator ─────────────────────────────────────────────────────────────
 function StepIndicator({ current, total }: { current: number; total: number }) {
   return (
-    <div className="flex items-center gap-2 mb-8">
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: T.space.xl }}>
       {Array.from({ length: total }, (_, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-            i < current
-              ? 'bg-violet-600 text-white'
-              : i === current
-                ? 'bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300 ring-2 ring-violet-500'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-400'
-          }`}>
-            {i < current ? <CheckCircle2 className="h-4 w-4" /> : i + 1}
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            width: 28,
+            height: 28,
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 11,
+            fontWeight: 700,
+            fontFamily: T.font.mono,
+            backgroundColor: i < current ? T.accent.teal : i === current ? T.accent.teal + '20' : T.bg.elevated,
+            color: i < current ? T.text.inverse : i === current ? T.accent.teal : T.text.tertiary,
+            border: i === current ? `2px solid ${T.accent.teal}` : '2px solid transparent',
+            transition: 'all 200ms ease',
+          }}>
+            {i < current ? <CheckCircle2 size={14} /> : i + 1}
           </div>
           {i < total - 1 && (
-            <div className={`h-px w-8 transition-all ${
-              i < current ? 'bg-violet-500' : 'bg-gray-200 dark:bg-gray-700'
-            }`} />
+            <div style={{
+              height: 1,
+              width: 32,
+              backgroundColor: i < current ? T.accent.teal : T.bg.hover,
+              transition: 'background-color 200ms ease',
+            }} />
           )}
         </div>
       ))}
-      <span className="ml-2 text-xs text-gray-400 font-mono">Paso {current + 1} de {total}</span>
+      <span style={{ marginLeft: 8, fontSize: 11, color: T.text.tertiary, fontFamily: T.font.mono }}>
+        Paso {current + 1} de {total}
+      </span>
     </div>
   )
+}
+
+// ── Form field helpers ────────────────────────────────────────────────────────
+const fieldLabel: React.CSSProperties = {
+  display: 'block',
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: T.text.secondary,
+  marginBottom: 6,
+  fontFamily: T.font.mono,
+}
+
+const fieldError: React.CSSProperties = {
+  fontSize: 11,
+  color: T.accent.red,
+  marginTop: 4,
 }
 
 // ── Step 1: ERP Selection ─────────────────────────────────────────────────────
@@ -192,76 +224,103 @@ function Step1ERPSelection({
   onClientName: (v: string) => void
 }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-    >
-      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+      <h2 style={{ fontSize: 22, fontWeight: 700, color: T.text.primary, marginBottom: 6 }}>
         ¿Qué sistema usás?
       </h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+      <p style={{ fontSize: 13, color: T.text.secondary, marginBottom: T.space.lg }}>
         Valinor se adapta a cualquier ERP o base de datos
       </p>
 
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          Nombre del cliente / empresa
-        </label>
+      <div style={{ marginBottom: T.space.lg }}>
+        <label style={fieldLabel}>Nombre del cliente / empresa</label>
         <input
           type="text"
           value={clientName}
           onChange={e => onClientName(e.target.value)}
           placeholder="Ej: Gloria Pet Distribution"
-          className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 text-sm"
+          className="d4c-input"
         />
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {ERP_OPTIONS.map(erp => (
-          <button
-            key={erp.id}
-            type="button"
-            onClick={() => !erp.comingSoon && onSelect(erp.id, erp.db)}
-            disabled={!!erp.comingSoon}
-            className={`relative text-left p-4 rounded-2xl border-2 transition-all ${
-              erp.comingSoon
-                ? 'opacity-50 cursor-not-allowed border-gray-200 dark:border-gray-800'
-                : selected === erp.id
-                  ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20 shadow-md'
-                  : 'border-gray-200 dark:border-gray-700 hover:border-violet-300 dark:hover:border-violet-700 hover:shadow-sm'
-            }`}
-          >
-            {erp.popular && !erp.comingSoon && (
-              <span className="absolute top-2 right-2 text-xs font-semibold text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/50 px-1.5 py-0.5 rounded-full">
-                Popular
-              </span>
-            )}
-            {erp.comingSoon && (
-              <span className="absolute top-2 right-2 text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded-full">
-                Pronto
-              </span>
-            )}
-            <div className="text-2xl mb-2">{erp.icon}</div>
-            <div className="font-semibold text-sm text-gray-900 dark:text-white">{erp.name}</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{erp.description}</div>
-            {selected === erp.id && (
-              <div className="absolute bottom-2 right-2">
-                <CheckCircle2 className="h-4 w-4 text-violet-600" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+        {ERP_OPTIONS.map(erp => {
+          const isSelected = selected === erp.id
+          return (
+            <button
+              key={erp.id}
+              type="button"
+              onClick={() => !erp.comingSoon && onSelect(erp.id, erp.db)}
+              disabled={!!erp.comingSoon}
+              style={{
+                position: 'relative',
+                textAlign: 'left',
+                padding: T.space.md,
+                borderRadius: T.radius.sm,
+                border: isSelected ? `2px solid ${T.accent.teal}` : `2px solid ${T.bg.hover}`,
+                backgroundColor: isSelected ? T.accent.teal + '10' : T.bg.elevated,
+                cursor: erp.comingSoon ? 'not-allowed' : 'pointer',
+                opacity: erp.comingSoon ? 0.5 : 1,
+                transition: 'border-color 150ms ease, background-color 150ms ease',
+              }}
+            >
+              {erp.popular && !erp.comingSoon && (
+                <span style={{
+                  position: 'absolute', top: 8, right: 8,
+                  fontSize: 9, fontWeight: 700, fontFamily: T.font.mono,
+                  color: T.accent.teal, backgroundColor: T.accent.teal + '15',
+                  padding: '2px 6px', borderRadius: 4,
+                }}>
+                  Popular
+                </span>
+              )}
+              {erp.comingSoon && (
+                <span style={{
+                  position: 'absolute', top: 8, right: 8,
+                  fontSize: 9, color: T.text.tertiary, fontFamily: T.font.mono,
+                  padding: '2px 6px', borderRadius: 4, backgroundColor: T.bg.hover,
+                }}>
+                  Pronto
+                </span>
+              )}
+              <div style={{
+                fontFamily: T.font.mono,
+                fontSize: 16,
+                fontWeight: 700,
+                color: isSelected ? T.accent.teal : T.text.tertiary,
+                marginBottom: 6,
+              }}>
+                {erp.abbr}
               </div>
-            )}
-          </button>
-        ))}
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.text.primary }}>{erp.name}</div>
+              <div style={{ fontSize: 11, color: T.text.secondary, marginTop: 2, lineHeight: 1.4 }}>{erp.description}</div>
+              {isSelected && (
+                <div style={{ position: 'absolute', bottom: 8, right: 8 }}>
+                  <CheckCircle2 size={14} style={{ color: T.accent.teal }} />
+                </div>
+              )}
+            </button>
+          )
+        })}
       </div>
 
       {selected && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mt-4 flex items-start gap-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3"
+          style={{
+            marginTop: T.space.md,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 10,
+            backgroundColor: T.accent.blue + '10',
+            border: `1px solid ${T.accent.blue}30`,
+            borderRadius: T.radius.sm,
+            padding: `${T.space.sm} ${T.space.md}`,
+          }}
         >
-          <Zap className="h-4 w-4 text-blue-500 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-blue-700 dark:text-blue-300">
+          <Zap size={14} style={{ color: T.accent.blue, flexShrink: 0, marginTop: 1 }} />
+          <p style={{ fontSize: 12, color: T.accent.blue, margin: 0 }}>
             Valinor ya conoce la estructura de {ERP_OPTIONS.find(e => e.id === selected)?.name}.
             El Cartographer priorizará las tablas de mayor valor para este ERP.
           </p>
@@ -285,100 +344,139 @@ function Step2Connection({
   const useSsh = watch('use_ssh')
 
   return (
-    <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-    >
-      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+      <h2 style={{ fontSize: 22, fontWeight: 700, color: T.text.primary, marginBottom: 6 }}>
         Conectá tu base de datos
       </h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+      <p style={{ fontSize: 13, color: T.text.secondary, marginBottom: T.space.lg }}>
         Conexión de solo lectura · tus datos nunca se almacenan
       </p>
 
-      <div className="flex items-center gap-2 mb-5 px-4 py-2.5 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl">
-        <Shield className="h-4 w-4 text-emerald-500 flex-shrink-0" />
-        <p className="text-xs text-emerald-700 dark:text-emerald-300">
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        marginBottom: T.space.lg,
+        padding: `${T.space.sm} ${T.space.md}`,
+        backgroundColor: T.accent.teal + '10',
+        border: `1px solid ${T.accent.teal}30`,
+        borderRadius: T.radius.sm,
+      }}>
+        <Shield size={14} style={{ color: T.accent.teal, flexShrink: 0 }} />
+        <p style={{ fontSize: 12, color: T.accent.teal, margin: 0 }}>
           Zero Data Storage — Valinor solo lee, nunca escribe ni almacena datos de clientes
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="col-span-2 sm:col-span-1">
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 uppercase tracking-wide">Host</label>
-          <input {...register('db_host')} placeholder="localhost"
-            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
-          {errors.db_host && <p className="text-xs text-red-500 mt-1">{errors.db_host.message}</p>}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: T.space.md }}>
+        <div style={{ gridColumn: 'span 1' }}>
+          <label style={fieldLabel}>Host</label>
+          <input {...register('db_host')} placeholder="localhost" className="d4c-input" />
+          {errors.db_host && <p style={fieldError}>{errors.db_host.message}</p>}
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 uppercase tracking-wide">Puerto</label>
-          <input {...register('db_port')} type="number" placeholder="5432"
-            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
+          <label style={fieldLabel}>Puerto</label>
+          <input {...register('db_port')} type="number" placeholder="5432" className="d4c-input" />
         </div>
-        <div className="col-span-2">
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 uppercase tracking-wide">Base de datos</label>
-          <input {...register('db_name')} placeholder="nombre_de_la_base"
-            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
-          {errors.db_name && <p className="text-xs text-red-500 mt-1">{errors.db_name.message}</p>}
+        <div style={{ gridColumn: 'span 2' }}>
+          <label style={fieldLabel}>Base de datos</label>
+          <input {...register('db_name')} placeholder="nombre_de_la_base" className="d4c-input" />
+          {errors.db_name && <p style={fieldError}>{errors.db_name.message}</p>}
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 uppercase tracking-wide">Usuario</label>
-          <input {...register('db_user')} placeholder="readonly_user"
-            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
-          {errors.db_user && <p className="text-xs text-red-500 mt-1">{errors.db_user.message}</p>}
+          <label style={fieldLabel}>Usuario</label>
+          <input {...register('db_user')} placeholder="readonly_user" className="d4c-input" />
+          {errors.db_user && <p style={fieldError}>{errors.db_user.message}</p>}
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 uppercase tracking-wide">Contraseña</label>
-          <input {...register('db_password')} type="password" placeholder="••••••••"
-            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
-          {errors.db_password && <p className="text-xs text-red-500 mt-1">{errors.db_password.message}</p>}
+          <label style={fieldLabel}>Contraseña</label>
+          <input {...register('db_password')} type="password" placeholder="••••••••" className="d4c-input" />
+          {errors.db_password && <p style={fieldError}>{errors.db_password.message}</p>}
         </div>
 
-        <div className="col-span-2 mt-1">
+        <div style={{ gridColumn: 'span 2', marginTop: 4 }}>
           <button
             type="button"
             onClick={onTestConnection}
             disabled={testingConnection || !watch('db_host') || !watch('db_user')}
-            className="w-full py-2 px-4 rounded-lg border-2 border-violet-200 text-violet-700 hover:border-violet-400 disabled:opacity-50 text-sm font-medium transition-all"
+            style={{
+              width: '100%',
+              padding: `${T.space.sm} ${T.space.md}`,
+              borderRadius: T.radius.sm,
+              border: `1px solid ${T.accent.teal}50`,
+              backgroundColor: 'transparent',
+              color: T.accent.teal,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontFamily: T.font.display,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              opacity: testingConnection || !watch('db_host') || !watch('db_user') ? 0.5 : 1,
+              transition: 'opacity 150ms ease',
+            }}
           >
             {testingConnection ? (
-              <span className="flex items-center justify-center gap-2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />Probando conexión...
-              </span>
+              <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />Probando conexión...</>
             ) : 'Probar conexión'}
           </button>
 
           {testResult && (
-            <div className={`mt-2 rounded-lg p-3 text-sm ${testResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+            <div style={{
+              marginTop: 8,
+              borderRadius: T.radius.sm,
+              padding: T.space.sm,
+              fontSize: 12,
+              backgroundColor: testResult.success ? T.accent.teal + '10' : T.accent.red + '10',
+              border: `1px solid ${testResult.success ? T.accent.teal : T.accent.red}30`,
+              color: testResult.success ? T.accent.teal : T.accent.red,
+            }}>
               {testResult.success ? (
-                <div className="space-y-1">
-                  <p className="text-green-800 font-medium">
+                <div>
+                  <p style={{ margin: 0, fontWeight: 600 }}>
                     ✓ Conectado ({testResult.latency_ms}ms) · {testResult.erp_detected} · {testResult.table_count} tablas
                   </p>
                   {testResult.data_from && testResult.data_to && (
-                    <p className="text-green-700 text-xs flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
+                    <p style={{ margin: '4px 0 0', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Calendar size={10} />
                       Datos disponibles: <strong>{testResult.data_from}</strong> → <strong>{testResult.data_to}</strong>
                     </p>
                   )}
                 </div>
               ) : (
-                <div className="text-red-800">✗ Error: {testResult.error}</div>
+                <p style={{ margin: 0 }}>✕ Error: {testResult.error}</p>
               )}
             </div>
           )}
         </div>
       </div>
 
-      <div className="mt-5">
-        <label className="flex items-center gap-3 cursor-pointer">
-          <div className={`relative w-10 h-5 rounded-full transition-colors ${useSsh ? 'bg-violet-600' : 'bg-gray-200 dark:bg-gray-700'}`}>
-            <input type="checkbox" {...register('use_ssh')} className="sr-only" />
-            <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${useSsh ? 'translate-x-5' : ''}`} />
+      <div style={{ marginTop: T.space.lg }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+          <div style={{
+            position: 'relative',
+            width: 40,
+            height: 20,
+            borderRadius: 10,
+            backgroundColor: useSsh ? T.accent.teal : T.bg.hover,
+            transition: 'background-color 150ms ease',
+          }}>
+            <input type="checkbox" {...register('use_ssh')} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+            <span style={{
+              position: 'absolute',
+              top: 2,
+              left: useSsh ? 22 : 2,
+              width: 16,
+              height: 16,
+              backgroundColor: T.text.primary,
+              borderRadius: '50%',
+              transition: 'left 150ms ease',
+            }} />
           </div>
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Tunnel SSH</span>
-          <span className="text-xs text-gray-400">(si la DB no es accesible directamente)</span>
+          <span style={{ fontSize: 13, fontWeight: 500, color: T.text.primary }}>Tunnel SSH</span>
+          <span style={{ fontSize: 12, color: T.text.tertiary }}>(si la DB no es accesible directamente)</span>
         </label>
 
         <AnimatePresence>
@@ -387,22 +485,19 @@ function Step2Connection({
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="mt-4 grid grid-cols-2 gap-4 overflow-hidden"
+              style={{ marginTop: T.space.md, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: T.space.md, overflow: 'hidden' }}
             >
-              <div className="col-span-2 sm:col-span-1">
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 uppercase tracking-wide">SSH Host</label>
-                <input {...register('ssh_host')} placeholder="bastion.empresa.com"
-                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
+              <div>
+                <label style={fieldLabel}>SSH Host</label>
+                <input {...register('ssh_host')} placeholder="bastion.empresa.com" className="d4c-input" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 uppercase tracking-wide">SSH Usuario</label>
-                <input {...register('ssh_user')} placeholder="ubuntu"
-                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                <label style={fieldLabel}>SSH Usuario</label>
+                <input {...register('ssh_user')} placeholder="ubuntu" className="d4c-input" />
               </div>
-              <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 uppercase tracking-wide">Ruta de clave privada</label>
-                <input {...register('ssh_key_path')} placeholder="/home/user/.ssh/id_rsa"
-                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
+              <div style={{ gridColumn: 'span 2' }}>
+                <label style={fieldLabel}>Ruta de clave privada</label>
+                <input {...register('ssh_key_path')} placeholder="/home/user/.ssh/id_rsa" className="d4c-input" />
               </div>
             </motion.div>
           )}
@@ -443,124 +538,187 @@ function Step3Confirm({
   const opts = tab === 'month' ? monthOpts : tab === 'quarter' ? quarterOpts : yearOpts
 
   const whatToExpect = [
-    { icon: '🗺️', text: 'Mapeo automático de entidades de negocio' },
-    { icon: '🔍', text: 'Detección de anomalías y riesgos financieros' },
-    { icon: '💰', text: 'Identificación de oportunidades de mejora' },
-    { icon: '📋', text: 'Reporte ejecutivo listo para el CEO' },
+    { symbol: '◈', text: 'Mapeo automático de entidades de negocio' },
+    { symbol: '⊕', text: 'Detección de anomalías y riesgos financieros' },
+    { symbol: '◆', text: 'Identificación de oportunidades de mejora' },
+    { symbol: '≡', text: 'Reporte ejecutivo listo para el CEO' },
   ]
 
   return (
-    <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-    >
-      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+      <h2 style={{ fontSize: 22, fontWeight: 700, color: T.text.primary, marginBottom: 6 }}>
         Elegí el período a analizar
       </h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <p style={{ fontSize: 13, color: T.text.secondary, marginBottom: T.space.md }}>
         {dataFrom && dataTo
           ? `Datos disponibles: ${dataFrom} → ${dataTo}`
           : 'Seleccioná el rango de tiempo para el análisis'}
       </p>
 
       {/* Summary card */}
-      <div className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-200 dark:border-gray-700 p-4 mb-5">
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div>
-            <p className="text-xs text-gray-400 mb-0.5">Cliente</p>
-            <p className="font-semibold text-gray-900 dark:text-white">{clientName || '—'}</p>
+      <div style={{
+        backgroundColor: T.bg.elevated,
+        borderRadius: T.radius.sm,
+        border: T.border.card,
+        padding: T.space.md,
+        marginBottom: T.space.lg,
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: 12,
+      }}>
+        {[
+          { label: 'Cliente', value: clientName || '—' },
+          { label: 'Sistema', value: `${erp?.abbr || ''} ${erp?.name || '—'}` },
+          { label: 'Host', value: dbHost || '—', mono: true },
+          { label: 'Base de datos', value: dbName || '—', mono: true },
+        ].map(({ label, value, mono }) => (
+          <div key={label}>
+            <p style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>{label}</p>
+            <p style={{
+              fontSize: mono ? 11 : 13,
+              fontWeight: 600,
+              color: T.text.primary,
+              fontFamily: mono ? T.font.mono : T.font.display,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              margin: 0,
+            }}>
+              {value}
+            </p>
           </div>
-          <div>
-            <p className="text-xs text-gray-400 mb-0.5">Sistema</p>
-            <p className="font-semibold text-gray-900 dark:text-white">{erp?.icon} {erp?.name || '—'}</p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-400 mb-0.5">Host</p>
-            <p className="font-mono text-xs text-gray-700 dark:text-gray-300 truncate">{dbHost || '—'}</p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-400 mb-0.5">Base de datos</p>
-            <p className="font-mono text-xs text-gray-700 dark:text-gray-300 truncate">{dbName || '—'}</p>
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* Period tabs */}
-      <div className="mb-2">
-        <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl mb-3 w-fit">
+      <div style={{ marginBottom: 8 }}>
+        <div style={{
+          display: 'flex',
+          gap: 4,
+          padding: 4,
+          backgroundColor: T.bg.elevated,
+          borderRadius: T.radius.sm,
+          marginBottom: 12,
+          width: 'fit-content',
+        }}>
           {(['month', 'quarter', 'year'] as PeriodTab[]).map(t => (
             <button
               key={t}
               type="button"
               onClick={() => setTab(t)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                tab === t
-                  ? 'bg-white dark:bg-gray-700 text-violet-700 dark:text-violet-300 shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
-              }`}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 6,
+                fontSize: 12,
+                fontWeight: 500,
+                border: 'none',
+                cursor: 'pointer',
+                fontFamily: T.font.display,
+                backgroundColor: tab === t ? T.bg.card : 'transparent',
+                color: tab === t ? T.accent.teal : T.text.secondary,
+                transition: 'all 150ms ease',
+              }}
             >
               {t === 'month' ? 'Mes' : t === 'quarter' ? 'Trimestre' : 'Año'}
             </button>
           ))}
         </div>
 
-        <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-1">
-          {opts.map(p => (
-            <button
-              key={p.value}
-              type="button"
-              onClick={() => onPeriod(p.value)}
-              className={`text-xs py-2 px-2 rounded-xl border transition-all text-left leading-tight ${
-                period === p.value
-                  ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 font-semibold'
-                  : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-violet-300 hover:bg-gray-50'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: 6,
+          maxHeight: 192,
+          overflowY: 'auto',
+          paddingRight: 4,
+        }}>
+          {opts.map(p => {
+            const isSelected = period === p.value
+            return (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => onPeriod(p.value)}
+                style={{
+                  fontSize: 11,
+                  padding: '8px 6px',
+                  borderRadius: T.radius.sm,
+                  border: isSelected ? `1px solid ${T.accent.teal}` : T.border.card,
+                  backgroundColor: isSelected ? T.accent.teal + '10' : T.bg.elevated,
+                  color: isSelected ? T.accent.teal : T.text.secondary,
+                  fontWeight: isSelected ? 600 : 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  lineHeight: 1.3,
+                  fontFamily: T.font.display,
+                  transition: 'all 150ms ease',
+                }}
+              >
+                {p.label}
+              </button>
+            )
+          })}
         </div>
 
         {period && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-violet-600 dark:text-violet-400">
-            <CheckCircle2 className="h-3.5 w-3.5" />
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: T.accent.teal }}>
+            <CheckCircle2 size={12} />
             Período seleccionado: <strong>{period}</strong>
           </div>
         )}
       </div>
 
       {/* What to expect */}
-      <div className="mt-4 mb-4">
-        <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Qué vas a recibir</p>
-        <div className="grid grid-cols-2 gap-2">
+      <div style={{ marginTop: T.space.md, marginBottom: T.space.md }}>
+        <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.text.tertiary, marginBottom: 8, fontFamily: T.font.mono }}>
+          Qué vas a recibir
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {whatToExpect.map((item, i) => (
-            <div key={i} className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400">
-              <span className="flex-shrink-0">{item.icon}</span>
+            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, color: T.text.secondary }}>
+              <span style={{ flexShrink: 0, color: T.text.tertiary, fontFamily: T.font.mono }}>{item.symbol}</span>
               <span>{item.text}</span>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="flex items-center gap-3 text-xs text-gray-400 mb-1">
-        <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: T.text.tertiary, marginBottom: 4 }}>
+        <Clock size={12} style={{ flexShrink: 0 }} />
         <span>Tiempo estimado: 10-15 minutos según el tamaño de la base</span>
       </div>
 
       {jobId && (
-        <div className="mt-3 flex items-center gap-2 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-xl px-4 py-2.5">
-          <Lock className="h-3.5 w-3.5 text-violet-400 flex-shrink-0" />
-          <span className="text-xs text-violet-600 dark:text-violet-400 font-mono">
+        <div style={{
+          marginTop: 12,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          backgroundColor: T.accent.teal + '10',
+          border: `1px solid ${T.accent.teal}30`,
+          borderRadius: T.radius.sm,
+          padding: `${T.space.sm} ${T.space.md}`,
+        }}>
+          <Lock size={12} style={{ color: T.accent.teal, flexShrink: 0 }} />
+          <span style={{ fontSize: 11, color: T.accent.teal, fontFamily: T.font.mono }}>
             Job ID: <strong>{jobId}</strong>
           </span>
         </div>
       )}
 
       {error && (
-        <div className="mt-3 flex items-start gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
-          <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+        <div style={{
+          marginTop: 12,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 8,
+          backgroundColor: T.accent.red + '10',
+          border: `1px solid ${T.accent.red}30`,
+          borderRadius: T.radius.sm,
+          padding: `${T.space.sm} ${T.space.md}`,
+        }}>
+          <AlertTriangle size={14} style={{ color: T.accent.red, flexShrink: 0, marginTop: 1 }} />
+          <p style={{ fontSize: 13, color: T.accent.red, margin: 0 }}>{error}</p>
         </div>
       )}
     </motion.div>
@@ -633,9 +791,7 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
   }
 
   const onSubmit = async (data: ConnectionFormData) => {
-    // Guard: only submit on the final confirmation step
     if (step !== 2) return
-
     setIsLoading(true)
     setError(null)
     try {
@@ -670,13 +826,20 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
   }
 
   return (
-    <div className="max-w-2xl mx-auto bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden">
-      <div className="px-8 pt-8 pb-0">
+    <div style={{
+      maxWidth: 640,
+      margin: '0 auto',
+      backgroundColor: T.bg.card,
+      borderRadius: T.radius.lg,
+      border: T.border.card,
+      overflow: 'hidden',
+    }}>
+      <div style={{ padding: `${T.space.xl} ${T.space.xl} 0` }}>
         <StepIndicator current={step} total={3} />
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)}>
-        <div className="px-8 py-6 min-h-[420px]">
+        <div style={{ padding: `0 ${T.space.xl} ${T.space.lg}`, minHeight: 420 }}>
           <AnimatePresence mode="wait">
             {step === 0 && (
               <Step1ERPSelection
@@ -718,17 +881,20 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
         </div>
 
         {/* Navigation */}
-        <div className="px-8 pb-8 flex items-center justify-between border-t border-gray-100 dark:border-gray-800 pt-5">
+        <div style={{
+          padding: `${T.space.lg} ${T.space.xl} ${T.space.xl}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderTop: T.border.card,
+        }}>
           <button
             type="button"
             onClick={() => step > 0 && setStep(s => s - 1)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-              step === 0
-                ? 'invisible'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700 hover:border-gray-300'
-            }`}
+            className="d4c-btn-ghost"
+            style={{ visibility: step === 0 ? 'hidden' : 'visible' }}
           >
-            <ChevronLeft className="h-4 w-4" />Atrás
+            <ChevronLeft size={14} />Atrás
           </button>
 
           {step < 2 ? (
@@ -736,20 +902,20 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
               type="button"
               onClick={() => canProceed() && setStep(s => s + 1)}
               disabled={!canProceed()}
-              className="flex items-center gap-2 px-6 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-semibold transition-all shadow-sm shadow-violet-500/20"
+              className="d4c-btn-primary"
             >
-              Continuar<ChevronRight className="h-4 w-4" />
+              Continuar<ChevronRight size={14} />
             </button>
           ) : (
             <button
               type="submit"
               disabled={isLoading || !period}
-              className="flex items-center gap-2 px-6 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-all shadow-sm shadow-violet-500/20"
+              className="d4c-btn-primary"
             >
               {isLoading ? (
-                <><Loader2 className="h-4 w-4 animate-spin" />Iniciando análisis...</>
+                <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />Iniciando análisis...</>
               ) : (
-                <>Iniciar análisis<ArrowRight className="h-4 w-4" /></>
+                <>Iniciar análisis<ArrowRight size={14} /></>
               )}
             </button>
           )}

@@ -28,6 +28,71 @@ body {
   box-sizing: border-box;
 }
 
+/* ── Form helpers ─────────────────────────────────────────────────────────── */
+.d4c-input {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--d4c-border);
+  background-color: var(--d4c-bg-elevated);
+  color: var(--d4c-text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 150ms ease;
+  font-family: inherit;
+}
+
+.d4c-input::placeholder {
+  color: var(--d4c-text-tertiary);
+}
+
+.d4c-input:focus {
+  border-color: var(--d4c-accent-teal);
+}
+
+.d4c-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.d4c-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  background-color: var(--d4c-accent-teal);
+  color: #0A0A0F;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 150ms ease;
+  font-family: inherit;
+}
+
+.d4c-btn-primary:hover { opacity: 0.9; }
+.d4c-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.d4c-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background-color: transparent;
+  color: var(--d4c-text-secondary);
+  border: 1px solid var(--d4c-border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+  font-family: inherit;
+}
+
+.d4c-btn-ghost:hover { color: var(--d4c-text-primary); border-color: var(--d4c-text-tertiary); }
+.d4c-btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* ── Sidebar nav helpers (pseudo-state requires CSS, not inline styles) ───── */
 .d4c-nav-link {
   display: flex;
