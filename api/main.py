@@ -6,16 +6,22 @@ Provides REST API endpoints for Valinor analysis.
 import os
 import sys
 import uuid
+import uuid as _uuid
 import json
 import asyncio
+import re as _re
 from typing import Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, status
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field, validator
+from starlette.middleware.base import BaseHTTPMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import structlog
 import redis.asyncio as redis
 
@@ -25,8 +31,26 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from adapters.valinor_adapter import ValinorAdapter, PipelineExecutor
 from shared.storage import MetadataStorage
 from api.routes.quality import router as quality_router
+from api.routes.onboarding import router as onboarding_router
 
 logger = structlog.get_logger()
+
+# ═══ INPUT VALIDATION HELPERS ═══
+
+def _validate_client_name(name: str) -> str:
+    if not name or len(name) > 100:
+        raise ValueError("client_name must be 1-100 characters")
+    if not _re.match(r'^[a-zA-Z0-9_\-\.]+$', name):
+        raise ValueError("client_name may only contain alphanumeric characters, underscore, hyphen, dot")
+    return name
+
+def _validate_period(period: str) -> str:
+    if not period:
+        return period
+    patterns = [r'^Q[1-4]-\d{4}$', r'^H[12]-\d{4}$', r'^\d{4}$', r'^[A-Z][a-z]+-\d{4}$']
+    if not any(_re.match(p, period) for p in patterns):
+        raise ValueError(f"Invalid period format: {period}. Expected: Q1-2025, H1-2025, 2025")
+    return period
 
 # Configure FastAPI app
 app = FastAPI(
@@ -37,6 +61,11 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Add CORS middleware for development
 app.add_middleware(
     CORSMiddleware,
@@ -46,8 +75,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Security headers middleware
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # Don't add HSTS in dev since we're on HTTP
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Request ID tracing middleware
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        request_id = request.headers.get("X-Request-ID", str(_uuid.uuid4())[:8])
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+app.add_middleware(RequestIDMiddleware)
+
 # Register routers
 app.include_router(quality_router)
+app.include_router(onboarding_router)
 
 # Global components
 redis_client = None
@@ -229,25 +283,45 @@ async def health_check():
     }
 
 @app.post("/api/analyze", response_model=Dict[str, str], summary="Start analysis")
+@limiter.limit("10/minute")
 async def start_analysis(
+    http_request: Request,
     request: AnalysisRequest,
     background_tasks: BackgroundTasks,
     redis_client: redis.Redis = Depends(get_redis)
 ):
     """
     Start a new Valinor analysis job.
-    
+
     Returns immediately with job ID. Use /api/jobs/{job_id}/status to track progress.
     """
+    # Input validation
+    if request.client_name:
+        try:
+            _validate_client_name(request.client_name)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    if request.period:
+        try:
+            _validate_period(request.period)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    if request.db_config.port < 1 or request.db_config.port > 65535:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="db_config.port must be between 1 and 65535")
+    if request.ssh_config:
+        ssh_host = request.ssh_config.host
+        if not ssh_host or not _re.match(r'^[a-zA-Z0-9\.\-\_]+$', ssh_host):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="ssh_config.host contains invalid characters")
+
     job_id = str(uuid.uuid4())
-    
+
     logger.info(
         "Starting analysis",
         job_id=job_id,
         client=request.client_name,
         period=request.period
     )
-    
+
     try:
         # Store job request in Redis
         client_name = request.client_name or request.db_config.get_db_name() or "unknown"
@@ -471,43 +545,45 @@ async def download_file(job_id: str, filename: str):
 
 @app.get("/api/jobs", summary="List jobs")
 async def list_jobs(
-    limit: int = 10,
-    redis_client: redis.Redis = Depends(get_redis)
+    limit: int = 20,
+    status_filter: Optional[str] = None,
 ):
     """
-    List recent analysis jobs.
+    List recent analysis jobs with optional status filter.
+    Use status_filter=completed|failed|pending|running|cancelled.
     """
-    try:
-        # Get all job keys
-        job_keys = await redis_client.keys("job:*")
-        job_keys = [key for key in job_keys if not key.endswith(":results")]
-        
-        jobs = []
-        for key in job_keys[-limit:]:  # Get latest jobs
-            job_data = await redis_client.hgetall(key)
-            if job_data:
-                jobs.append({
-                    "job_id": job_data.get("job_id"),
-                    "client_name": job_data.get("client_name"),
-                    "period": job_data.get("period"),
-                    "status": job_data.get("status"),
-                    "created_at": job_data.get("created_at")
-                })
-        
-        # Sort by creation time (newest first)
-        jobs.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-        
-        return {
-            "jobs": jobs,
-            "total": len(jobs)
-        }
-        
-    except Exception as e:
-        logger.error("Failed to list jobs", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list jobs: {str(e)}"
-        )
+    redis_client = await get_redis()
+
+    # Scan for job keys (scan_iter avoids blocking)
+    job_keys = []
+    async for key in redis_client.scan_iter("job:*"):
+        key_str = key if isinstance(key, str) else key.decode()
+        if ":results" not in key_str:
+            job_keys.append(key_str)
+
+    jobs = []
+    for key in job_keys:
+        job_data = await redis_client.hgetall(key)
+        if not job_data:
+            continue
+        job_id_val = key.replace("job:", "")
+        job_status = job_data.get("status", "unknown")
+        if status_filter and job_status != status_filter:
+            continue
+        jobs.append({
+            "job_id": job_id_val,
+            "status": job_status,
+            "client_name": job_data.get("client_name", "unknown"),
+            "period": job_data.get("period"),
+            "created_at": job_data.get("created_at"),
+            "completed_at": job_data.get("completed_at"),
+            "stage": job_data.get("stage"),
+            "progress": job_data.get("progress"),
+        })
+
+    # Sort by created_at desc
+    jobs.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    return {"jobs": jobs[:limit], "total": len(jobs)}
 
 # ── Client Profile endpoints ──────────────────────────────────────────────────
 
@@ -691,7 +767,8 @@ async def get_client_stats(client_name: str):
 # ── PDF Export ───────────────────────────────────────────────────────────────
 
 @app.get("/api/jobs/{job_id}/pdf")
-async def download_report_pdf(job_id: str):
+@limiter.limit("30/minute")
+async def download_report_pdf(request: Request, job_id: str):
     """
     Generate and return a branded PDF for a completed analysis job.
     """
@@ -965,43 +1042,6 @@ async def cancel_job(job_id: str):
         "cancelled_at": datetime.utcnow().isoformat(),
     })
     return {"status": "cancelled", "job_id": job_id}
-
-
-@app.get("/api/jobs")
-async def list_jobs(limit: int = 20, status_filter: Optional[str] = None):
-    """List recent jobs with optional status filter (use status_filter=completed|failed|pending|running|cancelled)."""
-    redis_client = await get_redis()
-
-    # Scan for job keys
-    job_keys = []
-    async for key in redis_client.scan_iter("job:*"):
-        key_str = key if isinstance(key, str) else key.decode()
-        # Skip results keys
-        if ":results" not in key_str:
-            job_keys.append(key_str)
-
-    jobs = []
-    for key in job_keys[-limit:]:
-        job_data = await redis_client.hgetall(key)
-        if not job_data:
-            continue
-        job_id = key.replace("job:", "")
-        job_status = job_data.get("status", "unknown")
-        if status_filter and job_status != status_filter:
-            continue
-        jobs.append({
-            "job_id": job_id,
-            "status": job_status,
-            "client_name": job_data.get("client_name", "unknown"),
-            "created_at": job_data.get("created_at"),
-            "completed_at": job_data.get("completed_at"),
-            "stage": job_data.get("stage"),
-            "progress": job_data.get("progress"),
-        })
-
-    # Sort by created_at desc
-    jobs.sort(key=lambda x: x.get("created_at") or "", reverse=True)
-    return {"jobs": jobs[:limit], "total": len(jobs)}
 
 
 @app.post("/api/jobs/{job_id}/retry")

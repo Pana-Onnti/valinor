@@ -8,6 +8,7 @@ and produces a comprehensive executive summary with action calendar.
 import json
 
 from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+from valinor.agents.narrators.system_prompts import build_executive_system_prompt
 
 
 SYSTEM_PROMPT = """
@@ -87,9 +88,12 @@ async def narrate_executive(
     baseline: dict,
 ) -> str:
     """Produce the executive summary synthesizing all agents."""
+    # Build enhanced system prompt with DQ context, factor model, and Output KO methodology
+    enhanced_system = build_executive_system_prompt(memory or {}) + "\n\n" + SYSTEM_PROMPT
+
     options = ClaudeAgentOptions(
         model="sonnet",
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=enhanced_system,
         max_turns=15,
     )
 

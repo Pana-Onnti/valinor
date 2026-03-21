@@ -217,11 +217,17 @@ function Step2Connection({
   errors,
   watch,
   dbType,
+  testResult,
+  testingConnection,
+  onTestConnection,
 }: {
   register: any
   errors: any
   watch: any
   dbType: string
+  testResult: null | { success: boolean; latency_ms?: number; erp_detected?: string; error?: string; table_count?: number }
+  testingConnection: boolean
+  onTestConnection: () => void
 }) {
   const useSsh = watch('use_ssh')
 
@@ -274,6 +280,30 @@ function Step2Connection({
           <input {...register('db_password')} type="password" placeholder="••••••••"
             className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
           {errors.db_password && <p className="text-xs text-red-500 mt-1">{errors.db_password.message}</p>}
+        </div>
+
+        {/* Test connection button */}
+        <div className="col-span-2 mt-1">
+          <button
+            type="button"
+            onClick={onTestConnection}
+            disabled={testingConnection || !watch('db_host') || !watch('db_user')}
+            className="w-full py-2 px-4 rounded-lg border-2 border-violet-200 text-violet-700 hover:border-violet-400 disabled:opacity-50 text-sm"
+          >
+            {testingConnection ? 'Probando...' : 'Probar conexión'}
+          </button>
+
+          {testResult && (
+            <div className={`mt-2 rounded-lg p-3 text-sm ${testResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+              {testResult.success ? (
+                <div className="text-green-800">
+                  ✓ Conectado ({testResult.latency_ms}ms) · ERP: {testResult.erp_detected} · {testResult.table_count} tablas
+                </div>
+              ) : (
+                <div className="text-red-800">✗ Error: {testResult.error}</div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -451,6 +481,8 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
   const [period, setPeriod] = useState('Q1-2026')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<null | { success: boolean; latency_ms?: number; erp_detected?: string; error?: string; table_count?: number }>(null)
+  const [testingConnection, setTestingConnection] = useState(false)
 
   const {
     register,
@@ -469,6 +501,31 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
     setValue('erp_type', id)
     setValue('db_type', db)
     setValue('client_name', clientName)
+  }
+
+  const handleTestConnection = async () => {
+    setTestingConnection(true)
+    setTestResult(null)
+    try {
+      const v = getValues()
+      const r = await fetch(`${API_URL}/api/onboarding/test-connection`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host: v.db_host,
+          port: Number(v.db_port) || 5432,
+          database: v.db_name,
+          user: v.db_user,
+          password: v.db_password,
+          db_type: v.db_type || 'postgresql',
+        }),
+      })
+      setTestResult(await r.json())
+    } catch {
+      setTestResult({ success: false, error: 'No se pudo conectar con la API' })
+    } finally {
+      setTestingConnection(false)
+    }
   }
 
   const canProceed = () => {

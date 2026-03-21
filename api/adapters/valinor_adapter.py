@@ -631,6 +631,21 @@ RETURN ONLY THE JSON OBJECT."""
             await self._progress("narrators", 80, "Generating executive reports...")
 
             report_text = await narrate_executive(findings, entity_map, memory, config, baseline)
+
+            # Post-process report with quality certification
+            try:
+                from valinor.agents.narrators.quality_certifier import certify_report
+                _dq_score = results.get("data_quality", {}).get("score", 75.0)
+                _dq_label = results.get("data_quality", {}).get("confidence_label", "PROVISIONAL")
+                if isinstance(report_text, str):
+                    report_text = certify_report(report_text, _dq_label, _dq_score)
+                elif isinstance(report_text, dict):
+                    for key in report_text:
+                        if isinstance(report_text[key], str):
+                            report_text[key] = certify_report(report_text[key], _dq_label, _dq_score)
+            except Exception as _cert_err:
+                logger.warning("Quality certifier failed", error=str(_cert_err))
+
             reports = {"executive": report_text} if isinstance(report_text, str) else report_text
             results["stages"]["narrators"] = {
                 "reports_generated": len(reports),
