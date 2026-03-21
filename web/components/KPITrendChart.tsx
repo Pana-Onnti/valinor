@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { T } from '@/components/d4c/tokens'
 
 interface DataPoint {
   period: string
@@ -41,20 +41,28 @@ export function KPITrendChart({ label, dataPoints }: KPITrendChartProps) {
     : 'flat'
 
   const latestPoint = dataPoints[dataPoints.length - 1]
+  const trendColor = trend === 'up' ? T.accent.teal : trend === 'down' ? T.accent.red : T.text.tertiary
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 hover:shadow-md transition-all">
-      <p className="text-xs text-gray-400 mb-1 truncate">{label}</p>
-      <p className="text-lg font-bold text-gray-900 dark:text-white leading-none mb-2">
+    <div style={{
+      backgroundColor: T.bg.card,
+      borderRadius: T.radius.md,
+      border: T.border.card,
+      padding: T.space.md,
+    }}>
+      <p style={{ fontSize: 11, color: T.text.tertiary, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {label}
+      </p>
+      <p style={{ fontSize: 18, fontWeight: 700, color: T.text.primary, lineHeight: 1, marginBottom: 8, fontFamily: T.font.mono }}>
         {latestPoint?.value || '—'}
       </p>
 
       {numeric.length >= 2 && (
-        <svg width="120" height="32" className="mb-2 overflow-visible">
+        <svg width="120" height="32" style={{ display: 'block', marginBottom: 8, overflow: 'visible' }}>
           <path
             d={sparklinePath(numeric)}
             fill="none"
-            stroke={trend === 'up' ? '#10b981' : trend === 'down' ? '#ef4444' : '#6b7280'}
+            stroke={trendColor}
             strokeWidth="1.5"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -62,16 +70,11 @@ export function KPITrendChart({ label, dataPoints }: KPITrendChartProps) {
         </svg>
       )}
 
-      <div className="flex items-center gap-1 text-xs">
-        {trend === 'up' && <TrendingUp className="h-3 w-3 text-emerald-500" />}
-        {trend === 'down' && <TrendingDown className="h-3 w-3 text-red-500" />}
-        {trend === 'flat' && <Minus className="h-3 w-3 text-gray-400" />}
-        <span className={
-          trend === 'up' ? 'text-emerald-600 dark:text-emerald-400' :
-          trend === 'down' ? 'text-red-600 dark:text-red-400' : 'text-gray-400'
-        }>
-          {dataPoints.length} períodos
-        </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        {trend === 'up'   && <TrendingUp  size={12} style={{ color: trendColor }} />}
+        {trend === 'down' && <TrendingDown size={12} style={{ color: trendColor }} />}
+        {trend === 'flat' && <Minus        size={12} style={{ color: trendColor }} />}
+        <span style={{ fontSize: 11, color: trendColor }}>{dataPoints.length} períodos</span>
       </div>
     </div>
   )
