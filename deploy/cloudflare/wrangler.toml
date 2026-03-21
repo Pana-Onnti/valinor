@@ -1,0 +1,20 @@
+name = "valinor-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+API_BACKEND_URL = "https://api.valinor.internal"
+ENVIRONMENT = "production"
+
+[[routes]]
+pattern = "api.valinor.app/*"
+zone_name = "valinor.app"
+
+[env.staging]
+name = "valinor-api-staging"
+vars = { ENVIRONMENT = "staging" }
+
+[[env.staging.routes]]
+pattern = "api-staging.valinor.app/*"
+zone_name = "valinor.app"

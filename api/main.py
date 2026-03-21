@@ -15,10 +15,11 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, status, Request, WebSocket, WebSocketDisconnect, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -58,6 +59,33 @@ def _validate_period(period: str) -> str:
         raise ValueError(f"Invalid period format: {period}. Expected: Q1-2025, H1-2025, 2025")
     return period
 
+# Global components (declared before lifespan so lifespan can reference them)
+redis_client = None
+metadata_storage = MetadataStorage()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI lifespan: initialize and cleanup application components."""
+    global redis_client
+    logger.info("Starting Valinor SaaS API...")
+    try:
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        redis_client = redis.from_url(redis_url, decode_responses=True)
+        await redis_client.ping()
+        logger.info("Redis connection established", redis_url=redis_url)
+        await metadata_storage.health_check()
+        logger.info("Metadata storage initialized")
+    except Exception as e:
+        logger.error("Startup failed", error=str(e))
+        raise
+    yield
+    logger.info("Shutting down Valinor SaaS API...")
+    if redis_client:
+        await redis_client.close()
+    redis_client = None
+
+
 # Configure FastAPI app
 app = FastAPI(
     title="Valinor SaaS API",
@@ -91,6 +119,7 @@ Implementa estándares de: Renaissance Technologies, Bloomberg Terminal, ECB, Bi
     license_info={"name": "Proprietary"},
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # Rate limiter
@@ -183,10 +212,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 app.include_router(quality_router)
 app.include_router(onboarding_router)
 
-# Global components
-redis_client = None
-metadata_storage = MetadataStorage()
-
 # ═══ REQUEST/RESPONSE MODELS ═══
 
 class SSHConfig(BaseModel):
@@ -240,7 +265,8 @@ class AnalysisRequest(BaseModel):
     fiscal_context: Optional[str] = Field("generic", description="Fiscal context")
     overrides: Optional[Dict[str, Any]] = Field({}, description="Configuration overrides")
     
-    @validator('period', pre=True, always=True)
+    @field_validator('period', mode='before')
+    @classmethod
     def validate_period(cls, v):
         """Validate period format."""
         if v is None:
@@ -281,40 +307,6 @@ class AnalysisResults(BaseModel):
     findings: Optional[Dict[str, Any]] = None
     reports: Optional[Dict[str, Any]] = None
     download_urls: Optional[Dict[str, str]] = None
-
-# ═══ STARTUP/SHUTDOWN ═══
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize application components."""
-    global redis_client
-    
-    logger.info("Starting Valinor SaaS API...")
-    
-    try:
-        # Initialize Redis connection
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-        redis_client = redis.from_url(redis_url, decode_responses=True)
-        await redis_client.ping()
-        logger.info("Redis connection established", redis_url=redis_url)
-        
-        # Test metadata storage
-        await metadata_storage.health_check()
-        logger.info("Metadata storage initialized")
-        
-    except Exception as e:
-        logger.error("Startup failed", error=str(e))
-        raise
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown."""
-    global redis_client
-    
-    logger.info("Shutting down Valinor SaaS API...")
-    
-    if redis_client:
-        await redis_client.close()
 
 # ═══ DEPENDENCY INJECTION ═══
 
@@ -446,7 +438,7 @@ async def start_analysis(
                 }
             )
         # Build a sanitized copy of the request for retry support (no passwords)
-        request_dict = request.dict()
+        request_dict = request.model_dump()
         safe_request = json.loads(json.dumps(request_dict, default=str))
         for sensitive_key in ("password", "ssh_password", "private_key", "ssh_private_key"):
             if "db_config" in safe_request and isinstance(safe_request["db_config"], dict):
@@ -460,7 +452,7 @@ async def start_analysis(
             "client_name": client_name,
             "period": period,
             "created_at": datetime.utcnow().isoformat(),
-            "request": json.dumps(request.dict()),
+            "request": json.dumps(request.model_dump()),
             "request_data": json.dumps(safe_request),
         }
 
@@ -476,17 +468,56 @@ async def start_analysis(
         }))
         await redis_client.ltrim("audit_log", 0, 999)
 
-        # Queue background task
-        background_tasks.add_task(
-            run_analysis_task,
-            job_id,
-            request.dict()
-        )
-        
+        # Queue background task — use Celery when CELERY_ENABLED=true, otherwise
+        # fall back to FastAPI BackgroundTasks (preserves current behaviour).
+        celery_enabled = os.getenv("CELERY_ENABLED", "false").lower() in ("1", "true", "yes")
+        if celery_enabled:
+            try:
+                from worker.tasks import run_analysis_task as _celery_run_analysis_task
+
+                _req_dict = request.model_dump()
+                _connection_config = {
+                    "ssh_config": _req_dict.get("ssh_config"),
+                    "db_config": _req_dict.get("db_config"),
+                }
+                _analysis_config = {
+                    "sector": request.sector,
+                    "country": request.country or "US",
+                    "currency": request.currency or "USD",
+                    "language": request.language or "en",
+                    "erp": request.erp,
+                    "fiscal_context": request.fiscal_context or "generic",
+                    "overrides": request.overrides or {},
+                }
+                _celery_run_analysis_task.apply_async(
+                    kwargs={
+                        "job_id": job_id,
+                        "client_name": client_name,
+                        "connection_config": _connection_config,
+                        "period": period,
+                        "analysis_config": _analysis_config,
+                    },
+                    queue="valinor",
+                )
+                logger.info("Analysis dispatched to Celery", job_id=job_id, client=client_name)
+            except Exception as _celery_err:
+                logger.warning(
+                    "Celery dispatch failed, falling back to BackgroundTasks",
+                    job_id=job_id,
+                    error=str(_celery_err),
+                )
+                background_tasks.add_task(run_analysis_task, job_id, request.model_dump())
+        else:
+            background_tasks.add_task(
+                run_analysis_task,
+                job_id,
+                request.model_dump(),
+            )
+
         return {
             "job_id": job_id,
             "status": "pending",
-            "message": "Analysis queued successfully"
+            "message": "Analysis queued successfully",
         }
         
     except HTTPException:
@@ -785,6 +816,80 @@ async def get_job_results(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get job results: {str(e)}"
+        )
+
+
+@app.get("/api/jobs/{job_id}/export/pdf", summary="Export job results as PDF", tags=["Jobs"])
+@limiter.limit("10/minute")
+async def export_job_pdf(
+    request: Request,
+    job_id: str,
+    redis_client: redis.Redis = Depends(get_redis),
+):
+    """
+    Generate and download a PDF report for a completed analysis job.
+
+    - Returns **404** if the job does not exist in Redis.
+    - Returns **400** if the job has not yet completed.
+    - Returns a **application/pdf** response with a Content-Disposition header
+      so browsers trigger a file download.
+    """
+    from fastapi.responses import Response as _Response
+    from shared.pdf_generator import generate_pdf_report
+
+    try:
+        job_data = await redis_client.hgetall(f"job:{job_id}")
+
+        if not job_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Job not found",
+            )
+
+        job_status = job_data.get("status", "unknown")
+        if job_status != "completed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Job not completed. Current status: {job_status}",
+            )
+
+        results_raw = await redis_client.get(f"job:{job_id}:results")
+        if results_raw:
+            results = json.loads(results_raw)
+        else:
+            # Fallback: build minimal results from job hash metadata
+            results = {
+                "job_id": job_id,
+                "client_name": job_data.get("client_name", "N/A"),
+                "period": job_data.get("period", "N/A"),
+                "status": job_status,
+                "execution_time_seconds": None,
+                "timestamp": job_data.get("completed_at", job_data.get("created_at")),
+            }
+
+        pdf_bytes = generate_pdf_report(results)
+
+        client_name = results.get("client_name", "report")
+        period = results.get("period", "")
+        filename = f"valinor_{client_name}_{period}.pdf".replace(" ", "_")
+
+        return _Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "Failed to export PDF",
+            job_id=job_id,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate PDF: {str(e)}",
         )
 
 

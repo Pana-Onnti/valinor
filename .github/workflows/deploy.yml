@@ -75,9 +75,11 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Deploy API Gateway
-        working-directory: ./apps/api-gateway
-        run: npx wrangler deploy --env staging
+      - name: Deploy API Gateway (Cloudflare Worker)
+        working-directory: ./deploy/cloudflare
+        run: |
+          npm ci --silent
+          npx wrangler deploy --env staging
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -128,9 +130,11 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Deploy API Gateway
-        working-directory: ./apps/api-gateway
-        run: npx wrangler deploy --env production
+      - name: Deploy API Gateway (Cloudflare Worker)
+        working-directory: ./deploy/cloudflare
+        run: |
+          npm ci --silent
+          npx wrangler deploy --env production
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 

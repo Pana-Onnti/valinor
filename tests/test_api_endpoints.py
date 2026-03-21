@@ -567,3 +567,160 @@ class TestValidatePeriodEndpoint:
             "/api/onboarding/validate-period", json={"period": "Q3-2026"}
         )
         assert response.json()["period"] == "Q3-2026"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/jobs/{job_id}/export/pdf
+# ---------------------------------------------------------------------------
+
+
+class TestPDFExportEndpoint:
+    """Tests for the lightweight stdlib-based PDF export endpoint."""
+
+    _COMPLETED_JOB = {
+        "job_id": "pdf-test-job-001",
+        "status": "completed",
+        "client_name": "test-client",
+        "period": "Q1-2026",
+        "created_at": "2026-03-21T10:00:00",
+        "completed_at": "2026-03-21T10:01:00",
+    }
+
+    _RESULTS_PAYLOAD = json.dumps(
+        {
+            "job_id": "pdf-test-job-001",
+            "client_name": "test-client",
+            "period": "Q1-2026",
+            "status": "completed",
+            "execution_time_seconds": 60.0,
+            "timestamp": "2026-03-21T10:01:00",
+            "findings": {},
+            "reports": {
+                "executive": "Valinor completed the analysis. No critical findings."
+            },
+        }
+    )
+
+    @pytest.mark.asyncio
+    async def test_pdf_export_completed_job(self, client, redis_mock):
+        """A completed job with results in Redis returns 200 with application/pdf."""
+        redis_mock.hgetall = AsyncMock(return_value=self._COMPLETED_JOB)
+        redis_mock.get = AsyncMock(return_value=self._RESULTS_PAYLOAD)
+
+        response = await client.get("/api/jobs/pdf-test-job-001/export/pdf")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        # Verify it looks like a real PDF (starts with the PDF magic header)
+        assert response.content[:5] == b"%PDF-"
+
+    @pytest.mark.asyncio
+    async def test_pdf_export_job_not_completed(self, client, redis_mock):
+        """A job that is still running must return 400."""
+        redis_mock.hgetall = AsyncMock(
+            return_value={
+                "job_id": "running-job-002",
+                "status": "running",
+                "client_name": "test-client",
+                "period": "Q1-2026",
+            }
+        )
+        redis_mock.get = AsyncMock(return_value=None)
+
+        response = await client.get("/api/jobs/running-job-002/export/pdf")
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_pdf_export_job_not_found(self, client, redis_mock):
+        """An unknown job_id must return 404."""
+        redis_mock.hgetall = AsyncMock(return_value={})
+
+        response = await client.get("/api/jobs/nonexistent-999/export/pdf")
+
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/clients/{name}/dq-history
+# ---------------------------------------------------------------------------
+
+
+class TestDQHistoryEndpoint:
+    """
+    Tests for the DQ history endpoint.
+    The endpoint calls `get_profile_store` inline, so we patch the stub module's
+    attribute directly, following the same pattern as TestSystemMetricsEndpoint.
+    """
+
+    @staticmethod
+    def _dq_history_patch(profile_mock):
+        """Context manager that patches profile store for inline import in endpoint."""
+        store = _make_profile_store_mock()
+        store.load = AsyncMock(return_value=profile_mock)
+        return patch(
+            "shared.memory.profile_store.get_profile_store",
+            return_value=store,
+        )
+
+    @pytest.mark.asyncio
+    async def test_dq_history_returns_list(self, client):
+        """Profile with 3 DQ history entries returns a list of 3 and a trend key."""
+        dq_entries = [
+            {"run_id": "r1", "score": 0.95, "passed": 8, "failed": 0},
+            {"run_id": "r2", "score": 0.87, "passed": 7, "failed": 1},
+            {"run_id": "r3", "score": 0.91, "passed": 8, "failed": 0},
+        ]
+        profile_mock = MagicMock()
+        profile_mock.dq_history = dq_entries
+
+        with self._dq_history_patch(profile_mock):
+            response = await client.get("/api/clients/test-client/dq-history")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "dq_history" in data
+        assert len(data["dq_history"]) == 3
+        assert "trend" in data
+
+    @pytest.mark.asyncio
+    async def test_dq_history_empty_profile(self, client):
+        """Profile with no DQ history returns an empty list gracefully."""
+        profile_mock = MagicMock()
+        profile_mock.dq_history = []
+
+        with self._dq_history_patch(profile_mock):
+            response = await client.get("/api/clients/test-client/dq-history")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "dq_history" in data
+        assert data["dq_history"] == []
+
+
+# ---------------------------------------------------------------------------
+# GET /api/clients/comparison
+# ---------------------------------------------------------------------------
+
+
+class TestClientComparisonEndpoint:
+    """Tests for the client comparison endpoint."""
+
+    @staticmethod
+    def _comparison_patch():
+        """Context manager that patches profile store for inline import in endpoint."""
+        store = _make_profile_store_mock()
+        return patch(
+            "shared.memory.profile_store.get_profile_store",
+            return_value=store,
+        )
+
+    @pytest.mark.asyncio
+    async def test_comparison_returns_clients(self, client):
+        """GET /api/clients/comparison should return 200 with a 'clients' key."""
+        with self._comparison_patch():
+            response = await client.get("/api/clients/comparison")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "clients" in data

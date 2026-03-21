@@ -2,6 +2,21 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
+// ── Job types ─────────────────────────────────────────────────────────────────
+
+interface JobSummary {
+  job_id: string;
+  client_name: string;
+  status: string;
+  period?: string;
+  started_at?: string;
+}
+
+interface JobsResponse {
+  jobs: JobSummary[];
+  total?: number;
+}
+
 interface ClientComparison {
   client_name: string;
   avg_dq_score: number;
@@ -149,6 +164,108 @@ function SystemHealthBar() {
   );
 }
 
+// ── Status badge ─────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    completed:  'bg-emerald-100 text-emerald-700',
+    success:    'bg-emerald-100 text-emerald-700',
+    running:    'bg-blue-100 text-blue-700',
+    pending:    'bg-yellow-100 text-yellow-700',
+    queued:     'bg-yellow-100 text-yellow-700',
+    failed:     'bg-red-100 text-red-700',
+    error:      'bg-red-100 text-red-700',
+  };
+  const cls = map[status?.toLowerCase()] ?? 'bg-gray-100 text-gray-600';
+  return (
+    <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}`}>
+      {status}
+    </span>
+  );
+}
+
+// ── Recent Jobs Section ───────────────────────────────────────────────────────
+
+function RecentJobsSection() {
+  const [jobs, setJobs] = useState<JobSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    fetch(`${API}/api/jobs?page=1&page_size=5`)
+      .then(r => r.json())
+      .then((data: JobsResponse) => setJobs(data.jobs || []))
+      .catch(() => setJobs([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const formatDate = (iso?: string) => {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleString('es-ES', {
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+    } catch {
+      return iso;
+    }
+  };
+
+  const truncateId = (id: string) =>
+    id.length > 12 ? `${id.slice(0, 8)}…` : id;
+
+  return (
+    <div className="mt-8">
+      <h2 className="text-lg font-semibold text-gray-900 mb-3">Jobs recientes</h2>
+      <div className="bg-white rounded-xl border overflow-hidden">
+        {/* Column headers */}
+        <div className="grid grid-cols-5 gap-2 px-5 py-2 border-b bg-gray-50 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+          <span>Job ID</span>
+          <span>Cliente</span>
+          <span>Estado</span>
+          <span>Período</span>
+          <span className="text-right">Iniciado</span>
+        </div>
+
+        {loading ? (
+          <div className="divide-y">
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="grid grid-cols-5 gap-2 px-5 py-3 animate-pulse">
+                {[1, 2, 3, 4, 5].map(j => (
+                  <div key={j} className="h-3 bg-gray-200 rounded w-3/4" />
+                ))}
+              </div>
+            ))}
+          </div>
+        ) : jobs.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-gray-400">
+            Sin jobs recientes
+          </div>
+        ) : (
+          <div className="divide-y">
+            {jobs.map(job => (
+              <Link
+                key={job.job_id}
+                href={`/clients/${encodeURIComponent(job.client_name)}`}
+                className="grid grid-cols-5 gap-2 px-5 py-3 text-sm hover:bg-gray-50 transition-colors items-center"
+              >
+                <span className="font-mono text-gray-500 text-xs"
+                  title={job.job_id}>
+                  {truncateId(job.job_id)}
+                </span>
+                <span className="text-gray-900 font-medium truncate">{job.client_name}</span>
+                <span><StatusBadge status={job.status} /></span>
+                <span className="text-gray-500 font-mono text-xs">{job.period || '—'}</span>
+                <span className="text-right text-gray-400 text-xs">{formatDate(job.started_at)}</span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [clients, setClients] = useState<ClientSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -273,6 +390,9 @@ export default function DashboardPage() {
             <ClientComparisonTable rows={comparison} />
           </div>
         )}
+
+        {/* Recent jobs */}
+        <RecentJobsSection />
       </div>
     </div>
   );

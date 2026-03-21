@@ -40,6 +40,7 @@ from shared.ssh_tunnel import create_ssh_tunnel, ZeroTrustValidator
 from shared.storage import MetadataStorage
 from shared.memory.profile_store import get_profile_store
 from shared.memory.profile_extractor import get_profile_extractor
+from shared.webhook_dispatcher import WebhookDispatcher, create_webhook_payload
 from api.refinement.prompt_tuner import PromptTuner
 from api.refinement.focus_ranker import FocusRanker
 from api.refinement.refinement_agent import RefinementAgent
@@ -969,6 +970,36 @@ RETURN ONLY THE JSON OBJECT."""
             # Update legacy memory for backward compatibility
             new_memory = self._build_memory(entity_map, findings, results, memory)
             await self.metadata_storage.store_client_memory(client_name, period, new_memory)
+
+            # ── Dispatch analysis_completed webhook ───────────────────────────
+            if getattr(profile, "webhooks", None) and results.get("status") == "completed":
+                try:
+                    _findings_count = sum(
+                        len(v.get("findings", [])) if isinstance(v, dict) else 0
+                        for v in findings.values()
+                    ) if isinstance(findings, dict) else 0
+                    _webhook_data = {
+                        "job_id": job_id,
+                        "client_name": client_name,
+                        "period": period,
+                        "findings_count": _findings_count,
+                        "run_delta": run_delta,
+                    }
+                    _webhook_payload = create_webhook_payload(
+                        "analysis_completed", _webhook_data, client_name
+                    )
+                    _dispatcher = WebhookDispatcher()
+                    asyncio.create_task(
+                        _dispatcher.dispatch(profile, "analysis_completed", _webhook_payload)
+                    )
+                    logger.info(
+                        "Webhook dispatch queued",
+                        client=client_name,
+                        event="analysis_completed",
+                        webhooks_registered=len(profile.webhooks),
+                    )
+                except Exception as _wh_err:
+                    logger.warning("Webhook dispatch setup failed", error=str(_wh_err))
 
             return results
 
