@@ -630,6 +630,244 @@ async def get_client_stats(client_name: str):
     }
 
 
+# ── PDF Export ───────────────────────────────────────────────────────────────
+
+@app.get("/api/jobs/{job_id}/pdf")
+async def download_report_pdf(job_id: str):
+    """
+    Generate and return a branded PDF for a completed analysis job.
+    """
+    from fastapi.responses import Response
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+    # Load results from Redis
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Redis not available")
+
+    results_raw = await redis_client.get(f"job:{job_id}:results")
+    if not results_raw:
+        raise HTTPException(status_code=404, detail="Job results not found")
+
+    import json as _json
+    results = _json.loads(results_raw)
+
+    reports = results.get("reports", {})
+    executive_report = reports.get("executive", "")
+    if not executive_report:
+        raise HTTPException(status_code=404, detail="No executive report found")
+
+    client_name = results.get("client_name", "Cliente")
+    period = results.get("period", "")
+    run_delta = results.get("run_delta", {})
+
+    # Build findings summary
+    findings = results.get("findings", {})
+    findings_summary = {
+        "critical": sum(
+            1 for af in findings.values() if isinstance(af, dict)
+            for f in af.get("findings", []) if f.get("severity", "").upper() == "CRITICAL"
+        ),
+        "high": sum(
+            1 for af in findings.values() if isinstance(af, dict)
+            for f in af.get("findings", []) if f.get("severity", "").upper() == "HIGH"
+        ),
+        "medium": sum(
+            1 for af in findings.values() if isinstance(af, dict)
+            for f in af.get("findings", []) if f.get("severity", "").upper() == "MEDIUM"
+        ),
+        "new": len(run_delta.get("new", [])),
+        "resolved": len(run_delta.get("resolved", [])),
+    }
+
+    try:
+        from api.pdf_generator import BrandedPDFGenerator
+        pdf_bytes = BrandedPDFGenerator().generate(
+            report_markdown=executive_report,
+            client_name=client_name,
+            period=period,
+            run_delta=run_delta,
+            findings_summary=findings_summary,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+
+    filename = f"valinor_{client_name}_{period}.pdf".replace(" ", "_")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── Alert Thresholds ──────────────────────────────────────────────────────────
+
+@app.get("/api/clients/{client_name}/alerts")
+async def get_client_alerts(client_name: str):
+    """Get alert thresholds and recent triggers for a client."""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail="No profile found")
+
+    return {
+        "client_name": client_name,
+        "thresholds": profile.alert_thresholds,
+        "triggered_alerts": (profile.triggered_alerts or [])[-10:],
+    }
+
+
+@app.post("/api/clients/{client_name}/alerts")
+async def add_alert_threshold(client_name: str, threshold: dict):
+    """
+    Add an alert threshold for a client.
+    Body: {"label": "Alerta cobranza", "metric": "Cobranza Pendiente", "operator": ">", "value": 1000000}
+    """
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    required = ["label", "metric", "operator", "value"]
+    if not all(k in threshold for k in required):
+        raise HTTPException(status_code=400, detail=f"Required fields: {required}")
+
+    store = get_profile_store()
+    profile = await store.load_or_create(client_name)
+
+    # Avoid duplicates
+    existing = [t for t in profile.alert_thresholds if t.get("label") == threshold["label"]]
+    if existing:
+        # Update existing
+        for t in profile.alert_thresholds:
+            if t.get("label") == threshold["label"]:
+                t.update(threshold)
+    else:
+        profile.alert_thresholds.append({**threshold, "triggered": False, "created_at": datetime.utcnow().isoformat()})
+
+    await store.save(profile)
+    return {"status": "ok", "thresholds_count": len(profile.alert_thresholds)}
+
+
+@app.delete("/api/clients/{client_name}/alerts/{alert_label}")
+async def delete_alert_threshold(client_name: str, alert_label: str):
+    """Remove an alert threshold."""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load_or_create(client_name)
+    profile.alert_thresholds = [t for t in profile.alert_thresholds if t.get("label") != alert_label]
+    await store.save(profile)
+    return {"status": "deleted"}
+
+
+# ── Email Digest ──────────────────────────────────────────────────────────────
+
+@app.get("/api/jobs/{job_id}/digest")
+async def preview_email_digest(job_id: str):
+    """Preview HTML email digest for a completed job."""
+    from fastapi.responses import HTMLResponse
+    import sys, os, json as _json
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Redis not available")
+
+    results_raw = await redis_client.get(f"job:{job_id}:results")
+    if not results_raw:
+        raise HTTPException(status_code=404, detail="Job results not found")
+
+    results = _json.loads(results_raw)
+    run_delta = results.get("run_delta", {})
+    findings = results.get("findings", {})
+    client_name = results.get("client_name", "Cliente")
+    period = results.get("period", "")
+
+    # Build top findings list
+    top_findings = []
+    for agent_result in findings.values():
+        if isinstance(agent_result, dict):
+            top_findings.extend(agent_result.get("findings", []))
+    top_findings.sort(key=lambda f: {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}.get(f.get("severity","").upper(), 4))
+
+    findings_summary = {
+        "critical": sum(1 for f in top_findings if f.get("severity","").upper() == "CRITICAL"),
+        "high": sum(1 for f in top_findings if f.get("severity","").upper() == "HIGH"),
+    }
+
+    from api.email_digest import build_digest_html
+    html = build_digest_html(
+        client_name=client_name,
+        period=period,
+        run_delta=run_delta,
+        findings_summary=findings_summary,
+        top_findings=top_findings[:5],
+    )
+    return HTMLResponse(content=html)
+
+
+@app.post("/api/jobs/{job_id}/send-digest")
+async def send_email_digest(job_id: str, to_email: str):
+    """Send email digest to specified address."""
+    import sys, os, json as _json
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Redis not available")
+
+    results_raw = await redis_client.get(f"job:{job_id}:results")
+    if not results_raw:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    results = _json.loads(results_raw)
+    client_name = results.get("client_name", "Cliente")
+    period = results.get("period", "")
+
+    from api.email_digest import build_digest_html, send_digest
+    html = build_digest_html(
+        client_name=client_name,
+        period=period,
+        run_delta=results.get("run_delta", {}),
+        findings_summary={},
+        top_findings=[],
+    )
+    sent = await send_digest(
+        to_email=to_email,
+        subject=f"Valinor — {client_name} — {period} — Análisis completado",
+        html_content=html,
+    )
+    return {"status": "sent" if sent else "smtp_not_configured", "to": to_email}
+
+
+@app.get("/api/clients/{client_name}/segmentation")
+async def get_client_segmentation(client_name: str):
+    """Get latest customer segmentation for a client."""
+    from shared.memory.profile_store import get_profile_store
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    history = getattr(profile, "segmentation_history", []) or profile.__dict__.get("segmentation_history", [])
+    if not history:
+        return {"client": client_name, "segmentation": None, "message": "No segmentation data yet"}
+
+    latest = history[-1]
+    return {
+        "client": client_name,
+        "computed_at": latest.get("computed_at"),
+        "total_customers": latest.get("total_customers"),
+        "total_revenue": latest.get("total_revenue"),
+        "segments": latest.get("segments", {}),
+        "history_count": len(history),
+    }
+
+
 # ═══ BACKGROUND TASKS ═══
 
 async def progress_callback(job_id: str, stage: str, progress: int, message: str):

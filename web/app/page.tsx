@@ -6,6 +6,7 @@ import { Database, Zap, Shield, Clock, ArrowRight, Play, CheckCircle, CheckCircl
 import { AnalysisForm } from '@/components/AnalysisForm'
 import { AnalysisProgress } from '@/components/AnalysisProgress'
 import { ResultsDisplay } from '@/components/ResultsDisplay'
+import { DemoModeWrapper } from '@/components/DemoMode'
 
 export default function HomePage() {
   const [stage, setStage] = useState<'setup' | 'running' | 'complete'>('setup')
@@ -207,6 +208,10 @@ export default function HomePage() {
             >
               <AnalysisForm onStartAnalysis={handleStartAnalysis} />
             </motion.div>
+
+            <div className="mt-6">
+              <DemoModeWrapper />
+            </div>
           </>
         )}
 

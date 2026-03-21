@@ -44,6 +44,7 @@ from api.refinement.prompt_tuner import PromptTuner
 from api.refinement.focus_ranker import FocusRanker
 from api.refinement.refinement_agent import RefinementAgent
 from shared.memory.industry_detector import IndustryDetector
+from shared.memory.segmentation_engine import get_segmentation_engine
 
 logger = structlog.get_logger()
 
@@ -69,6 +70,7 @@ class ValinorAdapter:
         self.prompt_tuner = PromptTuner()
         self.focus_ranker = FocusRanker()
         self.industry_detector = IndustryDetector()
+        self.segmentation_engine = get_segmentation_engine()
 
     async def run_analysis(
         self,
@@ -466,6 +468,25 @@ RETURN ONLY THE JSON OBJECT."""
 
             await self._progress("query_execution", 50, f"Executed {len(query_results['results'])} queries")
 
+            # ── Customer segmentation from query results ──────────────────────
+            seg_result = self.segmentation_engine.segment_from_query_results(query_results, profile)
+            if seg_result:
+                self.segmentation_engine.update_profile_segments(profile, seg_result)
+                results["segmentation"] = {
+                    "total_customers": seg_result.total_customers,
+                    "total_revenue": seg_result.total_revenue,
+                    "industry": seg_result.industry,
+                    "segments": [
+                        {"name": s.name, "count": s.count, "revenue_share": round(s.revenue_share, 3),
+                         "top_customers": s.top_customers}
+                        for s in seg_result.segments
+                    ],
+                }
+                # Inject segmentation context into memory for agents
+                seg_context = self.segmentation_engine.build_context_block(seg_result, profile.currency_detected or "USD")
+                if "_segmentation_context" not in results:
+                    results["_segmentation_context"] = seg_context
+
             # ═══ STAGE 3: ANALYSIS AGENTS (PARALLEL) ═══
             await self._progress("analysis_agents", 55, "Running AI analysis agents...")
 
@@ -474,6 +495,10 @@ RETURN ONLY THE JSON OBJECT."""
 
             # Inject adaptive context from profile into memory
             memory = self.prompt_tuner.inject_into_memory(memory or {}, profile)
+
+            # Inject customer segmentation context if available
+            if results.get("_segmentation_context"):
+                memory["segmentation_context"] = results["_segmentation_context"]
 
             # Inject historical context for narrator
             if profile.run_count > 0 and profile.run_history:

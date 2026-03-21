@@ -220,9 +220,12 @@ export default function ClientHistoryPage() {
         {/* Run history table */}
         {profile.run_history.length > 0 && (
           <div>
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">
-              Historial de Runs
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+                Historial de Runs
+              </h2>
+              <a href={`/clients/${clientId}/compare`} className="text-xs text-violet-600 hover:underline">Comparar runs →</a>
+            </div>
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
               <div className="divide-y divide-gray-50 dark:divide-gray-800/50">
                 {[...profile.run_history].reverse().map((run, i) => (

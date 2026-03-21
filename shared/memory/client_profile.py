@@ -92,6 +92,14 @@ class ClientProfile:
     # ── History ───────────────────────────────────────────────────────────────
     run_history: List[Dict] = field(default_factory=list)  # last 20 runs summary
 
+    # ── Alert thresholds ──────────────────────────────────────────────────────
+    alert_thresholds: List[Dict] = field(default_factory=list)
+    # Each threshold: {"label": str, "metric": str, "operator": ">"|"<"|">="|"<=", "value": float, "currency": bool, "triggered": bool, "last_triggered": str}
+    triggered_alerts: List[Dict] = field(default_factory=list)  # last 20 triggered
+
+    # ── Segmentation history ──────────────────────────────────────────────────
+    segmentation_history: List[Dict] = field(default_factory=list)  # last 12 periods
+
     def get_refinement(self) -> ClientRefinement:
         if self.refinement:
             return ClientRefinement(**self.refinement)
