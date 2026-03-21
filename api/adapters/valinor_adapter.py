@@ -625,6 +625,59 @@ RETURN ONLY THE JSON OBJECT."""
             except Exception as _anom_err:
                 logger.warning("Anomaly detector failed", error=str(_anom_err))
 
+            # ── Benford's Law check on monetary columns ───────────────────────
+            try:
+                from core.valinor.quality.statistical_checks import benford_test
+                _benford_cols = ["grandtotal", "amount_untaxed", "amount_total", "debit", "credit"]
+                _benford_values = []
+                for _qr in query_results.get("results", []):
+                    if not isinstance(_qr, dict):
+                        continue
+                    _rows = _qr.get("rows") or _qr.get("data") or []
+                    if len(_rows) < 100:
+                        continue
+                    # Find first matching monetary column
+                    _col_found = None
+                    if _rows and isinstance(_rows[0], dict):
+                        for _col in _benford_cols:
+                            if _col in _rows[0]:
+                                _col_found = _col
+                                break
+                    if _col_found is None:
+                        continue
+                    # Extract positive values, cap at 500
+                    _vals = []
+                    for _row in _rows[:500]:
+                        _v = _row.get(_col_found)
+                        try:
+                            _fv = float(_v)
+                            if _fv > 0:
+                                _vals.append(_fv)
+                        except (TypeError, ValueError):
+                            pass
+                    if len(_vals) >= 100:
+                        _benford_values = _vals
+                        break  # Use first qualifying result set
+                if _benford_values:
+                    _bf = benford_test(_benford_values)
+                    _bf_p = _bf.get("p_value")
+                    _bf_mad = _bf.get("mad")
+                    _bf_suspicious = _bf.get("suspicious", False)
+                    if _bf_suspicious and _bf_p is not None and _bf_mad is not None:
+                        results["_benford_warning"] = {
+                            "detected": True,
+                            "chi2_pvalue": _bf_p,
+                            "mad": _bf_mad,
+                            "n_samples": _bf.get("n_samples"),
+                            "message": (
+                                f"Distribución de primeros dígitos anómala (p={_bf_p:.3f}, MAD={_bf_mad:.3f})"
+                            ),
+                        }
+                        logger.warning("Benford's Law anomaly detected in monetary column",
+                                       p_value=_bf_p, mad=_bf_mad, n_samples=_bf.get("n_samples"))
+            except Exception as _bf_err:
+                logger.warning("Benford's Law check failed, skipping", error=str(_bf_err))
+
             # ── Customer segmentation from query results ──────────────────────
             seg_result = self.segmentation_engine.segment_from_query_results(query_results, profile)
             if seg_result:
@@ -679,6 +732,13 @@ RETURN ONLY THE JSON OBJECT."""
                 memory["cusum_warning"] = (
                     f"AVISO: Ruptura estructural detectada en los ingresos (período {_period_n}). "
                     "Puede indicar un cambio de régimen del negocio."
+                )
+
+            # Inject Benford's Law warning if detected
+            if results.get("_benford_warning"):
+                memory["benford_warning"] = (
+                    "AVISO: Los valores monetarios muestran distribución anómala de primeros dígitos "
+                    "(Ley de Benford). Investigar posible manipulación."
                 )
 
             # Inject sentinel fraud patterns for available tables
