@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
+import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -25,18 +26,11 @@ interface DQHistoryResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function scoreColorClass(score: number): string {
-  if (score >= 90) return 'text-emerald-600 font-semibold'
-  if (score >= 75) return 'text-amber-600 font-semibold'
-  if (score >= 50) return 'text-orange-600 font-semibold'
-  return 'text-red-600 font-semibold'
-}
-
-function scoreBgClass(score: number): string {
-  if (score >= 90) return 'bg-emerald-100 text-emerald-700'
-  if (score >= 75) return 'bg-amber-100 text-amber-700'
-  if (score >= 50) return 'bg-orange-100 text-orange-700'
-  return 'bg-red-100 text-red-700'
+function scoreAccent(score: number): string {
+  if (score >= 90) return T.accent.teal
+  if (score >= 75) return T.accent.yellow
+  if (score >= 50) return T.accent.orange
+  return T.accent.red
 }
 
 function formatDate(iso: string): string {
@@ -56,20 +50,31 @@ function formatDate(iso: string): string {
 
 function GateDecisionBadge({ decision }: { decision?: string }) {
   if (!decision) {
-    return <span className="text-gray-400 text-xs">—</span>
+    return <span style={{ color: T.text.tertiary, fontSize: 12 }}>—</span>
   }
   const normalized = decision.toLowerCase()
-  const cls =
-    normalized === 'pass' || normalized === 'approved'
-      ? 'bg-emerald-100 text-emerald-700'
+  const color =
+    normalized === 'pass' || normalized === 'approved' || normalized === 'proceed'
+      ? T.accent.teal
       : normalized === 'warn' || normalized === 'warning'
-      ? 'bg-amber-100 text-amber-700'
-      : normalized === 'fail' || normalized === 'rejected' || normalized === 'abort'
-      ? 'bg-red-100 text-red-700'
-      : 'bg-gray-100 text-gray-600'
+      ? T.accent.yellow
+      : normalized === 'fail' || normalized === 'rejected' || normalized === 'abort' || normalized === 'halt'
+      ? T.accent.red
+      : T.text.tertiary
 
   return (
-    <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase ${cls}`}>
+    <span style={{
+      display: 'inline-block',
+      padding: '2px 10px',
+      borderRadius: 999,
+      fontSize: 11,
+      fontWeight: 600,
+      fontFamily: T.font.mono,
+      textTransform: 'uppercase',
+      backgroundColor: color + '15',
+      border: `1px solid ${color}40`,
+      color,
+    }}>
       {decision}
     </span>
   )
@@ -78,57 +83,51 @@ function GateDecisionBadge({ decision }: { decision?: string }) {
 // ── Trend Indicator ───────────────────────────────────────────────────────────
 
 function TrendIndicator({ trend }: { trend: string | null }) {
-  if (trend === 'improving') {
-    return (
-      <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200">
-        <span className="text-2xl font-bold text-emerald-600">↑</span>
-        <div>
-          <p className="text-sm font-semibold text-emerald-700">Mejorando</p>
-          <p className="text-xs text-emerald-500">La calidad de datos está en tendencia positiva</p>
-        </div>
-      </div>
-    )
-  }
-  if (trend === 'declining') {
-    return (
-      <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-50 border border-red-200">
-        <span className="text-2xl font-bold text-red-600">↓</span>
-        <div>
-          <p className="text-sm font-semibold text-red-700">Bajando</p>
-          <p className="text-xs text-red-500">La calidad de datos está en tendencia negativa</p>
-        </div>
-      </div>
-    )
-  }
-  if (trend === 'stable') {
-    return (
-      <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200">
-        <span className="text-2xl font-bold text-gray-500">→</span>
-        <div>
-          <p className="text-sm font-semibold text-gray-700">Estable</p>
-          <p className="text-xs text-gray-500">La calidad de datos se mantiene sin cambios significativos</p>
-        </div>
-      </div>
-    )
-  }
-  return null
-}
+  const config = trend === 'improving'
+    ? { arrow: '↑', label: 'Mejorando', sub: 'La calidad de datos está en tendencia positiva', color: T.accent.teal }
+    : trend === 'declining'
+    ? { arrow: '↓', label: 'Bajando', sub: 'La calidad de datos está en tendencia negativa', color: T.accent.red }
+    : trend === 'stable'
+    ? { arrow: '→', label: 'Estable', sub: 'La calidad de datos se mantiene sin cambios significativos', color: T.text.tertiary }
+    : null
 
-// ── Loading Skeleton ──────────────────────────────────────────────────────────
+  if (!config) return null
 
-function LoadingSkeleton() {
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8 animate-pulse">
-      <div className="max-w-5xl mx-auto space-y-6">
-        <div className="h-8 bg-gray-200 dark:bg-gray-800 rounded-xl w-56" />
-        <div className="h-12 bg-gray-200 dark:bg-gray-800 rounded-xl w-64" />
-        <div className="h-64 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+    <div style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 12,
+      padding: `${T.space.sm} ${T.space.md}`,
+      borderRadius: T.radius.md,
+      backgroundColor: config.color + '10',
+      border: `1px solid ${config.color}30`,
+    }}>
+      <span style={{ fontSize: 24, fontWeight: 700, color: config.color }}>{config.arrow}</span>
+      <div>
+        <p style={{ fontSize: 13, fontWeight: 600, color: config.color, margin: 0 }}>{config.label}</p>
+        <p style={{ fontSize: 11, color: config.color, opacity: 0.7, margin: 0 }}>{config.sub}</p>
       </div>
     </div>
   )
 }
 
-// ── Tab Nav (replicates the pattern used across client pages) ─────────────────
+// ── Loading Skeleton ──────────────────────────────────────────────────────────
+
+function LoadingSkeleton() {
+  const pulse: React.CSSProperties = { backgroundColor: T.bg.elevated, borderRadius: T.radius.md }
+  return (
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, padding: T.space.xl }}>
+      <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: T.space.lg }}>
+        <div style={{ ...pulse, height: 32, width: 224 }} />
+        <div style={{ ...pulse, height: 48, width: 256 }} />
+        <div style={{ ...pulse, height: 256, borderRadius: T.radius.lg }} />
+      </div>
+    </div>
+  )
+}
+
+// ── Tab Nav ───────────────────────────────────────────────────────────────────
 
 function TabNav({ clientId, pathname }: { clientId: string; pathname: string }) {
   const tabs = [
@@ -143,18 +142,24 @@ function TabNav({ clientId, pathname }: { clientId: string; pathname: string }) 
     { label: 'Configuración', href: `/clients/${clientId}/settings` },
   ]
   return (
-    <nav className="flex gap-1 -mb-px overflow-x-auto">
+    <nav style={{ display: 'flex', gap: 0, overflowX: 'auto' }}>
       {tabs.map(tab => {
         const isActive = pathname === tab.href
         return (
           <Link
             key={tab.href}
             href={tab.href}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-              isActive
-                ? 'border-violet-500 text-violet-600 dark:text-violet-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
-            }`}
+            style={{
+              display: 'inline-block',
+              padding: '10px 16px',
+              fontSize: 13,
+              fontWeight: isActive ? 600 : 400,
+              color: isActive ? T.accent.teal : T.text.tertiary,
+              borderBottom: isActive ? `2px solid ${T.accent.teal}` : '2px solid transparent',
+              textDecoration: 'none',
+              whiteSpace: 'nowrap',
+              transition: 'color 150ms',
+            }}
           >
             {tab.label}
           </Link>
@@ -190,10 +195,10 @@ export default function DQHistoryPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-500 mb-4">{error}</p>
-          <Link href={`/clients/${clientId}`} className="text-violet-600 hover:underline text-sm">
+      <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <p style={{ color: T.text.secondary, marginBottom: T.space.md }}>{error}</p>
+          <Link href={`/clients/${clientId}`} style={{ color: T.accent.teal, fontSize: 13, textDecoration: 'none' }}>
             ← Volver al cliente
           </Link>
         </div>
@@ -204,128 +209,149 @@ export default function DQHistoryPage() {
   const history = data?.dq_history ?? []
   const avgScore = data?.avg_score ?? null
   const trend = data?.trend ?? null
-
-  // ── Empty state ──
   const isEmpty = history.length === 0
+  const avgColor = avgScore !== null ? scoreAccent(avgScore) : T.text.tertiary
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* ── Sticky header ── */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link
-              href={`/clients/${clientId}`}
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
-            >
-              <ArrowLeft className="h-5 w-5" />
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary }}>
+      {/* Sticky header */}
+      <header style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: T.bg.card, borderBottom: T.border.card }}>
+        <div style={{ maxWidth: 960, margin: '0 auto', padding: `${T.space.md} ${T.space.xl}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: T.space.md }}>
+            <Link href={`/clients/${clientId}`} style={{ color: T.text.tertiary, display: 'flex' }}>
+              <ArrowLeft size={20} />
             </Link>
             <div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-white">{clientId}</h1>
-              <p className="text-xs text-gray-400">Historial de Calidad de Datos</p>
+              <h1 style={{ fontSize: 16, fontWeight: 700, color: T.text.primary, margin: 0 }}>{clientId}</h1>
+              <p style={{ fontSize: 11, color: T.text.tertiary, margin: 0 }}>Historial de Calidad de Datos</p>
             </div>
           </div>
           {avgScore !== null && (
-            <span className={`px-3 py-1.5 rounded-full text-sm font-bold ${scoreBgClass(avgScore)}`}>
+            <span style={{
+              padding: '6px 12px',
+              borderRadius: 999,
+              fontSize: 13,
+              fontWeight: 700,
+              fontFamily: T.font.mono,
+              backgroundColor: avgColor + '15',
+              border: `1px solid ${avgColor}40`,
+              color: avgColor,
+            }}>
               Promedio: {avgScore}/100
             </span>
           )}
         </div>
-        <div className="max-w-5xl mx-auto px-6">
+        <div style={{ maxWidth: 960, margin: '0 auto', padding: `0 ${T.space.xl}` }}>
           <TabNav clientId={clientId} pathname={pathname} />
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-6 py-8 space-y-8">
+      <main style={{ maxWidth: 960, margin: '0 auto', padding: T.space.xl, display: 'flex', flexDirection: 'column', gap: T.space.xl }}>
 
-        {/* ── Trend indicator at top ── */}
+        {/* Trend indicator */}
         {trend && !isEmpty && (
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+            <p style={{ fontSize: 10, fontFamily: T.font.mono, letterSpacing: '0.1em', textTransform: 'uppercase', color: T.text.tertiary, marginBottom: T.space.sm }}>
               Tendencia general
             </p>
             <TrendIndicator trend={trend} />
           </div>
         )}
 
-        {/* ── Empty state ── */}
+        {/* Empty state */}
         {isEmpty ? (
-          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 p-12 flex flex-col items-center gap-4 text-center">
-            <div className="p-4 rounded-2xl bg-violet-50 dark:bg-violet-900/20">
-              <svg className="h-8 w-8 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                />
+          <div style={{
+            backgroundColor: T.bg.card,
+            borderRadius: T.radius.lg,
+            border: `1px dashed ${T.bg.hover}`,
+            padding: `${T.space.xxl} ${T.space.lg}`,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: T.space.md,
+            textAlign: 'center',
+          }}>
+            <div style={{ padding: T.space.md, borderRadius: T.radius.md, backgroundColor: T.accent.teal + '10' }}>
+              <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke={T.accent.teal} strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
             </div>
             <div>
-              <p className="font-semibold text-gray-800 dark:text-gray-100 mb-1">Sin historial de DQ todavía</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p style={{ fontWeight: 600, color: T.text.primary, marginBottom: 4 }}>Sin historial de DQ todavía</p>
+              <p style={{ fontSize: 13, color: T.text.secondary }}>
                 Ejecuta un análisis para comenzar a registrar puntuaciones de calidad de datos.
               </p>
             </div>
-            <Link
-              href="/new-analysis"
-              className="mt-1 inline-flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors"
-            >
+            <Link href="/new-analysis" className="d4c-btn-primary">
               Nuevo análisis
             </Link>
           </div>
         ) : (
-          /* ── DQ History table ── */
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
-                {history.length} entrada{history.length !== 1 ? 's' : ''}
-              </h2>
-            </div>
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
+            <p style={{ fontSize: 10, fontFamily: T.font.mono, letterSpacing: '0.1em', textTransform: 'uppercase', color: T.text.tertiary, marginBottom: T.space.sm }}>
+              {history.length} entrada{history.length !== 1 ? 's' : ''}
+            </p>
+            <div style={{ backgroundColor: T.bg.card, borderRadius: T.radius.lg, border: T.border.card, overflow: 'hidden' }}>
               {/* Table header */}
-              <div className="grid grid-cols-4 gap-4 px-6 py-3 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 text-xs font-semibold text-gray-400 uppercase tracking-widest">
-                <span>Fecha</span>
-                <span className="text-center">Score DQ</span>
-                <span className="text-center">Checks superados</span>
-                <span className="text-center">Gate</span>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                gap: T.space.md,
+                padding: `${T.space.sm} ${T.space.xl}`,
+                backgroundColor: T.bg.elevated,
+                borderBottom: T.border.card,
+              }}>
+                {['Fecha', 'Score DQ', 'Checks superados', 'Gate'].map(h => (
+                  <span key={h} style={{ fontSize: 10, fontWeight: 600, fontFamily: T.font.mono, letterSpacing: '0.1em', textTransform: 'uppercase', color: T.text.tertiary }}>
+                    {h}
+                  </span>
+                ))}
               </div>
 
               {/* Table rows */}
-              <div className="divide-y divide-gray-50 dark:divide-gray-800/50">
-                {[...history].reverse().map((entry, idx) => (
-                  <div
-                    key={idx}
-                    className="grid grid-cols-4 gap-4 px-6 py-3.5 items-center hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
-                  >
-                    {/* Date */}
-                    <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">
-                      {formatDate(entry.run_date)}
-                    </span>
-
-                    {/* Score */}
-                    <div className="flex justify-center">
-                      <span className={`text-sm ${scoreColorClass(entry.score)}`}>
-                        {entry.score}
-                        <span className="text-xs font-normal text-gray-400">/100</span>
+              <div>
+                {[...history].reverse().map((entry, idx) => {
+                  const color = scoreAccent(entry.score)
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                        gap: T.space.md,
+                        padding: `14px ${T.space.xl}`,
+                        alignItems: 'center',
+                        borderTop: idx > 0 ? T.border.subtle : undefined,
+                      }}
+                    >
+                      <span style={{ fontSize: 13, color: T.text.secondary, fontFamily: T.font.mono }}>
+                        {formatDate(entry.run_date)}
                       </span>
-                    </div>
 
-                    {/* Passed checks */}
-                    <div className="flex justify-center">
-                      {entry.passed_checks !== undefined && entry.total_checks !== undefined ? (
-                        <span className="text-sm text-gray-700 dark:text-gray-300">
-                          <span className="font-semibold">{entry.passed_checks}</span>
-                          <span className="text-gray-400">/{entry.total_checks}</span>
+                      <div>
+                        <span style={{ fontSize: 13, fontWeight: 600, color }}>
+                          {entry.score}
                         </span>
-                      ) : (
-                        <span className="text-sm text-gray-400">—</span>
-                      )}
-                    </div>
+                        <span style={{ fontSize: 11, color: T.text.tertiary }}>/100</span>
+                      </div>
 
-                    {/* Gate decision */}
-                    <div className="flex justify-center">
-                      <GateDecisionBadge decision={entry.gate_decision} />
+                      <div>
+                        {entry.passed_checks !== undefined && entry.total_checks !== undefined ? (
+                          <span style={{ fontSize: 13, color: T.text.secondary }}>
+                            <span style={{ fontWeight: 600, color: T.text.primary }}>{entry.passed_checks}</span>
+                            <span style={{ color: T.text.tertiary }}>/{entry.total_checks}</span>
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 13, color: T.text.tertiary }}>—</span>
+                        )}
+                      </div>
+
+                      <div>
+                        <GateDecisionBadge decision={entry.gate_decision} />
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           </div>

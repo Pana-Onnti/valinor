@@ -10,6 +10,7 @@ import { KPITrendChart } from '@/components/KPITrendChart'
 import { FindingTimeline } from '@/components/FindingTimeline'
 import { DeltaPanel } from '@/components/DeltaPanel'
 import { DQScoreBadge } from '@/components/DQScoreBadge'
+import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -45,15 +46,27 @@ function StatCard({ icon: Icon, label, value, sub }: {
   sub?: string
 }) {
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm">
-      <div className="flex items-start gap-3">
-        <div className="p-2 rounded-xl bg-violet-50 dark:bg-violet-900/30">
-          <Icon className="h-4 w-4 text-violet-500" />
+    <div style={{
+      backgroundColor: T.bg.card,
+      borderRadius: T.radius.lg,
+      border: T.border.card,
+      padding: T.space.lg,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: T.space.sm }}>
+        <div style={{
+          padding: T.space.sm,
+          borderRadius: T.radius.sm,
+          backgroundColor: T.bg.elevated,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <Icon style={{ width: 16, height: 16, color: T.accent.teal }} />
         </div>
         <div>
-          <p className="text-xs text-gray-400 mb-1">{label}</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
-          {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+          <p style={{ fontSize: 11, color: T.text.tertiary, margin: '0 0 4px 0' }}>{label}</p>
+          <p style={{ fontSize: 24, fontWeight: 700, color: T.text.primary, margin: 0, fontFamily: T.font.display }}>{value}</p>
+          {sub && <p style={{ fontSize: 11, color: T.text.tertiary, margin: '2px 0 0 0' }}>{sub}</p>}
         </div>
       </div>
     </div>
@@ -63,26 +76,26 @@ function StatCard({ icon: Icon, label, value, sub }: {
 function DQDot({ score }: { score?: number }) {
   if (score === undefined || score === null) {
     return (
-      <span className="flex items-center gap-1.5 text-xs text-gray-400" title="Sin dato de calidad">
-        <span className="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 flex-shrink-0" />
-        <span className="hidden sm:inline text-gray-400">—</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: T.text.tertiary }} title="Sin dato de calidad">
+        <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: T.bg.elevated, flexShrink: 0, display: 'inline-block' }} />
+        <span>—</span>
       </span>
     )
   }
-  const color =
-    score >= 90 ? 'bg-emerald-400' :
-    score >= 75 ? 'bg-amber-400' :
-    score >= 50 ? 'bg-orange-400' :
-    'bg-red-400'
+  const dotColor =
+    score >= 90 ? T.accent.teal :
+    score >= 75 ? T.accent.yellow :
+    score >= 50 ? T.accent.orange :
+    T.accent.red
   const textColor =
-    score >= 90 ? 'text-emerald-600 dark:text-emerald-400' :
-    score >= 75 ? 'text-amber-600 dark:text-amber-400' :
-    score >= 50 ? 'text-orange-600 dark:text-orange-400' :
-    'text-red-600 dark:text-red-400'
+    score >= 90 ? T.accent.teal :
+    score >= 75 ? T.accent.yellow :
+    score >= 50 ? T.accent.orange :
+    T.accent.red
   return (
-    <span className={`flex items-center gap-1.5 text-xs font-medium ${textColor}`} title={`Calidad de datos: ${score}/100`}>
-      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${color}`} />
-      <span className="hidden sm:inline">{score}</span>
+    <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500, color: textColor }} title={`Calidad de datos: ${score}/100`}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, backgroundColor: dotColor, display: 'inline-block' }} />
+      <span>{score}</span>
     </span>
   )
 }
@@ -96,19 +109,49 @@ function RunHistoryRow({ run, i }: { run: ClientProfileData['run_history'][0]; i
       initial={{ opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: i * 0.04 }}
-      className="flex items-center gap-4 px-5 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: T.space.md,
+        padding: `${T.space.sm} ${T.space.lg}`,
+      }}
     >
-      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${run.success ? 'bg-emerald-400' : 'bg-red-400'}`} />
-      <span className="text-sm text-gray-500 dark:text-gray-400 font-mono w-28 flex-shrink-0">{run.period}</span>
-      <span className="text-sm text-gray-400 flex-1">{date}</span>
-      <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{run.findings_count} hallazgos</span>
+      <span style={{
+        width: 8,
+        height: 8,
+        borderRadius: '50%',
+        flexShrink: 0,
+        backgroundColor: run.success ? T.accent.teal : T.accent.red,
+        display: 'inline-block',
+      }} />
+      <span style={{
+        fontSize: 13,
+        color: T.text.secondary,
+        fontFamily: T.font.mono,
+        width: 112,
+        flexShrink: 0,
+      }}>{run.period}</span>
+      <span style={{ fontSize: 13, color: T.text.tertiary, flex: 1 }}>{date}</span>
+      <span style={{ fontSize: 13, fontWeight: 500, color: T.text.primary }}>{run.findings_count} hallazgos</span>
       {run.new > 0 && (
-        <span className="text-xs text-red-500 bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded-full">
+        <span style={{
+          fontSize: 11,
+          color: T.accent.red,
+          backgroundColor: T.bg.elevated,
+          padding: '2px 8px',
+          borderRadius: 999,
+        }}>
           +{run.new} nuevo{run.new > 1 ? 's' : ''}
         </span>
       )}
       {run.resolved > 0 && (
-        <span className="text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full">
+        <span style={{
+          fontSize: 11,
+          color: T.accent.teal,
+          backgroundColor: T.bg.elevated,
+          padding: '2px 8px',
+          borderRadius: 999,
+        }}>
           -{run.resolved} resuelto{run.resolved > 1 ? 's' : ''}
         </span>
       )}
@@ -146,18 +189,18 @@ export default function ClientHistoryPage() {
   }, [clientId])
 
   if (loading) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
-      <div className="max-w-6xl mx-auto space-y-6 animate-pulse">
-        <div className="h-8 bg-gray-200 dark:bg-gray-800 rounded-xl w-48" />
-        <div className="grid grid-cols-4 gap-4">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, padding: T.space.xl }}>
+      <div style={{ maxWidth: 1152, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: T.space.lg }}>
+        <div style={{ height: 32, backgroundColor: T.bg.elevated, borderRadius: T.radius.md, width: 192, animation: 'pulse 1.5s ease-in-out infinite' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: T.space.md }}>
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-24 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+            <div key={i} style={{ height: 96, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg, animation: 'pulse 1.5s ease-in-out infinite' }} />
           ))}
         </div>
-        <div className="h-48 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
-        <div className="grid grid-cols-4 gap-3">
+        <div style={{ height: 192, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg, animation: 'pulse 1.5s ease-in-out infinite' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
           {[...Array(8)].map((_, i) => (
-            <div key={i} className="h-28 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+            <div key={i} style={{ height: 112, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg, animation: 'pulse 1.5s ease-in-out infinite' }} />
           ))}
         </div>
       </div>
@@ -165,10 +208,10 @@ export default function ClientHistoryPage() {
   )
 
   if (error || !profile) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-      <div className="text-center">
-        <p className="text-gray-500 mb-4">{error || 'No hay datos para este cliente'}</p>
-        <Link href="/" className="text-violet-600 hover:underline text-sm">← Volver</Link>
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center' }}>
+        <p style={{ color: T.text.secondary, marginBottom: T.space.md }}>{error || 'No hay datos para este cliente'}</p>
+        <Link href="/" style={{ color: T.accent.teal, fontSize: 13, textDecoration: 'none' }}>← Volver</Link>
       </div>
     </div>
   )
@@ -176,32 +219,61 @@ export default function ClientHistoryPage() {
   const kpiLabels = Object.keys(profile.baseline_history).slice(0, 8)
   const lastRun = profile.run_history[profile.run_history.length - 1]
 
+  // DQ ring color
+  const ringColor =
+    dqHistory.avg_score !== null && dqHistory.avg_score >= 90 ? T.accent.teal :
+    dqHistory.avg_score !== null && dqHistory.avg_score >= 75 ? T.accent.yellow :
+    T.accent.orange
+
+  const trendColor =
+    dqHistory.trend === 'improving' ? T.accent.teal :
+    dqHistory.trend === 'declining' ? T.accent.red :
+    T.text.tertiary
+
+  const sparkStrokeColor =
+    dqHistory.avg_score !== null && dqHistory.avg_score >= 90 ? T.accent.teal :
+    dqHistory.avg_score !== null && dqHistory.avg_score >= 75 ? T.accent.yellow : T.accent.orange
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary }}>
       {/* Header */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
-              <ArrowLeft className="h-5 w-5" />
+      <header style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+        backgroundColor: T.bg.card,
+        borderBottom: T.border.card,
+      }}>
+        <div style={{
+          maxWidth: 1152,
+          margin: '0 auto',
+          padding: `${T.space.md} ${T.space.lg}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: T.space.md }}>
+            <Link href="/" style={{ color: T.text.tertiary, display: 'flex', textDecoration: 'none' }}>
+              <ArrowLeft style={{ width: 20, height: 20 }} />
             </Link>
             <div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-white">{profile.client_name}</h1>
-              <p className="text-xs text-gray-400">
+              <h1 style={{ fontSize: 17, fontWeight: 700, color: T.text.primary, margin: 0 }}>{profile.client_name}</h1>
+              <p style={{ fontSize: 11, color: T.text.tertiary, margin: 0 }}>
                 {[profile.industry_inferred, profile.currency_detected].filter(Boolean).join(' · ')}
               </p>
             </div>
           </div>
           <button
             onClick={fetchProfile}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700 rounded-lg transition-all"
+            className="d4c-btn-ghost"
+            style={{ display: 'flex', alignItems: 'center', gap: T.space.sm, fontSize: 13 }}
           >
-            <RefreshCw className="h-3.5 w-3.5" />Actualizar
+            <RefreshCw style={{ width: 14, height: 14 }} />Actualizar
           </button>
         </div>
         {/* Tab navigation */}
-        <div className="max-w-6xl mx-auto px-6">
-          <nav className="flex gap-1 -mb-px">
+        <div style={{ maxWidth: 1152, margin: '0 auto', padding: `0 ${T.space.lg}` }}>
+          <nav style={{ display: 'flex', gap: 4, marginBottom: -1 }}>
             {[
               { label: 'Historial',     href: `/clients/${clientId}/history` },
               { label: 'Hallazgos',     href: `/clients/${clientId}/findings` },
@@ -216,11 +288,25 @@ export default function ClientHistoryPage() {
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                    isActive
-                      ? 'border-violet-500 text-violet-600 dark:text-violet-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
-                  }`}
+                  style={isActive ? {
+                    borderBottom: `2px solid ${T.accent.teal}`,
+                    color: T.accent.teal,
+                    padding: '10px 16px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                    textDecoration: 'none',
+                    display: 'inline-block',
+                  } : {
+                    borderBottom: '2px solid transparent',
+                    color: T.text.tertiary,
+                    padding: '10px 16px',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                    textDecoration: 'none',
+                    display: 'inline-block',
+                  }}
                 >
                   {tab.label}
                 </Link>
@@ -230,9 +316,16 @@ export default function ClientHistoryPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+      <main style={{
+        maxWidth: 1152,
+        margin: '0 auto',
+        padding: `${T.space.xl} ${T.space.lg}`,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: T.space.xl,
+      }}>
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: T.space.md }}>
           <StatCard icon={TrendingUp} label="Total Runs" value={profile.run_count} />
           <StatCard icon={AlertOctagon} label="Activos" value={Object.keys(profile.known_findings).length}
             sub="hallazgos abiertos" />
@@ -245,32 +338,49 @@ export default function ClientHistoryPage() {
         {/* DQ Trend section */}
         {dqHistory.dq_history.length > 0 && (
           <div>
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+            <h2 style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: T.text.tertiary,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: 12,
+            }}>
               Tendencia de Calidad de Datos
             </h2>
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm flex items-center gap-6">
+            <div style={{
+              backgroundColor: T.bg.card,
+              borderRadius: T.radius.lg,
+              border: T.border.card,
+              padding: T.space.lg,
+              display: 'flex',
+              alignItems: 'center',
+              gap: T.space.lg,
+            }}>
               {/* Average score ring */}
-              <div className="flex-shrink-0 flex flex-col items-center gap-1">
-                <div className={`w-14 h-14 rounded-full flex items-center justify-center border-4 ${
-                  dqHistory.avg_score !== null && dqHistory.avg_score >= 90 ? 'border-emerald-400 text-emerald-600' :
-                  dqHistory.avg_score !== null && dqHistory.avg_score >= 75 ? 'border-amber-400 text-amber-600' :
-                  'border-orange-400 text-orange-600'
-                }`}>
-                  <span className="text-sm font-bold">{dqHistory.avg_score ?? '—'}</span>
+              <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                <div style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: `4px solid ${ringColor}`,
+                  color: ringColor,
+                }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>{dqHistory.avg_score ?? '—'}</span>
                 </div>
-                <span className="text-xs text-gray-400">Promedio</span>
+                <span style={{ fontSize: 11, color: T.text.tertiary }}>Promedio</span>
               </div>
               {/* Sparkline SVG */}
-              <div className="flex-1">
-                <svg viewBox={`0 0 ${dqHistory.dq_history.length * 24} 40`} className="w-full h-10" preserveAspectRatio="none">
+              <div style={{ flex: 1 }}>
+                <svg viewBox={`0 0 ${dqHistory.dq_history.length * 24} 40`} style={{ width: '100%', height: 40 }} preserveAspectRatio="none">
                   {dqHistory.dq_history.length > 1 && (
                     <polyline
                       points={dqHistory.dq_history.map((d, i) => `${i * 24 + 12},${40 - (d.score / 100) * 36}`).join(' ')}
                       fill="none"
-                      stroke={
-                        dqHistory.avg_score !== null && dqHistory.avg_score >= 90 ? '#34d399' :
-                        dqHistory.avg_score !== null && dqHistory.avg_score >= 75 ? '#fbbf24' : '#fb923c'
-                      }
+                      stroke={sparkStrokeColor}
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -278,7 +388,7 @@ export default function ClientHistoryPage() {
                   )}
                   {dqHistory.dq_history.map((d, i) => (
                     <circle key={i} cx={i * 24 + 12} cy={40 - (d.score / 100) * 36} r="3"
-                      fill={d.score >= 90 ? '#34d399' : d.score >= 75 ? '#fbbf24' : '#fb923c'}
+                      fill={d.score >= 90 ? T.accent.teal : d.score >= 75 ? T.accent.yellow : T.accent.orange}
                     >
                       <title>{`${d.run_date?.slice(0, 10)}: ${d.score}`}</title>
                     </circle>
@@ -286,17 +396,20 @@ export default function ClientHistoryPage() {
                 </svg>
               </div>
               {/* Trend label */}
-              <div className="flex-shrink-0 flex flex-col items-center gap-1">
-                <span className={`text-sm font-semibold px-3 py-1 rounded-full ${
-                  dqHistory.trend === 'improving' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                  dqHistory.trend === 'declining' ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400' :
-                  'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
-                }`}>
+              <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                <span style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  padding: '4px 12px',
+                  borderRadius: 999,
+                  backgroundColor: T.bg.elevated,
+                  color: trendColor,
+                }}>
                   {dqHistory.trend === 'improving' ? '↑ Mejorando' :
                    dqHistory.trend === 'declining' ? '↓ Bajando' :
                    dqHistory.trend === 'stable' ? '→ Estable' : '—'}
                 </span>
-                <span className="text-xs text-gray-400">{dqHistory.dq_history.length} runs</span>
+                <span style={{ fontSize: 11, color: T.text.tertiary }}>{dqHistory.dq_history.length} runs</span>
               </div>
             </div>
           </div>
@@ -305,7 +418,14 @@ export default function ClientHistoryPage() {
         {/* Last run delta */}
         {lastRun && (lastRun.new > 0 || lastRun.resolved > 0) && (
           <div>
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+            <h2 style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: T.text.tertiary,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: 12,
+            }}>
               Último Run · {lastRun.period}
             </h2>
             <DeltaPanel
@@ -319,10 +439,17 @@ export default function ClientHistoryPage() {
         {/* KPI trends */}
         {kpiLabels.length > 0 && (
           <div>
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">
+            <h2 style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: T.text.tertiary,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: T.space.md,
+            }}>
               Evolución de KPIs
             </h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
               {kpiLabels.map(label => (
                 <KPITrendChart
                   key={label}
@@ -337,7 +464,14 @@ export default function ClientHistoryPage() {
         {/* Finding timeline */}
         {(Object.keys(profile.known_findings).length > 0 || Object.keys(profile.resolved_findings).length > 0) && (
           <div>
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">
+            <h2 style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: T.text.tertiary,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: T.space.md,
+            }}>
               Historial de Hallazgos
             </h2>
             <FindingTimeline
@@ -350,24 +484,45 @@ export default function ClientHistoryPage() {
         {/* Run history table */}
         {profile.run_history.length > 0 && (
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: T.space.md }}>
+              <h2 style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: T.text.tertiary,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                margin: 0,
+              }}>
                 Historial de Runs
               </h2>
-              <a href={`/clients/${clientId}/compare`} className="text-xs text-violet-600 hover:underline">Comparar runs →</a>
+              <a href={`/clients/${clientId}/compare`} style={{ fontSize: 12, color: T.accent.teal, textDecoration: 'none' }}>Comparar runs →</a>
             </div>
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
+            <div style={{
+              backgroundColor: T.bg.card,
+              borderRadius: T.radius.lg,
+              border: T.border.card,
+              overflow: 'hidden',
+            }}>
               {/* Column headers */}
-              <div className="flex items-center gap-4 px-5 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
-                <span className="w-2 flex-shrink-0" />
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest w-28 flex-shrink-0">Período</span>
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest flex-1">Fecha</span>
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Hallazgos</span>
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest hidden sm:block w-16 text-right">Cal. Datos</span>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: T.space.md,
+                padding: `${T.space.sm} ${T.space.lg}`,
+                borderBottom: T.border.subtle,
+                backgroundColor: T.bg.elevated,
+              }}>
+                <span style={{ width: 8, flexShrink: 0 }} />
+                <span style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em', width: 112, flexShrink: 0 }}>Período</span>
+                <span style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>Fecha</span>
+                <span style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Hallazgos</span>
+                <span style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em', width: 64, textAlign: 'right' }}>Cal. Datos</span>
               </div>
-              <div className="divide-y divide-gray-50 dark:divide-gray-800/50">
+              <div>
                 {[...profile.run_history].reverse().map((run, i) => (
-                  <RunHistoryRow key={i} run={run} i={i} />
+                  <div key={i} style={{ borderTop: i > 0 ? T.border.subtle : 'none' }}>
+                    <RunHistoryRow run={run} i={i} />
+                  </div>
                 ))}
               </div>
             </div>
@@ -377,12 +532,27 @@ export default function ClientHistoryPage() {
         {/* Focus areas from refinement */}
         {profile.refinement?.focus_areas?.length ? (
           <div>
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+            <h2 style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: T.text.tertiary,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: 12,
+            }}>
               Áreas de Foco (Auto-Refinement)
             </h2>
-            <div className="flex flex-wrap gap-2">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: T.space.sm }}>
               {profile.refinement.focus_areas.map(area => (
-                <span key={area} className="px-3 py-1.5 bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-sm font-medium rounded-full border border-violet-200 dark:border-violet-800">
+                <span key={area} style={{
+                  padding: '6px 12px',
+                  backgroundColor: T.bg.elevated,
+                  color: T.accent.teal,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  borderRadius: 999,
+                  border: `1px solid ${T.accent.teal}40`,
+                }}>
                   {area}
                 </span>
               ))}

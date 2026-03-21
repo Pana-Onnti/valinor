@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import { ArrowLeft, Bell, BellOff, Plus, Trash2, RefreshCw, AlertTriangle, CheckCircle2, X } from 'lucide-react'
+import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -73,45 +74,16 @@ const EMPTY_FORM: NewAlertForm = {
   severity: 'HIGH',
 }
 
-// ── Helper sub-components ─────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-function SeverityBadge({ severity, triggered = false }: { severity: string; triggered?: boolean }) {
-  const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold'
-  const styles: Record<string, string> = {
-    CRITICAL: triggered
-      ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-      : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400',
-    HIGH: triggered
-      ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300'
-      : 'bg-orange-50 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400',
-    MEDIUM: 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400',
-    LOW:    'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+function getSevColor(severity: string): string {
+  const map: Record<string, string> = {
+    CRITICAL: T.accent.red,
+    HIGH: T.accent.orange,
+    MEDIUM: T.accent.yellow,
+    LOW: T.accent.blue,
   }
-  const labels: Record<string, string> = {
-    CRITICAL: 'Crítico', HIGH: 'Alto', MEDIUM: 'Medio', LOW: 'Bajo',
-  }
-  return (
-    <span className={`${base} ${styles[severity] ?? styles['MEDIUM']}`}>
-      {labels[severity] ?? severity}
-    </span>
-  )
-}
-
-function StatusBadge({ triggered }: { triggered?: boolean }) {
-  if (triggered) {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
-        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-        Disparada
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
-      <CheckCircle2 className="w-3 h-3" />
-      OK
-    </span>
-  )
+  return map[severity] ?? T.text.tertiary
 }
 
 function conditionLabel(cond: string) {
@@ -120,6 +92,69 @@ function conditionLabel(cond: string) {
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+// ── Helper sub-components ─────────────────────────────────────────────────────
+
+function SeverityBadge({ severity, triggered = false }: { severity: string; triggered?: boolean }) {
+  const color = getSevColor(severity)
+  const labels: Record<string, string> = {
+    CRITICAL: 'Crítico', HIGH: 'Alto', MEDIUM: 'Medio', LOW: 'Bajo',
+  }
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '2px 8px',
+      borderRadius: '9999px',
+      fontSize: 11,
+      fontWeight: 600,
+      backgroundColor: color + (triggered ? '25' : '15'),
+      border: `1px solid ${color}${triggered ? '60' : '40'}`,
+      color,
+    }}>
+      {labels[severity] ?? severity}
+    </span>
+  )
+}
+
+function StatusBadge({ triggered }: { triggered?: boolean }) {
+  if (triggered) {
+    return (
+      <span style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '2px 8px',
+        borderRadius: '9999px',
+        fontSize: 11,
+        fontWeight: 600,
+        backgroundColor: T.accent.red + '15',
+        border: `1px solid ${T.accent.red}40`,
+        color: T.accent.red,
+      }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: T.accent.red }} className="animate-pulse" />
+        Disparada
+      </span>
+    )
+  }
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4,
+      padding: '2px 8px',
+      borderRadius: '9999px',
+      fontSize: 11,
+      fontWeight: 600,
+      backgroundColor: T.accent.teal + '15',
+      border: `1px solid ${T.accent.teal}40`,
+      color: T.accent.teal,
+    }}>
+      <CheckCircle2 style={{ width: 12, height: 12 }} />
+      OK
+    </span>
+  )
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
@@ -226,21 +261,21 @@ export default function ClientAlertsPage() {
   // ── Render states ──────────────────────────────────────────────────────────
 
   if (loading) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
-      <div className="max-w-4xl mx-auto space-y-5 animate-pulse">
-        <div className="h-8 bg-gray-200 dark:bg-gray-800 rounded-xl w-40" />
-        <div className="h-48 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
-        <div className="h-32 bg-gray-200 dark:bg-gray-800 rounded-2xl" />
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, padding: T.space.xxl }}>
+      <div style={{ maxWidth: 896, margin: '0 auto' }} className="animate-pulse">
+        <div style={{ height: 32, backgroundColor: T.bg.elevated, borderRadius: T.radius.md, width: 160, marginBottom: T.space.xl }} />
+        <div style={{ height: 192, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg, marginBottom: T.space.lg }} />
+        <div style={{ height: 128, backgroundColor: T.bg.elevated, borderRadius: T.radius.lg }} />
       </div>
     </div>
   )
 
   if (error && !data) return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-      <div className="text-center">
-        <AlertTriangle className="h-10 w-10 text-red-400 mx-auto mb-3" />
-        <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
-        <Link href="/" className="text-violet-600 hover:underline text-sm">← Volver</Link>
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center' }}>
+        <AlertTriangle style={{ height: 40, width: 40, color: T.accent.red, margin: '0 auto 12px' }} />
+        <p style={{ color: T.text.secondary, marginBottom: T.space.lg }}>{error}</p>
+        <Link href="/" style={{ color: T.accent.teal, textDecoration: 'none', fontSize: 13 }}>← Volver</Link>
       </div>
     </div>
   )
@@ -250,50 +285,54 @@ export default function ClientAlertsPage() {
   const triggeredCount = thresholds.filter(t => t.triggered).length
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary }}>
       {/* Header */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <header style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: T.bg.card, borderBottom: T.border.card }}>
+        <div style={{ maxWidth: 896, margin: '0 auto', padding: `${T.space.lg} ${T.space.xl}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: T.space.lg }}>
             <Link
               href={`/clients/${clientId}/history`}
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+              style={{ color: T.text.tertiary, lineHeight: 0 }}
             >
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft style={{ height: 20, width: 20 }} />
             </Link>
             <div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <Bell className="h-4 w-4 text-violet-500" />
+              <h1 style={{ fontSize: 16, fontWeight: 700, color: T.text.primary, display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                <Bell style={{ height: 16, width: 16, color: T.accent.teal }} />
                 Alertas · {clientId.replace(/_/g, ' ')}
               </h1>
-              <p className="text-xs text-gray-400">
+              <p style={{ fontSize: 11, color: T.text.tertiary, margin: '2px 0 0' }}>
                 {thresholds.length} umbral{thresholds.length !== 1 ? 'es' : ''} configurado{thresholds.length !== 1 ? 's' : ''}
                 {triggeredCount > 0 && (
-                  <span className="ml-2 text-red-500 font-medium">· {triggeredCount} disparad{triggeredCount > 1 ? 'os' : 'o'}</span>
+                  <span style={{ marginLeft: 8, color: T.accent.red, fontWeight: 500 }}>
+                    · {triggeredCount} disparad{triggeredCount > 1 ? 'os' : 'o'}
+                  </span>
                 )}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div style={{ display: 'flex', alignItems: 'center', gap: T.space.sm }}>
             <button
               onClick={fetchAlerts}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700 rounded-lg transition-all"
+              className="d4c-btn-ghost"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}
             >
-              <RefreshCw className="h-3.5 w-3.5" />
+              <RefreshCw style={{ height: 14, width: 14 }} />
               Actualizar
             </button>
             <button
               onClick={() => { setShowForm(v => !v); setFormError(null) }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-violet-600 hover:bg-violet-700 text-white rounded-lg transition-colors"
+              className="d4c-btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus style={{ height: 14, width: 14 }} />
               Nueva Alerta
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-8 space-y-8">
+      <main style={{ maxWidth: 896, margin: '0 auto', padding: `${T.space.xxl} ${T.space.xl}`, display: 'flex', flexDirection: 'column', gap: T.space.xxl }}>
         {/* Success toast */}
         <AnimatePresence>
           {successMsg && (
@@ -301,9 +340,19 @@ export default function ClientAlertsPage() {
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
-              className="flex items-center gap-2 px-4 py-3 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-300 text-sm"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: T.space.sm,
+                padding: `${T.space.md} ${T.space.lg}`,
+                backgroundColor: T.accent.teal + '15',
+                border: `1px solid ${T.accent.teal}40`,
+                borderRadius: T.radius.lg,
+                color: T.accent.teal,
+                fontSize: 13,
+              }}
             >
-              <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+              <CheckCircle2 style={{ height: 16, width: 16, flexShrink: 0 }} />
               {successMsg}
             </motion.div>
           )}
@@ -311,8 +360,18 @@ export default function ClientAlertsPage() {
 
         {/* Error banner */}
         {error && (
-          <div className="flex items-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-sm">
-            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: T.space.sm,
+            padding: `${T.space.md} ${T.space.lg}`,
+            backgroundColor: T.accent.red + '15',
+            border: `1px solid ${T.accent.red}40`,
+            borderRadius: T.radius.lg,
+            color: T.accent.red,
+            fontSize: 13,
+          }}>
+            <AlertTriangle style={{ height: 16, width: 16, flexShrink: 0 }} />
             {error}
           </div>
         )}
@@ -324,60 +383,65 @@ export default function ClientAlertsPage() {
               initial={{ opacity: 0, y: -12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
-              className="bg-white dark:bg-gray-900 rounded-2xl border border-violet-200 dark:border-violet-800 p-6 shadow-sm"
+              style={{
+                backgroundColor: T.bg.card,
+                borderRadius: T.radius.lg,
+                border: `1px solid ${T.accent.teal}40`,
+                padding: T.space.xl,
+              }}
             >
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                  <Bell className="h-4 w-4 text-violet-500" />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: T.space.xl }}>
+                <h2 style={{ fontSize: 13, fontWeight: 600, color: T.text.primary, display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                  <Bell style={{ height: 16, width: 16, color: T.accent.teal }} />
                   Nueva Alerta
                 </h2>
                 <button
                   onClick={() => { setShowForm(false); setFormError(null); setForm(EMPTY_FORM) }}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                  style={{ color: T.text.tertiary, background: 'none', border: 'none', cursor: 'pointer', lineHeight: 0 }}
                 >
-                  <X className="h-4 w-4" />
+                  <X style={{ height: 16, width: 16 }} />
                 </button>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: T.space.lg }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: T.space.lg }}>
                   {/* Label */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                      Label <span className="text-red-400">*</span>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: T.text.secondary, marginBottom: 6 }}>
+                      Label <span style={{ color: T.accent.red }}>*</span>
                     </label>
                     <input
                       type="text"
                       value={form.label}
                       onChange={e => handleFormChange('label', e.target.value)}
                       placeholder="Ej: Alerta cobranza"
-                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
+                      className="d4c-input"
                     />
                   </div>
 
                   {/* Metric */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                      Métrica <span className="text-red-400">*</span>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: T.text.secondary, marginBottom: 6 }}>
+                      Métrica <span style={{ color: T.accent.red }}>*</span>
                     </label>
                     <input
                       type="text"
                       value={form.metric}
                       onChange={e => handleFormChange('metric', e.target.value)}
                       placeholder="Ej: Cobranza Pendiente"
-                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
+                      className="d4c-input"
                     />
                   </div>
 
                   {/* Condition */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: T.text.secondary, marginBottom: 6 }}>
                       Condicion
                     </label>
                     <select
                       value={form.condition}
                       onChange={e => handleFormChange('condition', e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
+                      className="d4c-input"
                     >
                       {CONDITIONS.map(c => (
                         <option key={c.value} value={c.value}>{c.label}</option>
@@ -387,8 +451,8 @@ export default function ClientAlertsPage() {
 
                   {/* Value */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                      Valor umbral <span className="text-red-400">*</span>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: T.text.secondary, marginBottom: 6 }}>
+                      Valor umbral <span style={{ color: T.accent.red }}>*</span>
                     </label>
                     <input
                       type="number"
@@ -396,19 +460,19 @@ export default function ClientAlertsPage() {
                       value={form.value}
                       onChange={e => handleFormChange('value', e.target.value)}
                       placeholder="Ej: -10"
-                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
+                      className="d4c-input"
                     />
                   </div>
 
                   {/* Severity */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: T.text.secondary, marginBottom: 6 }}>
                       Severidad
                     </label>
                     <select
                       value={form.severity}
                       onChange={e => handleFormChange('severity', e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
+                      className="d4c-input"
                     >
                       {SEVERITIES.map(s => (
                         <option key={s.value} value={s.value}>{s.label}</option>
@@ -418,29 +482,30 @@ export default function ClientAlertsPage() {
                 </div>
 
                 {formError && (
-                  <p className="text-xs text-red-500 flex items-center gap-1.5">
-                    <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                  <p style={{ fontSize: 12, color: T.accent.red, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <AlertTriangle style={{ height: 14, width: 14, flexShrink: 0 }} />
                     {formError}
                   </p>
                 )}
 
-                <div className="flex items-center justify-end gap-3 pt-1">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: T.space.md }}>
                   <button
                     type="button"
                     onClick={() => { setShowForm(false); setFormError(null); setForm(EMPTY_FORM) }}
-                    className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+                    style={{ padding: '8px 16px', fontSize: 13, color: T.text.secondary, background: 'none', border: 'none', cursor: 'pointer' }}
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex items-center gap-2 px-4 py-2 text-sm bg-violet-600 hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors"
+                    className="d4c-btn-primary"
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, opacity: submitting ? 0.5 : 1, cursor: submitting ? 'not-allowed' : 'pointer' }}
                   >
                     {submitting ? (
-                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <div style={{ width: 14, height: 14, border: `2px solid rgba(255,255,255,0.3)`, borderTopColor: '#fff', borderRadius: '50%' }} className="animate-spin" />
                     ) : (
-                      <Plus className="h-3.5 w-3.5" />
+                      <Plus style={{ height: 14, width: 14 }} />
                     )}
                     {submitting ? 'Guardando...' : 'Crear alerta'}
                   </button>
@@ -452,51 +517,76 @@ export default function ClientAlertsPage() {
 
         {/* Thresholds table */}
         <div>
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+          <h2 style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: T.space.md }}>
             Umbrales Configurados
           </h2>
 
           {thresholds.length === 0 ? (
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-12 text-center shadow-sm">
-              <BellOff className="h-8 w-8 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-              <p className="text-sm text-gray-400">No hay umbrales configurados.</p>
+            <div style={{
+              backgroundColor: T.bg.card,
+              borderRadius: T.radius.lg,
+              border: T.border.card,
+              padding: '48px 24px',
+              textAlign: 'center',
+            }}>
+              <BellOff style={{ height: 32, width: 32, color: T.text.tertiary, margin: '0 auto 12px' }} />
+              <p style={{ fontSize: 13, color: T.text.tertiary }}>No hay umbrales configurados.</p>
               <button
                 onClick={() => setShowForm(true)}
-                className="mt-3 text-sm text-violet-600 hover:underline"
+                style={{ marginTop: 12, fontSize: 13, color: T.accent.teal, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
               >
                 Crear la primera alerta
               </button>
             </div>
           ) : (
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
+            <div style={{
+              backgroundColor: T.bg.card,
+              borderRadius: T.radius.lg,
+              border: T.border.card,
+              overflow: 'hidden',
+            }}>
               {/* Column headers */}
-              <div className="grid grid-cols-[1.5fr_1.5fr_2fr_1fr_1fr_1fr_auto] gap-3 px-5 py-2.5 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800">
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1.5fr 1.5fr 2fr 1fr 1fr 1fr auto',
+                gap: T.space.md,
+                padding: `10px ${T.space.xl}`,
+                backgroundColor: T.bg.elevated,
+                borderBottom: T.border.card,
+              }}>
                 {['Label', 'Métrica', 'Condicion', 'Valor', 'Severidad', 'Estado', ''].map((h, i) => (
-                  <span key={i} className="text-xs font-semibold text-gray-400 uppercase tracking-widest">{h}</span>
+                  <span key={i} style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{h}</span>
                 ))}
               </div>
 
-              <div className="divide-y divide-gray-50 dark:divide-gray-800/50">
+              <div>
                 {thresholds.map((t, i) => (
                   <motion.div
                     key={t.label}
                     initial={{ opacity: 0, x: -6 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: i * 0.04 }}
-                    className={`grid grid-cols-[1.5fr_1.5fr_2fr_1fr_1fr_1fr_auto] gap-3 items-center px-5 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors ${
-                      t.triggered ? 'bg-red-50/30 dark:bg-red-900/5' : ''
-                    }`}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1.5fr 1.5fr 2fr 1fr 1fr 1fr auto',
+                      gap: T.space.md,
+                      alignItems: 'center',
+                      padding: `${T.space.md} ${T.space.xl}`,
+                      borderBottom: T.border.subtle,
+                      backgroundColor: t.triggered ? T.accent.red + '08' : 'transparent',
+                      transition: 'background-color 0.15s',
+                    }}
                   >
-                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate" title={t.label}>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: T.text.primary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.label}>
                       {t.label}
                     </span>
-                    <span className="text-sm text-gray-600 dark:text-gray-400 truncate font-mono text-xs" title={t.metric}>
+                    <span style={{ fontSize: 11, color: T.text.secondary, fontFamily: T.font.mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.metric}>
                       {t.metric}
                     </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400 truncate" title={conditionLabel(t.condition)}>
+                    <span style={{ fontSize: 11, color: T.text.tertiary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={conditionLabel(t.condition)}>
                       {conditionLabel(t.condition)}
                     </span>
-                    <span className="text-sm font-semibold text-gray-900 dark:text-white tabular-nums">
+                    <span style={{ fontSize: 13, fontWeight: 600, color: T.text.primary, fontVariantNumeric: 'tabular-nums' }}>
                       {t.value}
                     </span>
                     <SeverityBadge severity={t.severity} triggered={t.triggered} />
@@ -505,12 +595,22 @@ export default function ClientAlertsPage() {
                       onClick={() => handleDelete(t.label)}
                       disabled={deletingLabel === t.label}
                       title={`Eliminar "${t.label}"`}
-                      className="p-1.5 text-gray-300 hover:text-red-500 dark:text-gray-600 dark:hover:text-red-400 disabled:opacity-40 transition-colors rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+                      style={{
+                        padding: 6,
+                        color: T.text.tertiary,
+                        background: 'none',
+                        border: 'none',
+                        cursor: deletingLabel === t.label ? 'not-allowed' : 'pointer',
+                        opacity: deletingLabel === t.label ? 0.4 : 1,
+                        borderRadius: T.radius.sm,
+                        lineHeight: 0,
+                        transition: 'color 0.15s',
+                      }}
                     >
                       {deletingLabel === t.label ? (
-                        <div className="w-3.5 h-3.5 border-2 border-red-300 border-t-red-500 rounded-full animate-spin" />
+                        <div style={{ width: 14, height: 14, border: `2px solid ${T.accent.red}50`, borderTopColor: T.accent.red, borderRadius: '50%' }} className="animate-spin" />
                       ) : (
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 style={{ height: 14, width: 14 }} />
                       )}
                     </button>
                   </motion.div>
@@ -523,56 +623,55 @@ export default function ClientAlertsPage() {
         {/* Triggered alerts section */}
         {triggered.length > 0 && (
           <div>
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+            <h2 style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: T.space.md, display: 'flex', alignItems: 'center', gap: T.space.sm }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: T.accent.red }} className="animate-pulse" />
               Disparadas
-              <span className="text-xs font-bold text-red-500 normal-case">({triggered.length})</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: T.accent.red, textTransform: 'none' }}>({triggered.length})</span>
             </h2>
 
-            <div className="space-y-3">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.md }}>
               {[...triggered].reverse().map((alert, i) => {
-                const isCritical = alert.severity === 'CRITICAL'
-                const isHigh = alert.severity === 'HIGH'
-                const bgColor = isCritical
-                  ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
-                  : isHigh
-                  ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800'
-                  : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
-
+                const sevColor = getSevColor(alert.severity)
                 return (
                   <motion.div
                     key={i}
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.05 }}
-                    className={`flex items-start gap-4 px-5 py-4 rounded-2xl border ${bgColor}`}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: T.space.lg,
+                      padding: `${T.space.lg} ${T.space.xl}`,
+                      borderRadius: T.radius.lg,
+                      backgroundColor: sevColor + '10',
+                      border: `1px solid ${sevColor}30`,
+                    }}
                   >
-                    <AlertTriangle className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
-                      isCritical ? 'text-red-500' : isHigh ? 'text-orange-500' : 'text-amber-500'
-                    }`} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                    <AlertTriangle style={{ height: 16, width: 16, marginTop: 2, flexShrink: 0, color: sevColor }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: T.space.sm, flexWrap: 'wrap', marginBottom: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: T.text.primary }}>
                           {alert.threshold_label}
                         </span>
                         <SeverityBadge severity={alert.severity} triggered />
                         {alert.period && (
-                          <span className="text-xs text-gray-400 font-mono">{alert.period}</span>
+                          <span style={{ fontSize: 11, color: T.text.tertiary, fontFamily: T.font.mono }}>{alert.period}</span>
                         )}
                       </div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        <span className="font-mono">{alert.metric}</span>
+                      <p style={{ fontSize: 11, color: T.text.secondary, margin: 0 }}>
+                        <span style={{ fontFamily: T.font.mono }}>{alert.metric}</span>
                         {' · '}
                         {conditionLabel(alert.condition)}
                         {alert.computed_value != null && (
-                          <> — valor calculado: <span className="font-semibold">{Number(alert.computed_value).toFixed(2)}</span> (umbral: {alert.threshold_value})</>
+                          <> — valor calculado: <span style={{ fontWeight: 600 }}>{Number(alert.computed_value).toFixed(2)}</span> (umbral: {alert.threshold_value})</>
                         )}
                       </p>
                       {alert.message && (
-                        <p className="text-xs text-gray-400 mt-1 italic">{alert.message}</p>
+                        <p style={{ fontSize: 11, color: T.text.tertiary, marginTop: 4, fontStyle: 'italic' }}>{alert.message}</p>
                       )}
                     </div>
-                    <span className="text-xs text-gray-400 whitespace-nowrap flex-shrink-0">
+                    <span style={{ fontSize: 11, color: T.text.tertiary, whiteSpace: 'nowrap', flexShrink: 0 }}>
                       {formatDate(alert.triggered_at)}
                     </span>
                   </motion.div>
@@ -585,12 +684,20 @@ export default function ClientAlertsPage() {
         {/* Empty triggered section placeholder */}
         {triggered.length === 0 && thresholds.length > 0 && (
           <div>
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+            <h2 style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: T.space.md }}>
               Disparadas
             </h2>
-            <div className="flex items-center gap-3 px-5 py-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
-              <CheckCircle2 className="h-5 w-5 text-emerald-400 flex-shrink-0" />
-              <p className="text-sm text-gray-400">Sin alertas disparadas recientemente.</p>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: T.space.md,
+              padding: `${T.space.lg} ${T.space.xl}`,
+              backgroundColor: T.bg.card,
+              borderRadius: T.radius.lg,
+              border: T.border.card,
+            }}>
+              <CheckCircle2 style={{ height: 20, width: 20, color: T.accent.teal, flexShrink: 0 }} />
+              <p style={{ fontSize: 13, color: T.text.tertiary, margin: 0 }}>Sin alertas disparadas recientemente.</p>
             </div>
           </div>
         )}
