@@ -20,6 +20,8 @@ jobs:
         run: railway up --service API --detach
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: b78babfc-1b70-45f5-a866-eb23d08e04ac
+          RAILWAY_ENVIRONMENT_ID: 51136959-2c0d-4f37-aa95-754b5e86715b
 
   deploy-frontend:
     name: Deploy Frontend → Vercel
