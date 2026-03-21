@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -393,3 +394,170 @@ class TestDetectSchemaDrift:
         reduced = {"entities": {f"table_{i}": {} for i in range(19)}}
         result = detect_schema_drift(base, reduced)
         assert result is False
+
+    def test_exact_10_percent_change_is_not_drift(self):
+        """A change of exactly 10% (boundary) does NOT trigger drift (> not >=)."""
+        # 10 tables, remove 1 → 10% change, which is NOT > 0.10
+        base = {"entities": {f"table_{i}": {} for i in range(10)}}
+        reduced = {"entities": {f"table_{i}": {} for i in range(9)}}
+        result = detect_schema_drift(base, reduced)
+        assert result is False
+
+    def test_replacing_one_table_name_is_drift(self):
+        """Renaming a table (remove old + add new) doubles the change ratio."""
+        base = {"entities": {"orders": {}, "customers": {}, "invoices": {}}}
+        updated = {"entities": {"orders": {}, "customers": {}, "payments": {}}}
+        # 1 removed + 1 added = 2 changes / 3 baseline = 66%
+        result = detect_schema_drift(base, updated)
+        assert result is True
+
+    def test_both_maps_empty_entities_no_drift(self):
+        """Two maps with empty entities dicts: cached has no tables → drift."""
+        result = detect_schema_drift({"entities": {}}, {"entities": {}})
+        assert result is True  # empty cached_tables → always drift
+
+    def test_no_entities_key_in_cached(self):
+        """cached_entity_map without 'entities' key is treated as empty → drift."""
+        result = detect_schema_drift({}, {"entities": {"t1": {}}})
+        assert result is True
+
+
+# ---------------------------------------------------------------------------
+# TestClientRefinement — ClientRefinement dataclass and helpers
+# ---------------------------------------------------------------------------
+
+class TestClientRefinement:
+    """Tests for ClientRefinement and how ClientProfile uses it."""
+
+    def test_default_refinement_is_none(self):
+        """A new profile has refinement == None."""
+        profile = ClientProfile.new("Fresh Corp")
+        assert profile.refinement is None
+
+    def test_get_refinement_returns_default_when_none(self):
+        """get_refinement() returns an empty ClientRefinement when refinement is None."""
+        profile = ClientProfile.new("Fresh Corp")
+        refinement = profile.get_refinement()
+        assert isinstance(refinement, ClientRefinement)
+        assert refinement.table_weights == {}
+        assert refinement.query_hints == []
+        assert refinement.focus_areas == []
+        assert refinement.suppress_ids == []
+        assert refinement.context_block == ""
+
+    def test_get_refinement_returns_stored_data(self):
+        """get_refinement() reconstructs the ClientRefinement from the stored dict."""
+        profile = ClientProfile.new("Refined Corp")
+        profile.refinement = {
+            "table_weights": {"orders": 0.8},
+            "query_hints": ["focus on AR"],
+            "focus_areas": ["accounts_receivable"],
+            "suppress_ids": ["F999"],
+            "context_block": "Client is in retail sector.",
+            "generated_at": "2025-01-01T00:00:00",
+        }
+        refinement = profile.get_refinement()
+        assert refinement.table_weights == {"orders": 0.8}
+        assert "focus on AR" in refinement.query_hints
+        assert refinement.context_block == "Client is in retail sector."
+
+    def test_to_prompt_block_returns_context_block(self):
+        """to_prompt_block() returns the context_block when it is non-empty."""
+        ref = ClientRefinement(context_block="Inject this into the prompt.")
+        assert ref.to_prompt_block() == "Inject this into the prompt."
+
+    def test_to_prompt_block_returns_empty_string_when_no_context(self):
+        """to_prompt_block() returns '' when context_block is empty."""
+        ref = ClientRefinement()
+        assert ref.to_prompt_block() == ""
+
+
+# ---------------------------------------------------------------------------
+# TestClientProfileEntityMap — is_entity_map_fresh()
+# ---------------------------------------------------------------------------
+
+class TestClientProfileEntityMap:
+    """Tests for the entity_map freshness helper."""
+
+    def test_no_cache_is_not_fresh(self):
+        """A profile with no entity_map_cache is never considered fresh."""
+        profile = ClientProfile.new("No Cache Corp")
+        assert profile.is_entity_map_fresh() is False
+
+    def test_cache_without_timestamp_is_not_fresh(self):
+        """entity_map_cache set but entity_map_updated_at == None → not fresh."""
+        profile = ClientProfile.new("Partial Cache Corp")
+        profile.entity_map_cache = {"entities": {"orders": {}}}
+        profile.entity_map_updated_at = None
+        assert profile.is_entity_map_fresh() is False
+
+    def test_recently_updated_cache_is_fresh(self):
+        """A cache updated just now is fresh under the default 72-hour window."""
+        profile = ClientProfile.new("Recent Corp")
+        profile.entity_map_cache = {"entities": {"orders": {}}}
+        profile.entity_map_updated_at = datetime.utcnow().isoformat()
+        assert profile.is_entity_map_fresh() is True
+
+    def test_old_cache_is_not_fresh(self):
+        """A cache updated 100 hours ago is not fresh under the default 72-hour window."""
+        from datetime import timedelta
+        profile = ClientProfile.new("Stale Corp")
+        profile.entity_map_cache = {"entities": {"orders": {}}}
+        old_time = datetime.utcnow() - timedelta(hours=100)
+        profile.entity_map_updated_at = old_time.isoformat()
+        assert profile.is_entity_map_fresh() is False
+
+    def test_custom_max_age_respected(self):
+        """is_entity_map_fresh(max_age_hours=1) rejects a 2-hour-old cache."""
+        from datetime import timedelta
+        profile = ClientProfile.new("Tight TTL Corp")
+        profile.entity_map_cache = {"entities": {}}
+        two_hours_ago = datetime.utcnow() - timedelta(hours=2)
+        profile.entity_map_updated_at = two_hours_ago.isoformat()
+        assert profile.is_entity_map_fresh(max_age_hours=1) is False
+        assert profile.is_entity_map_fresh(max_age_hours=3) is True
+
+
+# ---------------------------------------------------------------------------
+# TestGetProfileStoreSingleton — module-level singleton
+# ---------------------------------------------------------------------------
+
+class TestGetProfileStoreSingleton:
+    """Tests for the get_profile_store() singleton factory."""
+
+    def test_returns_profile_store_instance(self):
+        """get_profile_store() always returns a ProfileStore."""
+        from memory.profile_store import get_profile_store, ProfileStore
+        store = get_profile_store()
+        assert isinstance(store, ProfileStore)
+
+    def test_same_instance_on_repeated_calls(self):
+        """get_profile_store() returns the exact same object each time."""
+        from memory.profile_store import get_profile_store
+        a = get_profile_store()
+        b = get_profile_store()
+        assert a is b
+
+
+# ---------------------------------------------------------------------------
+# TestProfileStoreFallbackOnDbFailure
+# ---------------------------------------------------------------------------
+
+class TestProfileStoreFallbackOnDbFailure:
+    """Ensures ProfileStore falls back to file storage when DB pool fails."""
+
+    def _run(self, coro):
+        return asyncio.get_event_loop().run_until_complete(coro)
+
+    def test_db_failure_falls_back_to_file(self):
+        """If the DB pool raises on creation, _use_db is flipped to False."""
+        from memory.profile_store import ProfileStore
+        store = ProfileStore.__new__(ProfileStore)
+        store._db_url = "postgresql://bad:bad@localhost:9999/nonexistent"
+        store._pool = None
+        store._use_db = True
+
+        # _get_pool should catch the connection error and disable DB
+        pool = self._run(store._get_pool())
+        assert pool is None
+        assert store._use_db is False

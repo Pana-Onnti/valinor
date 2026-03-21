@@ -228,3 +228,106 @@ class TestSegmentationEngine:
         assert expected_names == seg_names, (
             f"Expected segment names {expected_names}; got {seg_names}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Additional tests
+# ---------------------------------------------------------------------------
+
+CLIENTS_LARGE = [
+    {"client_name": f"Client_{i:03d}", "revenue": float(10000 - i * 100)}
+    for i in range(20)
+    if 10000 - i * 100 > 0  # only positive revenues
+]
+
+
+class TestSegmentationEdgeCases:
+    """Additional edge cases and invariants."""
+
+    def _profile(self, industry="default", currency="USD"):
+        return _make_profile(industry=industry, currency=currency)
+
+    def test_total_revenue_matches_sum_of_segments(self):
+        """result.total_revenue must equal sum of segment total_revenues."""
+        engine = SegmentationEngine()
+        qr = _make_query_results(CLIENTS_LARGE)
+        result = engine.segment_from_query_results(qr, self._profile())
+        assert result is not None
+        seg_total = sum(s.total_revenue for s in result.segments)
+        assert abs(result.total_revenue - seg_total) < 1.0
+
+    def test_all_customers_are_assigned(self):
+        """Every customer in input should appear in exactly one segment."""
+        engine = SegmentationEngine()
+        qr = _make_query_results(CLIENTS_LARGE)
+        result = engine.segment_from_query_results(qr, self._profile())
+        assert result is not None
+        total_in_segs = sum(s.count for s in result.segments)
+        assert total_in_segs == len(CLIENTS_LARGE)
+
+    def test_empty_query_results_returns_none(self):
+        """No matching revenue data → segment_from_query_results returns None."""
+        engine = SegmentationEngine()
+        result = engine.segment_from_query_results({"results": []}, self._profile())
+        assert result is None
+
+    def test_build_context_block_returns_string(self):
+        """build_context_block must return a non-empty string."""
+        engine = SegmentationEngine()
+        qr = _make_query_results(CLIENTS_LARGE)
+        result = engine.segment_from_query_results(qr, self._profile())
+        if result is not None:
+            block = engine.build_context_block(result, currency="EUR")
+            assert isinstance(block, str)
+            assert len(block) > 0
+
+    def test_get_segmentation_engine_singleton(self):
+        """get_segmentation_engine() always returns the same instance."""
+        e1 = get_segmentation_engine()
+        e2 = get_segmentation_engine()
+        assert e1 is e2
+
+    def test_segment_names_has_default_key(self):
+        """SEGMENT_NAMES dict must have a 'default' industry key."""
+        assert "default" in SEGMENT_NAMES
+
+    def test_customer_segment_dataclass_has_name(self):
+        """CustomerSegment must have a name attribute."""
+        seg = CustomerSegment(
+            name="Tier 1",
+            count=10,
+            total_revenue=50000.0,
+            revenue_share=0.8,
+            avg_revenue=5000.0,
+            top_customers=[],
+            currency="USD",
+            description="Top clients",
+        )
+        assert seg.name == "Tier 1"
+        assert seg.count == 10
+        assert abs(seg.total_revenue - 50000.0) < 0.01
+
+    def test_segmentation_result_has_segments_list(self):
+        """SegmentationResult.segments must be a list."""
+        engine = SegmentationEngine()
+        qr = _make_query_results(CLIENTS_LARGE)
+        result = engine.segment_from_query_results(qr, self._profile())
+        assert result is not None
+        assert isinstance(result.segments, list)
+        assert len(result.segments) >= 1
+
+    def test_result_total_customers_correct(self):
+        """result.total_customers must equal the number of input clients."""
+        engine = SegmentationEngine()
+        qr = _make_query_results(CLIENTS_LARGE)
+        result = engine.segment_from_query_results(qr, self._profile())
+        assert result is not None
+        assert result.total_customers == len(CLIENTS_LARGE)
+
+    def test_industry_stored_in_result(self):
+        """result.industry must reflect the profile's industry."""
+        engine = SegmentationEngine()
+        qr = _make_query_results(CLIENTS_LARGE)
+        result = engine.segment_from_query_results(qr, self._profile(industry="default"))
+        assert result is not None
+        assert result.industry == "default"

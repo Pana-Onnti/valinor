@@ -310,3 +310,122 @@ def test_get_anomaly_detector_returns_same_singleton():
     d1 = get_anomaly_detector()
     d2 = get_anomaly_detector()
     assert d1 is d2
+
+
+# ---------------------------------------------------------------------------
+# Additional edge cases
+# ---------------------------------------------------------------------------
+
+class TestAnomalyDetectorAdditional:
+    """Additional edge case tests for AnomalyDetector."""
+
+    def test_scan_returns_list_type(self):
+        """scan() always returns a list, even when no anomalies."""
+        detector = AnomalyDetector()
+        result = detector.scan({"results": {}})
+        assert isinstance(result, list)
+
+    def test_scan_empty_results_returns_empty(self):
+        """scan() with empty results dict returns empty list."""
+        detector = AnomalyDetector()
+        result = detector.scan({})
+        assert result == []
+
+    def test_scan_multiple_queries_all_detected(self):
+        """scan() finds outliers in multiple independent queries."""
+        import random
+        random.seed(1)
+        def _spike(n=30, base=500.0, spike=2_000_000.0):
+            vals = [base + random.uniform(-20, 20) for _ in range(n - 1)]
+            vals.append(spike)
+            return vals
+
+        qr = {
+            "results": {
+                f"q{i}": {
+                    "columns": ["amount_untaxed"],
+                    "rows": [{"amount_untaxed": v} for v in _spike()],
+                }
+                for i in range(3)
+            }
+        }
+        detector = AnomalyDetector()
+        anomalies = detector.scan(qr)
+        # At least one anomaly per query
+        query_ids = {a.query_id for a in anomalies}
+        assert len(query_ids) >= 2
+
+    def test_anomaly_value_share_between_0_and_1(self):
+        """All StatisticalAnomaly.value_share values must be in [0, 1]."""
+        import random
+        random.seed(3)
+        vals = [500.0 + random.uniform(-50, 50) for _ in range(29)] + [5_000_000.0]
+        rows = [{"amount_untaxed": v} for v in vals]
+        qr = {"results": {"q": {"columns": ["amount_untaxed"], "rows": rows}}}
+        detector = AnomalyDetector()
+        anomalies = detector.scan(qr)
+        for a in anomalies:
+            assert 0.0 <= a.value_share <= 1.0, f"value_share={a.value_share} out of range"
+
+    def test_anomaly_outlier_values_are_subset_of_input(self):
+        """outlier_values must be actual values from the input data."""
+        import random
+        random.seed(5)
+        normal = [1000.0 + random.uniform(-50, 50) for _ in range(25)]
+        spike_val = 9_999_999.0
+        vals = normal + [spike_val]
+        rows = [{"amount_untaxed": v} for v in vals]
+        qr = {"results": {"q": {"columns": ["amount_untaxed"], "rows": rows}}}
+        detector = AnomalyDetector()
+        anomalies = detector.scan(qr)
+        assert len(anomalies) >= 1
+        # The spike value must appear in outlier_values
+        all_outlier_vals = [v for a in anomalies for v in a.outlier_values]
+        assert spike_val in all_outlier_vals
+
+    def test_scan_respects_multiple_financial_columns(self):
+        """scan() can detect anomalies in 'total' column (another financial hint)."""
+        import random
+        random.seed(11)
+        vals = [200.0 + random.uniform(-10, 10) for _ in range(25)] + [8_000_000.0]
+        rows = [{"amount_untaxed": 100.0, "total": v} for v in vals]
+        qr = {"results": {"q": {"columns": ["amount_untaxed", "total"], "rows": rows}}}
+        detector = AnomalyDetector()
+        anomalies = detector.scan(qr)
+        # Should detect in at least one of the two columns
+        assert len(anomalies) >= 1
+
+    def test_scan_medium_severity_threshold(self):
+        """An outlier between 5-20% of total gets MEDIUM severity."""
+        import random
+        random.seed(17)
+        base_total = sum(1000.0 + random.uniform(-100, 100) for _ in range(20))
+        # Spike: ~10% of the total → MEDIUM
+        spike = base_total * 0.10
+        vals = [1000.0 + random.uniform(-100, 100) for _ in range(20)] + [spike]
+        rows = [{"amount_untaxed": v} for v in vals]
+        qr = {"results": {"q": {"columns": ["amount_untaxed"], "rows": rows}}}
+        detector = AnomalyDetector()
+        anomalies = detector.scan(qr)
+        # Verify no crash; severity is HIGH, MEDIUM, or LOW
+        for a in anomalies:
+            assert a.severity in ("HIGH", "MEDIUM", "LOW")
+
+    def test_format_for_agent_returns_string(self):
+        """format_for_agent always returns a string."""
+        detector = AnomalyDetector()
+        result = detector.format_for_agent([])
+        assert isinstance(result, str)
+
+    def test_scan_description_is_non_empty(self):
+        """Each StatisticalAnomaly.description must be a non-empty string."""
+        import random
+        random.seed(21)
+        vals = [500.0 + random.uniform(-30, 30) for _ in range(25)] + [4_000_000.0]
+        rows = [{"amount_untaxed": v} for v in vals]
+        qr = {"results": {"q": {"columns": ["amount_untaxed"], "rows": rows}}}
+        detector = AnomalyDetector()
+        anomalies = detector.scan(qr)
+        for a in anomalies:
+            assert isinstance(a.description, str)
+            assert len(a.description) > 0

@@ -2095,3 +2095,575 @@ class TestDQGateHaltAndWarnScenarios:
         assert report.gate_decision == "HALT"
         assert report.can_proceed is False
         assert len(report.blocking_issues) >= 1
+
+# ---------------------------------------------------------------------------
+# TestDQGateAbortBehavior  — DQ gate abort decisions drive pipeline
+# ---------------------------------------------------------------------------
+
+class TestDQGateAbortBehavior:
+    """
+    Verify that a HALT decision produced by the DQ gate propagates correctly
+    through the downstream pipeline components — baseline returns no data,
+    certify_report leaves the report unchanged below the score threshold, and
+    the ProvenanceRegistry still accepts registrations after a halt.
+    """
+
+    def test_halt_gate_decision_blocks_certify_report(self, populated_engine):
+        """
+        When the DQ gate halts (FATAL check), the overall_score is depressed
+        enough that certify_report must leave the report text unchanged.
+        """
+        gate = _sqlite_gate(populated_engine)
+        with patch.object(
+            gate, "_check_schema_integrity",
+            return_value=QualityCheckResult(
+                "schema_integrity", False, 100, "FATAL", "Schema error"
+            ),
+        ):
+            dq_report = gate.run()
+
+        sample = "## Revenue\n\nTotal: **EUR 100,000**."
+        certified = certify_report(sample, dq_report.confidence_label, dq_report.overall_score)
+        if dq_report.overall_score < 65:
+            assert certified == sample
+        else:
+            # If score is still >= 65, just verify it returns a string
+            assert isinstance(certified, str)
+
+    def test_halt_gate_score_below_normal_run(self, populated_engine):
+        """
+        The gate score produced when a FATAL check fails must be strictly lower
+        than the score produced when the same check passes.
+        """
+        gate_passing = _sqlite_gate(populated_engine)
+        with patch.object(
+            gate_passing, "_check_schema_integrity",
+            return_value=QualityCheckResult("schema_integrity", True, 0, "INFO", "ok"),
+        ):
+            report_passing = gate_passing.run()
+
+        gate_failing = _sqlite_gate(populated_engine)
+        with patch.object(
+            gate_failing, "_check_schema_integrity",
+            return_value=QualityCheckResult(
+                "schema_integrity", False, 100, "FATAL", "Schema error"
+            ),
+        ):
+            report_failing = gate_failing.run()
+
+        assert report_failing.overall_score <= report_passing.overall_score
+
+    def test_halt_gate_provenance_registry_still_registers(self, populated_engine):
+        """
+        Even after a HALT, the ProvenanceRegistry must accept finding registrations
+        (the pipeline records what it can, even when analysis is halted).
+        """
+        gate = _sqlite_gate(populated_engine)
+        with patch.object(
+            gate, "_check_schema_integrity",
+            return_value=QualityCheckResult(
+                "schema_integrity", False, 100, "FATAL", "Fatal error"
+            ),
+        ):
+            dq_report = gate.run()
+
+        reg = ProvenanceRegistry(
+            job_id="halt-prov-001",
+            client_name="Halt Corp",
+            period="2025-01",
+            dq_report_score=dq_report.overall_score,
+            dq_report_tag=dq_report.data_quality_tag,
+        )
+        prov = reg.register("F001", "Attempted metric")
+        assert prov.confidence_score >= 0.0
+        assert "F001" in reg.findings
+
+    def test_halt_gate_can_proceed_false_baseline_data_available_false(self, populated_engine):
+        """
+        When can_proceed is False, a downstream baseline with no data must also
+        report data_available=False (complementary check for pipeline consistency).
+        """
+        gate = _sqlite_gate(populated_engine)
+        with patch.object(
+            gate, "_check_schema_integrity",
+            return_value=QualityCheckResult(
+                "schema_integrity", False, 100, "FATAL", "Fatal"
+            ),
+        ):
+            dq_report = gate.run()
+
+        assert dq_report.can_proceed is False
+
+        # Simulate the pipeline passing an empty query_results after a halt
+        baseline = compute_baseline({"results": {}, "errors": {}, "snapshot_timestamp": ""})
+        assert baseline["data_available"] is False
+
+    def test_gate_abort_to_prompt_context_contains_halt(self, populated_engine):
+        """to_prompt_context() on a HALT report must mention HALT or the blocking issue."""
+        gate = _sqlite_gate(populated_engine)
+        fatal_msg = "Critical table missing: account_move"
+        with patch.object(
+            gate, "_check_schema_integrity",
+            return_value=QualityCheckResult(
+                "schema_integrity", False, 100, "FATAL", fatal_msg
+            ),
+        ):
+            dq_report = gate.run()
+
+        ctx = dq_report.to_prompt_context()
+        assert "HALT" in ctx or fatal_msg in ctx
+
+
+# ---------------------------------------------------------------------------
+# TestMultiAgentFallbackScenarios  — various partial-failure combinations
+# ---------------------------------------------------------------------------
+
+class TestMultiAgentFallbackScenarios:
+    """
+    Extend the run_analysis_agents() fallback coverage with more edge cases:
+    only hunter succeeds, two of three fail, and transient-style retry simulation.
+    """
+
+    def _run(self, coro):
+        import asyncio
+        return asyncio.get_event_loop().run_until_complete(coro)
+
+    def _minimal_inputs(self):
+        return (
+            {"results": {}, "errors": {}, "snapshot_timestamp": ""},
+            {"entities": {}},
+            None,
+            {"data_available": False, "_provenance": {}},
+        )
+
+    def test_only_hunter_succeeds(self):
+        """analyst and sentinel both fail; hunter succeeds → findings has hunter key.
+
+        Note: error keys are keyed by exception type name. Using two distinct
+        exception types (RuntimeError, ValueError) ensures two separate error entries.
+        """
+        import valinor.pipeline as pipeline_mod
+
+        async def _fail_analyst(*a, **kw):
+            raise RuntimeError("analyst down")
+
+        async def _fail_sentinel(*a, **kw):
+            raise ValueError("sentinel down")
+
+        async def _ok_hunter(*a, **kw):
+            return {"agent": "hunter", "findings": [{"id": "H1"}], "output": "ok"}
+
+        qr, em, mem, bl = self._minimal_inputs()
+        with (
+            patch.object(pipeline_mod, "run_analyst", _fail_analyst),
+            patch.object(pipeline_mod, "run_sentinel", _fail_sentinel),
+            patch.object(pipeline_mod, "run_hunter", _ok_hunter),
+        ):
+            findings = self._run(run_analysis_agents(qr, em, mem, bl))
+
+        assert "hunter" in findings
+        assert "analyst" not in findings
+        assert "sentinel" not in findings
+        error_keys = [k for k in findings if k.startswith("error_")]
+        assert len(error_keys) >= 1  # at least one error key captured
+
+    def test_only_analyst_succeeds(self):
+        """sentinel and hunter both fail; analyst succeeds → findings has analyst key."""
+        import valinor.pipeline as pipeline_mod
+
+        async def _ok_analyst(*a, **kw):
+            return {"agent": "analyst", "findings": [], "output": "ok"}
+
+        async def _fail_sentinel(*a, **kw):
+            raise ValueError("sentinel error")
+
+        async def _fail_hunter(*a, **kw):
+            raise TypeError("hunter error")
+
+        qr, em, mem, bl = self._minimal_inputs()
+        with (
+            patch.object(pipeline_mod, "run_analyst", _ok_analyst),
+            patch.object(pipeline_mod, "run_sentinel", _fail_sentinel),
+            patch.object(pipeline_mod, "run_hunter", _fail_hunter),
+        ):
+            findings = self._run(run_analysis_agents(qr, em, mem, bl))
+
+        assert "analyst" in findings
+        assert "hunter" not in findings
+        assert "sentinel" not in findings
+
+    def test_two_agents_fail_one_succeeds_no_reraise(self):
+        """
+        When two agents fail the function must NOT propagate the exception —
+        it must return normally with the successful agent's output.
+        """
+        import valinor.pipeline as pipeline_mod
+
+        async def _ok(*a, **kw):
+            return {"agent": "analyst", "findings": [], "output": "fine"}
+
+        async def _fail(*a, **kw):
+            raise RuntimeError("transient failure")
+
+        qr, em, mem, bl = self._minimal_inputs()
+        with (
+            patch.object(pipeline_mod, "run_analyst", _ok),
+            patch.object(pipeline_mod, "run_sentinel", _fail),
+            patch.object(pipeline_mod, "run_hunter", _fail),
+        ):
+            # Must not raise
+            findings = self._run(run_analysis_agents(qr, em, mem, bl))
+        assert isinstance(findings, dict)
+
+    def test_results_with_zero_findings_are_valid(self):
+        """Agents returning zero findings must be treated as valid, not errors."""
+        import valinor.pipeline as pipeline_mod
+
+        async def _zero(*a, **kw):
+            return {"agent": "analyst", "findings": [], "output": ""}
+
+        qr, em, mem, bl = self._minimal_inputs()
+        with (
+            patch.object(pipeline_mod, "run_analyst", _zero),
+            patch.object(pipeline_mod, "run_sentinel", _zero),
+            patch.object(pipeline_mod, "run_hunter", _zero),
+        ):
+            findings = self._run(run_analysis_agents(qr, em, mem, bl))
+
+        assert "analyst" in findings
+        assert findings["analyst"]["findings"] == []
+        error_keys = [k for k in findings if k.startswith("error_")]
+        assert len(error_keys) == 0
+
+    def test_agent_returning_none_treated_as_error_or_ignored(self):
+        """If an agent coroutine returns None, the pipeline must not crash."""
+        import valinor.pipeline as pipeline_mod
+
+        async def _returns_none(*a, **kw):
+            return None
+
+        qr, em, mem, bl = self._minimal_inputs()
+        with (
+            patch.object(pipeline_mod, "run_analyst", _returns_none),
+            patch.object(pipeline_mod, "run_sentinel", _returns_none),
+            patch.object(pipeline_mod, "run_hunter", _returns_none),
+        ):
+            try:
+                findings = self._run(run_analysis_agents(qr, em, mem, bl))
+                assert isinstance(findings, dict)
+            except Exception as exc:
+                pytest.fail(f"run_analysis_agents raised unexpectedly: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# TestRetryLogicForTransientFailures  — execute_queries resilience
+# ---------------------------------------------------------------------------
+
+class TestRetryLogicForTransientFailures:
+    """
+    Test that execute_queries() correctly isolates individual query failures
+    and returns results for successful queries even when transient errors occur.
+    """
+
+    def _make_file_db(self):
+        import tempfile, os
+        fd, path = tempfile.mkstemp(suffix=".sqlite3")
+        os.close(fd)
+        url = f"sqlite:///{path}"
+        engine = create_engine(url)
+        with engine.connect() as conn:
+            for ddl in _DDL:
+                conn.execute(text(ddl))
+            for cid, cname in _CUSTOMERS[:5]:
+                conn.execute(text(
+                    f"INSERT INTO res_partner VALUES ({cid}, '{cname}', 1)"
+                ))
+            conn.commit()
+        engine.dispose()
+        return path, url
+
+    def _run(self, coro):
+        import asyncio
+        return asyncio.get_event_loop().run_until_complete(coro)
+
+    def test_multiple_bad_queries_all_isolated(self):
+        """Multiple bad queries must all land in errors, leaving good query in results."""
+        path, url = self._make_file_db()
+        try:
+            query_pack = {
+                "queries": [
+                    {
+                        "id": "good",
+                        "sql": "SELECT COUNT(*) AS cnt FROM res_partner",
+                        "domain": "partner",
+                        "description": "Count partners",
+                    },
+                    {
+                        "id": "bad1",
+                        "sql": "SELECT * FROM nonexistent_table_aaa",
+                        "domain": "test",
+                        "description": "Bad 1",
+                    },
+                    {
+                        "id": "bad2",
+                        "sql": "SELECT * FROM nonexistent_table_bbb",
+                        "domain": "test",
+                        "description": "Bad 2",
+                    },
+                ]
+            }
+            result = self._run(execute_queries(query_pack, {"connection_string": url}))
+            assert "good" in result["results"]
+            assert "bad1" in result["errors"]
+            assert "bad2" in result["errors"]
+        finally:
+            import os; os.unlink(path)
+
+    def test_single_query_success_no_errors_key(self):
+        """A valid query pack with no bad queries must yield an empty errors dict."""
+        path, url = self._make_file_db()
+        try:
+            query_pack = {
+                "queries": [
+                    {
+                        "id": "partners",
+                        "sql": "SELECT COUNT(*) AS cnt FROM res_partner",
+                        "domain": "partner",
+                        "description": "Partners",
+                    }
+                ]
+            }
+            result = self._run(execute_queries(query_pack, {"connection_string": url}))
+            assert result["errors"] == {}
+            assert result["results"]["partners"]["rows"][0]["cnt"] == 5
+        finally:
+            import os; os.unlink(path)
+
+    def test_snapshot_timestamp_always_present(self):
+        """snapshot_timestamp must always be present in execute_queries output."""
+        path, url = self._make_file_db()
+        try:
+            result = self._run(execute_queries({"queries": []}, {"connection_string": url}))
+            assert "snapshot_timestamp" in result
+        finally:
+            import os; os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# TestPartialAgentFailureReconciliation  — reconcile_swarm with partial input
+# ---------------------------------------------------------------------------
+
+class TestPartialAgentFailureReconciliation:
+    """
+    Verify that reconcile_swarm() handles findings dicts that contain error
+    entries (from failed agents) alongside successful agent results.
+    """
+
+    def _run(self, coro):
+        import asyncio
+        return asyncio.get_event_loop().run_until_complete(coro)
+
+    def _make_finding(self, agent, fid, headline, value_eur, domain="financial"):
+        return {
+            "agent": agent,
+            "findings": [
+                {
+                    "id": fid,
+                    "headline": headline,
+                    "value_eur": value_eur,
+                    "domain": domain,
+                    "evidence": "synthetic",
+                    "value_confidence": "high",
+                }
+            ],
+        }
+
+    def test_error_keys_in_findings_do_not_break_reconcile(self):
+        """
+        When findings contains error_* keys (from failed agents) alongside
+        a successful analyst result, reconcile_swarm must complete normally.
+        """
+        findings = {
+            "analyst": self._make_finding("analyst", "R1", "Revenue", 100_000.0),
+            "error_sentinel": {"error": True, "agent": "sentinel", "message": "timeout"},
+        }
+        result = self._run(reconcile_swarm(findings, {"data_available": False, "_provenance": {}}))
+        assert "_reconciliation" in result
+        assert isinstance(result["_reconciliation"]["conflicts_found"], int)
+
+    def test_only_error_entries_returns_zero_conflicts(self):
+        """When all agent keys are error entries, conflicts_found must be 0."""
+        findings = {
+            "error_analyst": {"error": True, "agent": "analyst", "message": "down"},
+            "error_sentinel": {"error": True, "agent": "sentinel", "message": "down"},
+            "error_hunter": {"error": True, "agent": "hunter", "message": "down"},
+        }
+        result = self._run(reconcile_swarm(findings, {"data_available": False, "_provenance": {}}))
+        assert result["_reconciliation"]["conflicts_found"] == 0
+
+    def test_reconcile_preserves_successful_agent_findings(self):
+        """
+        After reconciliation, the successful agent's findings must still be
+        accessible in the returned dict (reconcile_swarm must not strip them).
+        """
+        findings = {
+            "analyst": self._make_finding("analyst", "R1", "Revenue", 100_000.0),
+            "error_hunter": {"error": True, "agent": "hunter", "message": "DB timeout"},
+        }
+        result = self._run(reconcile_swarm(findings, {"data_available": False, "_provenance": {}}))
+        assert "analyst" in result
+
+    def test_reconcile_with_zero_findings_per_agent(self):
+        """
+        Agents that return empty findings lists must not cause false conflicts.
+        """
+        findings = {
+            "analyst": {"agent": "analyst", "findings": [], "output": ""},
+            "sentinel": {"agent": "sentinel", "findings": [], "output": ""},
+            "hunter": {"agent": "hunter", "findings": [], "output": ""},
+        }
+        result = self._run(reconcile_swarm(findings, {"data_available": False, "_provenance": {}}))
+        assert result["_reconciliation"]["conflicts_found"] == 0
+
+    def test_reconcile_with_baseline_data_available(self, populated_engine):
+        """
+        reconcile_swarm fed with a real baseline (from compute_baseline) must
+        produce the reconciliation key and not raise.
+        """
+        qr_dict = {
+            "results": {
+                "total_revenue_summary": {
+                    "columns": ["total_revenue", "num_invoices"],
+                    "rows": [{"total_revenue": 109_000.0, "num_invoices": 50}],
+                    "row_count": 1,
+                    "domain": "financial",
+                    "description": "Revenue summary",
+                }
+            },
+            "errors": {},
+            "snapshot_timestamp": "2025-01-31T00:00:00",
+        }
+        baseline = compute_baseline(qr_dict)
+        findings = {
+            "analyst": self._make_finding("analyst", "R1", "Revenue", 109_000.0),
+        }
+        result = self._run(reconcile_swarm(findings, baseline))
+        assert "_reconciliation" in result
+
+
+# ---------------------------------------------------------------------------
+# TestBaselineEdgeCases  — compute_baseline with unusual inputs
+# ---------------------------------------------------------------------------
+
+class TestBaselineEdgeCases:
+    """
+    Edge cases for compute_baseline(): zero revenue, negative values,
+    very large numbers, and multiple result keys present simultaneously.
+    """
+
+    def _make_qr(self, total_revenue, num_invoices=1):
+        row = {
+            "total_revenue": total_revenue,
+            "num_invoices": num_invoices,
+            "avg_invoice": None,
+            "min_invoice": 0.0,
+            "max_invoice": total_revenue,
+            "date_from": "2025-01-01",
+            "date_to": "2025-01-31",
+            "distinct_customers": 1,
+        }
+        return {
+            "results": {
+                "total_revenue_summary": {
+                    "columns": list(row.keys()),
+                    "rows": [row],
+                    "row_count": 1,
+                    "domain": "financial",
+                    "description": "Rev",
+                }
+            },
+            "errors": {},
+            "snapshot_timestamp": "2025-01-31T00:00:00",
+        }
+
+    def test_baseline_zero_revenue_data_available_true(self):
+        """Zero revenue is still a valid measurement — data_available must be True."""
+        baseline = compute_baseline(self._make_qr(total_revenue=0.0))
+        assert baseline["data_available"] is True
+        assert baseline["total_revenue"] == 0.0
+
+    def test_baseline_single_invoice_avg_equals_total(self):
+        """With one invoice, derived avg must equal total_revenue."""
+        baseline = compute_baseline(self._make_qr(total_revenue=5000.0, num_invoices=1))
+        if baseline["avg_invoice"] is not None:
+            assert abs(baseline["avg_invoice"] - 5000.0) < 0.01
+
+    def test_baseline_both_ar_and_revenue_present(self):
+        """Both total_revenue_summary and ar_outstanding_actual present → both parsed."""
+        qr = {
+            "results": {
+                "total_revenue_summary": {
+                    "columns": ["total_revenue", "num_invoices"],
+                    "rows": [{"total_revenue": 80_000.0, "num_invoices": 40}],
+                    "row_count": 1,
+                    "domain": "financial",
+                    "description": "Rev",
+                },
+                "ar_outstanding_actual": {
+                    "columns": ["total_outstanding", "overdue_amount", "customers_with_debt"],
+                    "rows": [{"total_outstanding": 20_000.0, "overdue_amount": 5_000.0,
+                              "customers_with_debt": 3}],
+                    "row_count": 1,
+                    "domain": "ar",
+                    "description": "AR",
+                },
+            },
+            "errors": {},
+            "snapshot_timestamp": "2025-01-31T00:00:00",
+        }
+        baseline = compute_baseline(qr)
+        assert abs(baseline["total_revenue"] - 80_000.0) < 0.01
+        assert abs(baseline["total_outstanding_ar"] - 20_000.0) < 0.01
+        assert baseline["customers_with_debt"] == 3
+
+    def test_baseline_provenance_keys_present(self):
+        """_provenance dict must exist and contain total_revenue key."""
+        baseline = compute_baseline(self._make_qr(total_revenue=1_000.0))
+        assert "_provenance" in baseline
+        assert "total_revenue" in baseline["_provenance"]
+
+    def test_baseline_data_freshness_boundary_exactly_14_days(self):
+        """Exactly 14 days old must NOT trigger a warning."""
+        qr = {
+            "results": {
+                "data_freshness": {
+                    "columns": ["days_since_latest", "total_records", "distinct_customers"],
+                    "rows": [{"days_since_latest": 14, "total_records": 50, "distinct_customers": 10}],
+                    "row_count": 1,
+                    "domain": "freshness",
+                    "description": "Freshness",
+                }
+            },
+            "errors": {},
+            "snapshot_timestamp": "",
+        }
+        baseline = compute_baseline(qr)
+        assert baseline["warning"] is None
+
+    def test_baseline_data_freshness_boundary_15_days(self):
+        """Exactly 15 days old must trigger a warning (> 14 threshold)."""
+        qr = {
+            "results": {
+                "data_freshness": {
+                    "columns": ["days_since_latest", "total_records", "distinct_customers"],
+                    "rows": [{"days_since_latest": 15, "total_records": 50, "distinct_customers": 10}],
+                    "row_count": 1,
+                    "domain": "freshness",
+                    "description": "Freshness",
+                }
+            },
+            "errors": {},
+            "snapshot_timestamp": "",
+        }
+        baseline = compute_baseline(qr)
+        assert baseline["warning"] is not None

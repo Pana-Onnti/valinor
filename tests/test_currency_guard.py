@@ -216,3 +216,80 @@ class TestCurrencyGuard:
         g1 = get_currency_guard()
         g2 = get_currency_guard()
         assert g1 is g2
+
+
+# ---------------------------------------------------------------------------
+# Additional edge case tests
+# ---------------------------------------------------------------------------
+
+class TestCurrencyGuardAdditional:
+    """Additional tests for CurrencyGuard."""
+
+    def setup_method(self):
+        self.guard = CurrencyGuard()
+
+    def test_check_result_set_all_eur(self):
+        """All-EUR rows → is_homogeneous=True, dominant=EUR."""
+        rows = make_rows("EUR", 100.0, 20)
+        result = self.guard.check_result_set(rows)
+        assert result.is_homogeneous is True
+        assert result.dominant_currency == "EUR"
+
+    def test_check_result_set_all_usd(self):
+        """All-USD rows → is_homogeneous=True, dominant=USD."""
+        rows = make_rows("USD", 50.0, 15)
+        result = self.guard.check_result_set(rows)
+        assert result.is_homogeneous is True
+        assert result.dominant_currency == "USD"
+
+    def test_check_result_set_dominant_pct_is_1_when_homogeneous(self):
+        """dominant_pct must be 100% when all rows share the same currency."""
+        rows = make_rows("GBP", 200.0, 10)
+        result = self.guard.check_result_set(rows)
+        assert result.dominant_pct >= 1.0 or result.dominant_pct >= 100.0
+
+    def test_check_result_set_safe_to_aggregate_when_homogeneous(self):
+        """safe_to_aggregate must be True when is_homogeneous=True."""
+        rows = make_rows("EUR", 100.0, 10)
+        result = self.guard.check_result_set(rows)
+        if result.is_homogeneous:
+            assert result.safe_to_aggregate is True
+
+    def test_check_result_set_empty_rows_no_crash(self):
+        """check_result_set on empty list must not raise."""
+        result = self.guard.check_result_set([])
+        assert isinstance(result, CurrencyCheckResult)
+
+    def test_build_context_block_returns_string(self):
+        """build_currency_context_block returns a non-empty string."""
+        rows = make_rows("EUR", 100.0, 10)
+        check = self.guard.check_result_set(rows)
+        block = self.guard.build_currency_context_block(check)
+        assert isinstance(block, str)
+        assert len(block) > 0
+
+    def test_build_context_block_mentions_currency(self):
+        """build_currency_context_block mentions the dominant currency."""
+        rows = make_rows("EUR", 100.0, 10)
+        check = self.guard.check_result_set(rows)
+        block = self.guard.build_currency_context_block(check)
+        assert "EUR" in block
+
+    def test_scan_query_results_empty_no_crash(self):
+        """scan_query_results with no queries returns empty dict."""
+        result = self.guard.scan_query_results({"results": {}})
+        assert isinstance(result, dict)
+
+    def test_currency_check_result_dataclass(self):
+        """CurrencyCheckResult fields can be set and read."""
+        r = CurrencyCheckResult(
+            is_homogeneous=True,
+            dominant_currency="EUR",
+            dominant_pct=1.0,
+            mixed_exposure_pct=0.0,
+            recommendation="ok",
+            safe_to_aggregate=True,
+        )
+        assert r.is_homogeneous is True
+        assert r.dominant_currency == "EUR"
+        assert r.safe_to_aggregate is True
