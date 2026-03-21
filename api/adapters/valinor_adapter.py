@@ -553,7 +553,8 @@ RETURN ONLY THE JSON OBJECT."""
             await self._progress("query_execution", 50, f"Executed {len(query_results['results'])} queries")
 
             # ── Currency homogeneity check ────────────────────────────────────
-            currency_issues = get_currency_guard().scan_query_results(query_results)
+            _guard = get_currency_guard()
+            currency_issues = _guard.scan_query_results(query_results)
             if currency_issues:
                 results["currency_warnings"] = {
                     qid: {"mixed_pct": f"{r.mixed_exposure_pct:.2%}", "recommendation": r.recommendation}
@@ -561,6 +562,16 @@ RETURN ONLY THE JSON OBJECT."""
                 }
                 logger.warning("Currency mixing detected in query results",
                                affected_queries=list(currency_issues.keys()))
+                # Build currency context block for agent injection
+                first_check = next(iter(currency_issues.values()))
+                results["_currency_context"] = _guard.build_currency_context_block(first_check)
+            else:
+                # Confirm single currency for agents
+                from core.valinor.quality.currency_guard import CurrencyCheckResult
+                _ok_check = CurrencyCheckResult(dominant_currency=profile.currency_detected or "USD",
+                                                mixed=False, mixed_exposure_pct=0.0,
+                                                warning_message=None, recommendation="")
+                results["_currency_context"] = _guard.build_currency_context_block(_ok_check)
 
             # ── Statistical anomaly detection on raw results ──────────────────
             try:
@@ -619,6 +630,10 @@ RETURN ONLY THE JSON OBJECT."""
             # Inject statistical anomaly context if available
             if results.get("_anomaly_context"):
                 memory["statistical_anomalies"] = results["_anomaly_context"]
+
+            # Inject currency context block
+            if results.get("_currency_context"):
+                memory["currency_context"] = results["_currency_context"]
 
             # Inject historical context for narrator
             if profile.run_count > 0 and profile.run_history:
