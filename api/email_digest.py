@@ -128,32 +128,62 @@ def build_digest_html(
         for l, v, c in _stats_items
     )
 
-    # Pre-compute DQ row
-    dq_row_html = ""
+    # Pre-compute full DQ summary section (colored box)
     if data_quality:
-        dq_score = data_quality.get("score", 0)
-        dq_label = data_quality.get("confidence_label") or data_quality.get("label", "")
-        dq_tag = data_quality.get("tag", "")
-        dq_color_val = _dq_color(int(dq_score) if isinstance(dq_score, (int, float)) else 0)
-        dq_display = f"{dq_score}/100 {dq_label}" if dq_label else f"{dq_score}/100"
-        if dq_tag:
-            dq_display = f"{dq_display} · {dq_tag}"
-        dq_row_html = (
-            '<tr>'
-            '<td style="padding:4px 12px;font-size:11px;color:#6B7280;">Calidad datos</td>'
-            f'<td style="padding:4px 12px;font-size:11px;font-weight:bold;color:{dq_color_val};">'
-            f'{dq_display}</td>'
-            '</tr>'
+        _dq_score_raw = data_quality.get("score", 0)
+        _dq_score_int = int(_dq_score_raw) if isinstance(_dq_score_raw, (int, float)) else 0
+        _dq_label = data_quality.get("confidence_label") or data_quality.get("label", "")
+        _dq_tag = data_quality.get("tag", "")
+        _dq_decision = data_quality.get("decision", data_quality.get("gate_decision", ""))
+
+        # Border/background by score band
+        if _dq_score_int >= 85:
+            _dq_border = "#16a34a"
+            _dq_bg = "#F0FDF4"
+            _dq_header_bg = "#DCFCE7"
+            _dq_band_label = "APROBADO"
+        elif _dq_score_int >= 65:
+            _dq_border = "#d97706"
+            _dq_bg = "#FFFBEB"
+            _dq_header_bg = "#FEF3C7"
+            _dq_band_label = "CON ADVERTENCIAS"
+        else:
+            _dq_border = "#dc2626"
+            _dq_bg = "#FFF1F2"
+            _dq_header_bg = "#FFE4E6"
+            _dq_band_label = "RIESGO ALTO"
+
+        # Gate decision display
+        _decision_map = {
+            "PROCEED": ("PROCEDER", "#16a34a"),
+            "PROCEED_WITH_WARNINGS": ("PROCEDER CON ADVERTENCIAS", "#d97706"),
+            "HALT": ("BLOQUEADO", "#dc2626"),
+        }
+        _decision_text, _decision_color = _decision_map.get(
+            _dq_decision.upper() if _dq_decision else "",
+            (_dq_decision or "—", "#6B7280"),
         )
 
-    # Pre-compute DQ section
-    if dq_row_html:
+        _dq_label_part = f" &nbsp;·&nbsp; {_dq_label}" if _dq_label else ""
+        _dq_tag_part = f" &nbsp;·&nbsp; {_dq_tag}" if _dq_tag else ""
+
         dq_row_section = (
-            '<tr><td style="padding:0 32px 8px;">'
-            '<table width="100%" cellpadding="0" cellspacing="0" '
-            'style="background:#F5F3FF;border-radius:6px;border:1px solid #DDD6FE;">'
-            + dq_row_html +
-            '</table></td></tr>'
+            '<tr><td style="padding:0 32px 16px;">'
+            f'<div style="border:2px solid {_dq_border};border-radius:8px;overflow:hidden;">'
+            f'<div style="background:{_dq_header_bg};padding:8px 14px;border-bottom:1px solid {_dq_border};">'
+            f'<span style="font-size:10px;font-weight:700;color:{_dq_border};letter-spacing:0.1em;text-transform:uppercase;">CALIDAD DE DATOS &nbsp;·&nbsp; {_dq_band_label}</span>'
+            '</div>'
+            f'<div style="background:{_dq_bg};padding:10px 14px;">'
+            '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+            f'<td style="font-size:24px;font-weight:900;color:{_dq_border};width:60px;">{_dq_score_int}</td>'
+            '<td style="font-size:10px;color:#6B7280;padding-left:4px;vertical-align:middle;">'
+            f'<span style="font-size:11px;font-weight:700;color:#374151;">/100{_dq_label_part}{_dq_tag_part}</span><br>'
+            f'<span>Decisión: <strong style="color:{_decision_color};">{_decision_text}</strong></span>'
+            '</td>'
+            '</tr></table>'
+            '</div>'
+            '</div>'
+            '</td></tr>'
         )
     else:
         dq_row_section = ''
@@ -179,6 +209,37 @@ def build_digest_html(
 
     # Pre-compute alerts section
     alerts_section = build_alerts_section(triggered_alerts) if triggered_alerts else ''
+
+    # Pre-compute "Próximo análisis sugerido" note based on critical findings count
+    if critical >= 3:
+        _next_icon = "🚨"
+        _next_text = "URGENTE — siguiente en 24 horas"
+        _next_bg = "#FEF2F2"
+        _next_border = "#DC2626"
+        _next_color = "#DC2626"
+    elif critical >= 1:
+        _next_icon = "⚡"
+        _next_text = "Recomendado — siguiente en 7 días"
+        _next_bg = "#FFF7ED"
+        _next_border = "#EA580C"
+        _next_color = "#EA580C"
+    else:
+        _next_icon = "📅"
+        _next_text = "Análisis de rutina — siguiente en 30 días"
+        _next_bg = "#F0FDF4"
+        _next_border = "#16a34a"
+        _next_color = "#16a34a"
+
+    next_analysis_section = (
+        '<tr><td style="padding:0 32px 16px;">'
+        f'<div style="background:{_next_bg};border-left:3px solid {_next_border};'
+        'border-radius:0 6px 6px 0;padding:10px 14px;">'
+        '<span style="font-size:10px;font-weight:700;color:#6B7280;letter-spacing:0.08em;'
+        'text-transform:uppercase;">PRÓXIMO ANÁLISIS SUGERIDO</span><br>'
+        f'<span style="font-size:12px;font-weight:700;color:{_next_color};">{_next_icon} {_next_text}</span>'
+        '</div>'
+        '</td></tr>'
+    )
 
     # Pre-compute date string
     today_str = datetime.utcnow().strftime('%d/%m/%Y')
@@ -240,6 +301,9 @@ def build_digest_html(
 
         <!-- KPIs -->
         {kpis_section}
+
+        <!-- Next analysis suggestion -->
+        {next_analysis_section}
 
         <!-- CTA -->
         <tr>

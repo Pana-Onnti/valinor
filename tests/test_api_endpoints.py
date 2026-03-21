@@ -38,12 +38,18 @@ def _stub_missing(*module_names: str) -> None:
         if name not in sys.modules:
             stub = _make_stub(name)
             sys.modules[name] = stub
-            # Also register sub-packages so dotted imports work
-            parts = name.split(".")
-            for i in range(1, len(parts)):
-                parent = ".".join(parts[:i])
-                if parent not in sys.modules:
-                    sys.modules[parent] = _make_stub(parent)
+        # Wire each child as an attribute on its parent so that
+        # unittest.mock.patch can resolve dotted names via getattr().
+        parts = name.split(".")
+        for i in range(1, len(parts)):
+            parent_name = ".".join(parts[:i])
+            child_attr  = parts[i]
+            if parent_name not in sys.modules:
+                sys.modules[parent_name] = _make_stub(parent_name)
+            parent_mod = sys.modules[parent_name]
+            child_mod  = sys.modules.get(".".join(parts[: i + 1]))
+            if child_mod is not None and not hasattr(parent_mod, child_attr):
+                setattr(parent_mod, child_attr, child_mod)
 
 
 # supabase

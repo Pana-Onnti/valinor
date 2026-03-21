@@ -45,6 +45,7 @@ from api.refinement.focus_ranker import FocusRanker
 from api.refinement.refinement_agent import RefinementAgent
 from api.refinement.query_evolver import QueryEvolver
 from shared.memory.industry_detector import IndustryDetector
+from shared.memory.adaptive_context_builder import build_adaptive_context
 from shared.memory.segmentation_engine import get_segmentation_engine
 from core.valinor.quality.currency_guard import get_currency_guard
 from core.valinor.quality.data_quality_gate import DataQualityGate
@@ -710,6 +711,10 @@ RETURN ONLY THE JSON OBJECT."""
 
             # Inject adaptive context from profile into memory
             memory = self.prompt_tuner.inject_into_memory(memory or {}, profile)
+
+            # Build and store the rich adaptive context string so all agents
+            # have a single, human-readable summary of accumulated client knowledge.
+            memory["adaptive_context"] = build_adaptive_context(profile)
 
             # Inject Data Quality Gate context into agent memory.
             # Build a rich summary that includes per-check pass/fail and critical

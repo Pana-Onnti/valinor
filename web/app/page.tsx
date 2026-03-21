@@ -4,14 +4,9 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Database, Zap, Shield, Clock, ArrowRight, Play, CheckCircle, CheckCircle2 } from 'lucide-react'
 import Link from 'next/link'
-import { AnalysisForm } from '@/components/AnalysisForm'
-import { AnalysisProgress } from '@/components/AnalysisProgress'
-import { ResultsDisplay } from '@/components/ResultsDisplay'
 import { DemoModeWrapper } from '@/components/DemoMode'
 
 export default function HomePage() {
-  const [stage, setStage] = useState<'setup' | 'running' | 'complete'>('setup')
-  const [analysisId, setAnalysisId] = useState<string | null>(null)
   const [recentClients, setRecentClients] = useState<Array<{
     client_name: string
     run_count: number
@@ -26,15 +21,6 @@ export default function HomePage() {
       .then(data => setRecentClients(data.clients || []))
       .catch(() => {})
   }, [])
-
-  const handleStartAnalysis = (id: string) => {
-    setAnalysisId(id)
-    setStage('running')
-  }
-
-  const handleAnalysisComplete = () => {
-    setStage('complete')
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-indigo-900">
@@ -81,169 +67,144 @@ export default function HomePage() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        {stage === 'setup' && (
-          <>
-            {/* Smart homepage: returning user */}
-            {recentClients.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mb-10"
+        {/* Smart homepage: returning user */}
+        {recentClients.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-10"
+          >
+            {/* Welcome back header */}
+            <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
+              <div>
+                <p className="text-xs font-mono tracking-widest text-indigo-500 uppercase mb-1">Sistema activo</p>
+                <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
+                  {recentClients.length === 1
+                    ? `Bienvenido de vuelta, ${recentClients[0].client_name.replace('_', ' ')}`
+                    : `${recentClients.length} clientes monitoreados`
+                  }
+                </h2>
+              </div>
+              <Link
+                href="/new-analysis"
+                className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm shadow-violet-500/20"
               >
-                {/* Welcome back header */}
-                <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
-                  <div>
-                    <p className="text-xs font-mono tracking-widest text-indigo-500 uppercase mb-1">Sistema activo</p>
-                    <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-                      {recentClients.length === 1
-                        ? `Bienvenido de vuelta, ${recentClients[0].client_name.replace('_', ' ')}`
-                        : `${recentClients.length} clientes monitoreados`
-                      }
-                    </h2>
+                Nuevo análisis <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+
+            {/* Client cards — larger when 1 client, grid when multiple */}
+            <div className={`grid gap-4 mb-8 ${recentClients.length === 1 ? 'grid-cols-1 max-w-md' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'}`}>
+              {recentClients.slice(0, 8).map(client => (
+                <a
+                  key={client.client_name}
+                  href={`/clients/${encodeURIComponent(client.client_name)}/history`}
+                  className="group bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-lg transition-all"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 group-hover:bg-indigo-100 dark:group-hover:bg-indigo-900/50 transition-colors">
+                      <Database className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                    </div>
+                    <span className="text-xs text-gray-400 font-mono">{client.run_count} runs</span>
                   </div>
-                </div>
+                  <p className="font-bold text-gray-900 dark:text-white mb-1 truncate">
+                    {client.client_name.replace(/_/g, ' ')}
+                  </p>
+                  <div className="flex items-center justify-between">
+                    {client.known_findings_count > 0 ? (
+                      <span className="text-xs font-medium text-orange-500 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block animate-pulse" />
+                        {client.known_findings_count} activo{client.known_findings_count > 1 ? 's' : ''}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-emerald-500 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3" />Sin alertas
+                      </span>
+                    )}
+                    {client.last_run_date && (
+                      <span className="text-xs text-gray-400">
+                        {new Date(client.last_run_date).toLocaleDateString('es', { day: 'numeric', month: 'short' })}
+                      </span>
+                    )}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </motion.div>
+        )}
 
-                {/* Client cards — larger when 1 client, grid when multiple */}
-                <div className={`grid gap-4 mb-8 ${recentClients.length === 1 ? 'grid-cols-1 max-w-md' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'}`}>
-                  {recentClients.slice(0, 8).map(client => (
-                    <a
-                      key={client.client_name}
-                      href={`/clients/${encodeURIComponent(client.client_name)}/history`}
-                      className="group bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-lg transition-all"
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 group-hover:bg-indigo-100 dark:group-hover:bg-indigo-900/50 transition-colors">
-                          <Database className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                        </div>
-                        <span className="text-xs text-gray-400 font-mono">{client.run_count} runs</span>
-                      </div>
-                      <p className="font-bold text-gray-900 dark:text-white mb-1 truncate">
-                        {client.client_name.replace(/_/g, ' ')}
-                      </p>
-                      <div className="flex items-center justify-between">
-                        {client.known_findings_count > 0 ? (
-                          <span className="text-xs font-medium text-orange-500 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block animate-pulse" />
-                            {client.known_findings_count} activo{client.known_findings_count > 1 ? 's' : ''}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-emerald-500 flex items-center gap-1">
-                            <CheckCircle2 className="h-3 w-3" />Sin alertas
-                          </span>
-                        )}
-                        {client.last_run_date && (
-                          <span className="text-xs text-gray-400">
-                            {new Date(client.last_run_date).toLocaleDateString('es', { day: 'numeric', month: 'short' })}
-                          </span>
-                        )}
-                      </div>
-                    </a>
-                  ))}
-                </div>
+        {/* Hero Section — only for new users */}
+        {recentClients.length === 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="text-center mb-12"
+          >
+            <h2 className="text-5xl font-bold text-gray-900 dark:text-white mb-4">
+              Business Intelligence in{' '}
+              <span className="text-indigo-600 dark:text-indigo-400">15 Minutes</span>
+            </h2>
+            <p className="text-xl text-gray-600 dark:text-gray-400 max-w-3xl mx-auto mb-8">
+              Connect your database securely, let our AI agents analyze it, and receive
+              executive-ready insights without storing any of your data.
+            </p>
+            <Link
+              href="/new-analysis"
+              className="inline-flex items-center gap-2 px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-base font-semibold transition-all shadow-lg shadow-indigo-500/25"
+            >
+              Comenzar análisis <ArrowRight className="h-5 w-5" />
+            </Link>
+          </motion.div>
+        )}
 
-                {/* Divider before form */}
-                <div className="flex items-center gap-4 mb-8">
-                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-                  <span className="text-xs text-gray-400 font-mono uppercase tracking-wider">Nuevo análisis</span>
-                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-                </div>
-              </motion.div>
-            )}
-
-            {/* Hero Section — only for new users */}
-            {recentClients.length === 0 && (
+        {/* Features Grid — only for new users */}
+        {recentClients.length === 0 && (
+          <div className="grid md:grid-cols-4 gap-6 mb-12">
+            {[
+              {
+                icon: Shield,
+                title: 'Zero Data Storage',
+                description: 'Your data never leaves your servers'
+              },
+              {
+                icon: Clock,
+                title: '15 Min Analysis',
+                description: 'Complete insights in record time'
+              },
+              {
+                icon: Zap,
+                title: 'Multi-Agent AI',
+                description: 'Powered by Claude Opus & Sonnet'
+              },
+              {
+                icon: Database,
+                title: 'Any Database',
+                description: 'PostgreSQL, MySQL, SQL Server, Oracle'
+              }
+            ].map((feature, index) => (
               <motion.div
+                key={index}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5 }}
-                className="text-center mb-12"
+                transition={{ duration: 0.5, delay: index * 0.1 }}
+                className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg"
               >
-                <h2 className="text-5xl font-bold text-gray-900 dark:text-white mb-4">
-                  Business Intelligence in{' '}
-                  <span className="text-indigo-600 dark:text-indigo-400">15 Minutes</span>
-                </h2>
-                <p className="text-xl text-gray-600 dark:text-gray-400 max-w-3xl mx-auto">
-                  Connect your database securely, let our AI agents analyze it, and receive
-                  executive-ready insights without storing any of your data.
+                <feature.icon className="h-8 w-8 text-indigo-600 dark:text-indigo-400 mb-3" />
+                <h3 className="font-semibold text-gray-900 dark:text-white mb-2">
+                  {feature.title}
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {feature.description}
                 </p>
               </motion.div>
-            )}
-
-            {/* Features Grid — only for new users */}
-            {recentClients.length === 0 && (
-              <div className="grid md:grid-cols-4 gap-6 mb-12">
-                {[
-                  {
-                    icon: Shield,
-                    title: 'Zero Data Storage',
-                    description: 'Your data never leaves your servers'
-                  },
-                  {
-                    icon: Clock,
-                    title: '15 Min Analysis',
-                    description: 'Complete insights in record time'
-                  },
-                  {
-                    icon: Zap,
-                    title: 'Multi-Agent AI',
-                    description: 'Powered by Claude Opus & Sonnet'
-                  },
-                  {
-                    icon: Database,
-                    title: 'Any Database',
-                    description: 'PostgreSQL, MySQL, SQL Server, Oracle'
-                  }
-                ].map((feature, index) => (
-                  <motion.div
-                    key={index}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: index * 0.1 }}
-                    className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg"
-                  >
-                    <feature.icon className="h-8 w-8 text-indigo-600 dark:text-indigo-400 mb-3" />
-                    <h3 className="font-semibold text-gray-900 dark:text-white mb-2">
-                      {feature.title}
-                    </h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      {feature.description}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
-            )}
-
-            {/* Analysis Form */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.5, delay: 0.4 }}
-            >
-              <AnalysisForm onStartAnalysis={handleStartAnalysis} />
-            </motion.div>
-
-            <div className="mt-6">
-              <DemoModeWrapper />
-            </div>
-          </>
+            ))}
+          </div>
         )}
 
-        {stage === 'running' && analysisId && (
-          <AnalysisProgress
-            analysisId={analysisId}
-            onComplete={handleAnalysisComplete}
-          />
-        )}
-
-        {stage === 'complete' && analysisId && (
-          <ResultsDisplay
-            analysisId={analysisId}
-            onNewAnalysis={() => {
-              setStage('setup')
-              setAnalysisId(null)
-            }}
-          />
-        )}
+        <div className="mt-6">
+          <DemoModeWrapper />
+        </div>
       </main>
 
       {/* Footer */}
