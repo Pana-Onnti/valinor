@@ -9,7 +9,13 @@ import hashlib
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import structlog
-from supabase import create_client, Client
+
+try:
+    from supabase import create_client, Client as SupabaseClient
+    _SUPABASE_AVAILABLE = True
+except ImportError:
+    _SUPABASE_AVAILABLE = False
+    SupabaseClient = None  # type: ignore
 
 logger = structlog.get_logger()
 
@@ -18,15 +24,15 @@ class MetadataStorage:
     Stores job metadata and aggregated results.
     NO client data is stored, only metadata for tracking and compliance.
     """
-    
+
     def __init__(self):
         """Initialize metadata storage with Supabase or fallback to local."""
         self.supabase_url = os.getenv('SUPABASE_URL')
         self.supabase_key = os.getenv('SUPABASE_ANON_KEY')
-        
-        if self.supabase_url and self.supabase_key:
+
+        if _SUPABASE_AVAILABLE and self.supabase_url and self.supabase_key:
             try:
-                self.supabase: Optional[Client] = create_client(
+                self.supabase = create_client(
                     self.supabase_url,
                     self.supabase_key
                 )

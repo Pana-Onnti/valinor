@@ -15,6 +15,8 @@ Cliente → SSH Tunnel → DB Cliente → Agentes Claude → Reportes
 - **NO almacenamos datos de clientes**, solo metadata y resultados
 - **Conexiones efímeras** via SSH tunneling (máximo 1 hora)
 - **Multi-agent pipeline**: Cartographer → Query Builder → [Analyst, Sentinel, Hunter] → Narrators
+- **Quality pipeline**: DataQualityGate (8+1 checks) → CurrencyGuard → SegmentationEngine → AnomalyDetector → SentinelPatterns → AlertEngine
+- **Intelligence layer**: ProfileExtractor → QueryEvolver → RevenueFactorModel → AdaptiveContextBuilder
 - **Costo operativo**: ~$8 por análisis (Claude API)
 - **Deployment zero-cost**: Cloudflare Workers + GitHub Actions + Supabase free
 
@@ -115,27 +117,45 @@ docker-compose up  # Everything local
 
 #### Phase 2: API Layer ✅
 - [x] FastAPI endpoints (POST /api/analyze, GET /api/jobs/{id}/status, GET /api/jobs/{id}/results)
+- [x] GET /metrics (Prometheus scrape endpoint)
+- [x] WS /api/jobs/{id}/ws (WebSocket real-time progress)
 - [x] Queue system (Celery + Redis)
 - [x] Metadata storage (PostgreSQL en Docker, puerto 5450)
 
-#### Phase 3: Agent Migration ✅ (parcial)
+#### Phase 3: Agent Migration ✅
 - [x] Adapter pattern conectando API con agentes v0
-- [ ] Test each agent individually
-- [ ] Implement fallback mechanisms
-- [ ] Progress streaming (polling implementado, SSE pendiente)
+- [x] Test each agent individually
+- [x] Implement fallback mechanisms
+- [x] Progress streaming (WebSocket implementado)
 
 #### Phase 4: Frontend ✅
 - [x] Next.js dashboard con Tailwind CSS
 - [x] AnalysisForm — formulario de conexión DB + SSH
 - [x] AnalysisProgress — polling de estado del job
 - [x] ResultsDisplay — visualización de reportes
-- [ ] Real-time updates via WebSocket/SSE
+- [x] Real-time updates via WebSocket
 - [x] Secure credential upload (form con campos password)
+- [x] Metrics dashboard — visualización de KPIs y alertas
+- [x] Quality report page — resultados del DQ Gate
+- [x] Anomaly explorer — detalle de patrones detectados
 
 #### Phase 5: Deployment 📅
 - [ ] Cloudflare Workers
 - [ ] GitHub Actions workflows
 - [ ] Monitoring setup
+
+#### Phase 6: Quality Pipeline ✅
+- [x] **DQ Check 1** — Row count vs baseline (schema drift guard)
+- [x] **DQ Check 2** — Null ratio per column (configurable threshold)
+- [x] **DQ Check 3** — Type consistency (no silent cast coercions)
+- [x] **DQ Check 4** — PK uniqueness enforcement
+- [x] **DQ Check 5** — Referential integrity spot-check
+- [x] **DQ Check 6** — Numeric range / outlier pre-screen
+- [x] **DQ Check 7** — Date range plausibility (no future timestamps)
+- [x] **DQ Check 8** — Freshness check via CurrencyGuard (max stale threshold)
+- [x] **DQ Check +1** — REPEATABLE READ isolation snapshot for query consistency
+- [x] Provenance tracking — every result tagged with source table + query hash
+- [x] Auto-abort analysis when critical DQ checks fail (configurable severity)
 
 ## 🔧 COMMON COMMANDS
 
@@ -177,6 +197,7 @@ Los puertos del host fueron ajustados porque 5432 y 6379 están ocupados por ser
 | Frontend   | 3000        | 3000            |
 | PostgreSQL | **5450**    | 5432            |
 | Redis      | **6380**    | 6379            |
+| Prometheus | 9090        | 9090            |
 
 ## 📦 DEPENDENCIAS CLAVE (ESTADO ACTUAL)
 

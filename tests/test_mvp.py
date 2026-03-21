@@ -3,6 +3,8 @@ MVP Tests for Valinor SaaS.
 Basic tests to verify core functionality.
 """
 
+import importlib
+import importlib.util
 import os
 import json
 import pytest
@@ -18,17 +20,49 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Skip entire module if optional dependencies are missing (e.g., supabase not installed locally)
 try:
     from shared.ssh_tunnel import ZeroTrustValidator
-    from shared.storage import MetadataStorage
+
+    # Load MetadataStorage directly from source to bypass any sys.modules stubs
+    # injected by other test modules (e.g. test_api_endpoints patches shared.storage).
+    _storage_spec = importlib.util.spec_from_file_location(
+        "_test_mvp_storage",
+        str(Path(__file__).parent.parent / "shared" / "storage.py"),
+    )
+    _storage_mod = importlib.util.module_from_spec(_storage_spec)
+    # Provide supabase stub if not installed so the module loads cleanly
+    import types as _types
+    if "supabase" not in sys.modules:
+        _sub_stub = _types.ModuleType("supabase")
+        _sub_stub.create_client = lambda *a, **kw: None  # type: ignore
+        _sub_stub.Client = object  # type: ignore
+        sys.modules["supabase"] = _sub_stub
+    if "structlog" not in sys.modules:
+        _sl_stub = _types.ModuleType("structlog")
+        class _NullLogger:
+            def info(self, *a, **kw): pass
+            def warning(self, *a, **kw): pass
+            def error(self, *a, **kw): pass
+            def debug(self, *a, **kw): pass
+        _sl_stub.get_logger = lambda: _NullLogger()  # type: ignore
+        sys.modules["structlog"] = _sl_stub
+    _storage_spec.loader.exec_module(_storage_mod)
+    MetadataStorage = _storage_mod.MetadataStorage
+
     from api.adapters.valinor_adapter import ValinorAdapter
 except ImportError as _e:
     pytest.skip(f"Skipping test_mvp: missing dependency ({_e})", allow_module_level=True)
 
 class TestZeroTrustValidator:
     """Test SSH configuration validation."""
-    
+
     def setup_method(self):
         self.validator = ZeroTrustValidator()
-    
+
+    def _make_stat_mock(self, mode=0o600):
+        """Return a mock os.stat_result with the given permission mode."""
+        stat_mock = Mock()
+        stat_mock.st_mode = mode
+        return stat_mock
+
     def test_valid_ssh_config(self):
         """Test valid SSH configuration."""
         config = {
@@ -37,8 +71,10 @@ class TestZeroTrustValidator:
             'private_key_path': '/path/to/key',
             'port': 22
         }
-        assert self.validator.validate_ssh_config(config) is True
-    
+        with patch('os.path.exists', return_value=True), \
+             patch('os.stat', return_value=self._make_stat_mock(0o600)):
+            assert self.validator.validate_ssh_config(config) is True
+
     def test_invalid_ssh_config_missing_host(self):
         """Test invalid SSH config missing host."""
         config = {
@@ -46,7 +82,7 @@ class TestZeroTrustValidator:
             'private_key_path': '/path/to/key'
         }
         assert self.validator.validate_ssh_config(config) is False
-    
+
     def test_invalid_ssh_config_suspicious_host(self):
         """Test invalid SSH config with suspicious host."""
         config = {
@@ -55,7 +91,9 @@ class TestZeroTrustValidator:
             'private_key_path': '/path/to/key'
         }
         # Should still be valid for testing
-        assert self.validator.validate_ssh_config(config) is True
+        with patch('os.path.exists', return_value=True), \
+             patch('os.stat', return_value=self._make_stat_mock(0o600)):
+            assert self.validator.validate_ssh_config(config) is True
     
     def test_valid_db_config(self):
         """Test valid database configuration."""
@@ -190,7 +228,10 @@ class TestValinorAdapter:
     @patch('api.adapters.valinor_adapter.run_analysis_agents')
     @patch('api.adapters.valinor_adapter.narrate_executive')
     @patch('api.adapters.valinor_adapter.deliver_reports')
-    async def test_run_analysis_success(self, mock_deliver, mock_narrate, mock_agents,
+    @patch('shared.ssh_tunnel.ZeroTrustValidator.validate_ssh_config', return_value=True)
+    @patch('shared.ssh_tunnel.ZeroTrustValidator.validate_db_config', return_value=True)
+    async def test_run_analysis_success(self, mock_validate_db, mock_validate_ssh,
+                                      mock_deliver, mock_narrate, mock_agents,
                                       mock_execute, mock_build, mock_cartographer, mock_tunnel):
         """Test successful analysis run."""
         
@@ -352,14 +393,19 @@ class TestSSHTunnelSecurity:
             "/tmp/test_key",
             "~/.ssh/id_rsa"
         ]
-        
+
+        stat_mock = Mock()
+        stat_mock.st_mode = 0o600
+
         for path in valid_paths:
             config = {
                 "host": "test.example.com",
                 "username": "testuser",
                 "private_key_path": path
             }
-            assert self.validator.validate_ssh_config(config) is True
+            with patch('os.path.exists', return_value=True), \
+                 patch('os.stat', return_value=stat_mock):
+                assert self.validator.validate_ssh_config(config) is True
 
 
 class TestErrorHandling:
@@ -423,7 +469,11 @@ class TestE2EFlow:
             "username": "testuser",
             "private_key_path": "/test/key"
         }
-        assert validator.validate_ssh_config(ssh_config) is True
+        _stat_mock = Mock()
+        _stat_mock.st_mode = 0o600
+        with patch('os.path.exists', return_value=True), \
+             patch('os.stat', return_value=_stat_mock):
+            assert validator.validate_ssh_config(ssh_config) is True
         
         # 2. Test storage
         storage = MetadataStorage()

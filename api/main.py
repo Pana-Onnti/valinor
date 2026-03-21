@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, status, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, status, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, validator
@@ -612,6 +612,36 @@ async def stream_job_progress(job_id: str):
             "Connection": "keep-alive",
         },
     )
+
+
+@app.websocket("/api/jobs/{job_id}/ws")
+async def job_progress_ws(job_id: str, websocket: WebSocket):
+    await websocket.accept()
+    last_status = None
+    timeout_polls = 0
+    try:
+        while timeout_polls < 360:  # 30 min max
+            redis = await get_redis()
+            job_data = await redis.hgetall(f"job:{job_id}")
+            if not job_data:
+                await websocket.send_json({"error": "job_not_found"})
+                break
+            status = job_data.get("status", "unknown")
+            progress = int(job_data.get("progress", 0))
+            stage = job_data.get("stage", "")
+            if status != last_status:
+                last_status = status
+                payload = {"status": status, "progress": progress, "stage": stage}
+                if status == "completed":
+                    payload["dq_score"] = json.loads(job_data.get("data_quality", "{}") or "{}").get("score")
+                await websocket.send_json(payload)
+                if status in ("completed", "failed", "cancelled"):
+                    await websocket.send_json({"final": True, "status": status})
+                    break
+            await asyncio.sleep(2)
+            timeout_polls += 1
+    except WebSocketDisconnect:
+        pass
 
 
 @app.get("/api/jobs/{job_id}/results", summary="Get job results", tags=["Jobs"])
@@ -1989,6 +2019,63 @@ async def system_metrics():
         "avg_dq_score_all_time": avg_dq,
         "timestamp": datetime.utcnow().isoformat(),
     }
+
+
+@app.get("/metrics", tags=["System"])
+async def prometheus_metrics():
+    """
+    Prometheus-compatible metrics endpoint (text/plain exposition format).
+    Reads job counts from Redis and client count from ProfileStore.
+    """
+    from fastapi.responses import Response
+
+    redis_client = await get_redis()
+
+    # Count jobs by status
+    status_counts = {"completed": 0, "failed": 0, "running": 0, "pending": 0, "cancelled": 0}
+
+    async for key in redis_client.scan_iter("job:*"):
+        key_str = key if isinstance(key, str) else key.decode()
+        if ":results" in key_str:
+            continue
+        job_data = await redis_client.hgetall(key_str)
+        job_status = job_data.get("status", "unknown")
+        if job_status in status_counts:
+            status_counts[job_status] += 1
+
+    # Estimate cost from completed jobs (~$8 per analysis average)
+    estimated_cost_usd = round(status_counts["completed"] * 8.0, 2)
+
+    # Count clients
+    from shared.memory.profile_store import get_profile_store
+    store = get_profile_store()
+    client_count = 0
+    pool = await store._get_pool()
+    if pool:
+        try:
+            async with pool.acquire() as conn:
+                client_count = await conn.fetchval("SELECT COUNT(*) FROM client_profiles")
+        except Exception:
+            pass
+
+    lines = [
+        "# HELP valinor_jobs_total Total jobs by status",
+        "# TYPE valinor_jobs_total counter",
+    ]
+    for s, count in status_counts.items():
+        lines.append(f'valinor_jobs_total{{status="{s}"}} {count}')
+
+    lines += [
+        "# HELP valinor_analysis_cost_usd_total Estimated total analysis cost",
+        "# TYPE valinor_analysis_cost_usd_total counter",
+        f"valinor_analysis_cost_usd_total {estimated_cost_usd}",
+        "# HELP valinor_clients_total Total client profiles",
+        "# TYPE valinor_clients_total gauge",
+        f"valinor_clients_total {client_count}",
+        "",
+    ]
+
+    return Response(content="\n".join(lines), media_type="text/plain")
 
 
 @app.post("/api/clients/{client_name}/webhooks")

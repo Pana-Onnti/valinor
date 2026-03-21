@@ -852,6 +852,10 @@ RETURN ONLY THE JSON OBJECT."""
                     empty_queries=len(evolver_report.get("empty_queries", [])),
                     high_value_tables=len(evolver_report.get("high_value_tables", [])),
                 )
+                # Update query evolver with findings — persist insights into memory
+                # so narrators and profile save can see evolution context
+                if evolver_report:
+                    memory["query_evolution_context"] = evolver_report
             except Exception as _qe_err:
                 logger.warning("QueryEvolver failed", error=str(_qe_err))
 
