@@ -57,9 +57,15 @@ def _validate_client_name(name: str) -> str:
 def _validate_period(period: str) -> str:
     if not period:
         return period
-    patterns = [r'^Q[1-4]-\d{4}$', r'^H[12]-\d{4}$', r'^\d{4}$', r'^[A-Z][a-z]+-\d{4}$']
+    patterns = [
+        r'^Q[1-4]-\d{4}$',      # Q1-2025
+        r'^H[12]-\d{4}$',       # H1-2025
+        r'^\d{4}$',              # 2025
+        r'^\d{4}-\d{2}$',       # 2025-04 (monthly)
+        r'^[A-Z][a-z]+-\d{4}$', # Enero-2025
+    ]
     if not any(_re.match(p, period) for p in patterns):
-        raise ValueError(f"Invalid period format: {period}. Expected: Q1-2025, H1-2025, 2025")
+        raise ValueError(f"Invalid period format: {period}. Expected: 2025-04, Q1-2025, H1-2025, 2025")
     return period
 
 # Global components (declared before lifespan so lifespan can reference them)
