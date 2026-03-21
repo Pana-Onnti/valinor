@@ -118,6 +118,22 @@ def build_executive_system_prompt(memory: dict) -> str:
     if sentinel_ctx:
         extra_sections.append(f"## PATRONES DE FRAUDE ACTIVOS\n{sentinel_ctx}")
 
+    cusum_ctx = memory.get("cusum_warning", "")
+    if cusum_ctx:
+        extra_sections.append(f"## RUPTURA ESTRUCTURAL DETECTADA\n{cusum_ctx}")
+
+    run_history_summary = memory.get("run_history_summary", {})
+    if isinstance(run_history_summary, dict):
+        persistent_findings = run_history_summary.get("persistent_findings", [])
+        if persistent_findings:
+            lines = ["## HALLAZGOS PERSISTENTES (>3 RUNS)"]
+            for finding in persistent_findings:
+                title = finding.get("title", "")
+                runs_open = finding.get("runs_open", "")
+                if title:
+                    lines.append(f"- **{title}** ({runs_open} runs abierto)" if runs_open else f"- **{title}**")
+            extra_sections.append("\n".join(lines))
+
     extra_block = "\n\n".join(extra_sections)
     if extra_block:
         extra_block = "\n\n" + extra_block
