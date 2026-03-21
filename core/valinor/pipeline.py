@@ -20,6 +20,9 @@ import json
 import re
 from datetime import datetime, timezone
 from typing import Any
+import structlog
+
+_pipeline_logger = structlog.get_logger()
 
 from claude_agent_sdk import query as agent_query, ClaudeAgentOptions, AssistantMessage, TextBlock
 from sqlalchemy import create_engine, text
@@ -37,18 +40,27 @@ async def execute_queries(query_pack: dict, client_config: dict) -> dict:
     """
     Execute all queries from the query pack against the client database.
 
+    Uses a single connection with REPEATABLE READ isolation so that all queries
+    see the same database snapshot (prevents phantom reads across queries).
+    Falls back to the default isolation level if REPEATABLE READ is not supported
+    (e.g. some MySQL configs, SQLite).
+
     Returns:
-        Dict with 'results' (successful) and 'errors' (failed).
+        Dict with 'results' (successful), 'errors' (failed), and 'snapshot_timestamp'.
     """
     connection_string = client_config["connection_string"]
     engine = create_engine(connection_string)
-    results: dict[str, Any] = {"results": {}, "errors": {}}
+    results: dict[str, Any] = {
+        "results": {},
+        "errors": {},
+        "snapshot_timestamp": datetime.utcnow().isoformat(),
+    }
 
-    for query_item in query_pack.get("queries", []):
-        query_id = query_item["id"]
-        sql = query_item["sql"]
-        try:
-            with engine.connect() as conn:
+    def _run_queries(conn: Any) -> None:
+        for query_item in query_pack.get("queries", []):
+            query_id = query_item["id"]
+            sql = query_item["sql"]
+            try:
                 result = conn.execute(text(sql))
                 columns = list(result.keys())
                 rows = []
@@ -65,14 +77,31 @@ async def execute_queries(query_pack: dict, client_config: dict) -> dict:
                     "domain": query_item.get("domain", "unknown"),
                     "description": query_item.get("description", ""),
                 }
-        except Exception as e:
-            results["errors"][query_id] = {
-                "error": str(e),
-                "sql": sql[:200],
-                "domain": query_item.get("domain", "unknown"),
-            }
+            except Exception as e:
+                results["errors"][query_id] = {
+                    "error": str(e),
+                    "sql": sql[:200],
+                    "domain": query_item.get("domain", "unknown"),
+                }
 
-    engine.dispose()
+    try:
+        # Attempt REPEATABLE READ isolation — all queries share one snapshot
+        try:
+            with engine.connect().execution_options(
+                isolation_level="REPEATABLE READ"
+            ) as conn:
+                _run_queries(conn)
+        except Exception as iso_err:
+            # REPEATABLE READ not supported on this DB flavour — fall back gracefully
+            _pipeline_logger.warning(
+                "REPEATABLE READ not supported, falling back to default isolation",
+                error=str(iso_err),
+            )
+            with engine.connect() as conn:
+                _run_queries(conn)
+    finally:
+        engine.dispose()
+
     return results
 
 
@@ -261,6 +290,31 @@ async def gate_calibration(entity_map: dict, client_config: dict) -> dict:
                     "status": "error",
                     "detail": str(e),
                 })
+
+    # ── FK orphan check ───────────────────────────────────────────────
+    try:
+        with engine.connect() as conn:
+            orphan_result = conn.execute(text("""
+                SELECT COUNT(*) as orphan_lines
+                FROM account_move_line aml
+                LEFT JOIN account_move am ON aml.move_id = am.id
+                WHERE am.id IS NULL
+                LIMIT 1
+            """)).fetchone()
+            orphan_count = orphan_result[0] if orphan_result else 0
+            if orphan_count > 0:
+                failures.append({
+                    "entity": "account_move_line",
+                    "feedback": f"{orphan_count} orphaned journal entry lines found (no parent move). "
+                               f"These will be silently dropped from JOIN queries."
+                })
+                checks.append({
+                    "entity": "account_move_line_fk",
+                    "status": "warning",
+                    "detail": f"{orphan_count} orphaned lines"
+                })
+    except Exception:
+        pass  # Skip if table doesn't exist in this DB flavor
 
     engine.dispose()
 

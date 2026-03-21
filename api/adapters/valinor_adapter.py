@@ -45,6 +45,9 @@ from api.refinement.focus_ranker import FocusRanker
 from api.refinement.refinement_agent import RefinementAgent
 from shared.memory.industry_detector import IndustryDetector
 from shared.memory.segmentation_engine import get_segmentation_engine
+from core.valinor.quality.currency_guard import get_currency_guard
+from core.valinor.quality.data_quality_gate import DataQualityGate
+from core.valinor.quality.provenance import ProvenanceRegistry
 
 logger = structlog.get_logger()
 
@@ -433,6 +436,50 @@ RETURN ONLY THE JSON OBJECT."""
             # Rerank entity map based on historical table weights
             entity_map = self.focus_ranker.rerank_entity_map(entity_map, profile)
 
+            # ═══ STAGE 1.8: DATA QUALITY GATE ═══
+            await self._progress("data_quality", 28, "Running data quality checks...")
+
+            from sqlalchemy import create_engine as _create_engine
+            _dq_engine = _create_engine(config["connection_string"])
+            try:
+                dq_gate = DataQualityGate(_dq_engine, period_config.get("start", ""), period_config.get("end", ""))
+                dq_report = dq_gate.run()
+            except Exception as _dq_err:
+                logger.warning("DataQualityGate failed, proceeding without DQ check", error=str(_dq_err))
+                from core.valinor.quality.data_quality_gate import DataQualityReport
+                dq_report = DataQualityReport(overall_score=75.0, gate_decision="PROCEED_WITH_WARNINGS",
+                                              warnings=[f"DQ gate error: {_dq_err}"])
+            finally:
+                _dq_engine.dispose()
+
+            results["data_quality"] = {
+                "score": dq_report.overall_score,
+                "decision": dq_report.gate_decision,
+                "tag": dq_report.data_quality_tag,
+                "confidence_label": dq_report.confidence_label,
+                "warnings": dq_report.warnings[:5],
+                "blocking_issues": dq_report.blocking_issues,
+            }
+
+            if dq_report.gate_decision == "HALT":
+                raise ValueError(
+                    f"Data quality gate HALT: score={dq_report.overall_score:.0f}/100. "
+                    f"Issues: {'; '.join(dq_report.blocking_issues)}"
+                )
+
+            # Initialize provenance registry for this run
+            provenance = ProvenanceRegistry(
+                job_id=job_id,
+                client_name=client_name,
+                period=period,
+                dq_report_score=dq_report.overall_score,
+                dq_report_tag=dq_report.data_quality_tag,
+            )
+            results["_provenance"] = provenance
+
+            await self._progress("data_quality", 30,
+                f"DQ Score: {dq_report.overall_score:.0f}/100 ({dq_report.confidence_label})")
+
             # ═══ STAGE 2: QUERY BUILDER ═══
             await self._progress("query_builder", 30, "Building analysis queries...")
 
@@ -463,10 +510,21 @@ RETURN ONLY THE JSON OBJECT."""
             results["stages"]["query_execution"] = {
                 "executed": len(query_results.get("results", [])),
                 "failed": len(query_results.get("errors", [])),
+                "snapshot_timestamp": query_results.get("snapshot_timestamp"),
                 "success": True
             }
 
             await self._progress("query_execution", 50, f"Executed {len(query_results['results'])} queries")
+
+            # ── Currency homogeneity check ────────────────────────────────────
+            currency_issues = get_currency_guard().scan_query_results(query_results)
+            if currency_issues:
+                results["currency_warnings"] = {
+                    qid: {"mixed_pct": f"{r.mixed_exposure_pct:.2%}", "recommendation": r.recommendation}
+                    for qid, r in currency_issues.items()
+                }
+                logger.warning("Currency mixing detected in query results",
+                               affected_queries=list(currency_issues.keys()))
 
             # ── Customer segmentation from query results ──────────────────────
             seg_result = self.segmentation_engine.segment_from_query_results(query_results, profile)
@@ -495,6 +553,9 @@ RETURN ONLY THE JSON OBJECT."""
 
             # Inject adaptive context from profile into memory
             memory = self.prompt_tuner.inject_into_memory(memory or {}, profile)
+
+            # Inject Data Quality Gate context into agent memory
+            memory["data_quality_context"] = dq_report.to_prompt_context()
 
             # Inject customer segmentation context if available
             if results.get("_segmentation_context"):

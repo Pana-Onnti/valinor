@@ -69,4 +69,4 @@ markdown2>=2.4.0
 # Database Drivers (optional, based on client needs)
 pymysql==1.1.0
 pyodbc==5.0.1
-oracledb==2.3.0
+oracledb==2.3.0scipy>=1.11.0

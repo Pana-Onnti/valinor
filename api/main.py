@@ -844,6 +844,25 @@ async def send_email_digest(job_id: str, to_email: str):
     return {"status": "sent" if sent else "smtp_not_configured", "to": to_email}
 
 
+@app.get("/api/jobs/{job_id}/quality")
+async def get_job_quality_report(job_id: str):
+    """Get the Data Quality Gate report for a completed job."""
+    redis_client = await get_redis()
+    results_raw = await redis_client.get(f"job:{job_id}:results")
+    if not results_raw:
+        raise HTTPException(status_code=404, detail="Job results not found")
+    results = json.loads(results_raw)
+    dq = results.get("data_quality")
+    if not dq:
+        return {"job_id": job_id, "data_quality": None, "message": "No DQ report (pre-gate job)"}
+    return {
+        "job_id": job_id,
+        "data_quality": dq,
+        "currency_warnings": results.get("currency_warnings", {}),
+        "snapshot_timestamp": results.get("stages", {}).get("query_execution", {}).get("snapshot_timestamp"),
+    }
+
+
 @app.get("/api/clients/{client_name}/segmentation")
 async def get_client_segmentation(client_name: str):
     """Get latest customer segmentation for a client."""
