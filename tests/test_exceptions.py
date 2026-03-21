@@ -303,3 +303,94 @@ def test_exception_classes_are_distinct_objects():
     for i, a in enumerate(classes):
         for b in classes[i + 1:]:
             assert a is not b
+
+
+# ── Additional exception tests ────────────────────────────────────────────────
+
+def test_valinor_error_message_preserved():
+    """The message passed to ValinorError is accessible via args[0] or str()."""
+    err = ValinorError("my specific message")
+    assert "my specific message" in str(err) or err.args[0] == "my specific message"
+
+
+def test_ssh_connection_error_message_preserved():
+    """SSHConnectionError preserves its message."""
+    err = SSHConnectionError("ssh failed")
+    assert "ssh failed" in str(err) or err.args[0] == "ssh failed"
+
+
+def test_database_connection_error_message_preserved():
+    """DatabaseConnectionError preserves its message."""
+    err = DatabaseConnectionError("db unreachable")
+    assert "db unreachable" in str(err) or err.args[0] == "db unreachable"
+
+
+def test_pipeline_timeout_error_message_preserved():
+    """PipelineTimeoutError preserves its message."""
+    err = PipelineTimeoutError("timed out after 300s")
+    assert "timed out" in str(err) or "timed out after 300s" in err.args[0]
+
+
+def test_dq_gate_halt_error_message_preserved():
+    """DQGateHaltError preserves its message."""
+    err = DQGateHaltError("quality gate failed")
+    assert "quality gate failed" in str(err) or err.args[0] == "quality gate failed"
+
+
+def test_valinor_error_is_base_class_for_ssh():
+    """Catching ValinorError catches SSHConnectionError."""
+    caught = False
+    try:
+        raise SSHConnectionError("ssh down")
+    except ValinorError:
+        caught = True
+    assert caught
+
+
+def test_valinor_error_is_base_class_for_db():
+    """Catching ValinorError catches DatabaseConnectionError."""
+    caught = False
+    try:
+        raise DatabaseConnectionError("db down")
+    except ValinorError:
+        caught = True
+    assert caught
+
+
+def test_valinor_error_is_base_class_for_timeout():
+    """Catching ValinorError catches PipelineTimeoutError."""
+    caught = False
+    try:
+        raise PipelineTimeoutError("pipeline timed out")
+    except ValinorError:
+        caught = True
+    assert caught
+
+
+def test_all_exceptions_can_be_raised_with_no_message():
+    """All exception types can be raised with no arguments without crashing."""
+    for cls in (ValinorError, SSHConnectionError, DatabaseConnectionError, PipelineTimeoutError):
+        try:
+            raise cls()
+        except cls:
+            pass
+
+
+def test_dq_gate_halt_with_gate_decision_attribute():
+    """DQGateHaltError stores gate_decision if provided."""
+    err = DQGateHaltError("halt", gate_decision="HALT")
+    assert hasattr(err, "gate_decision")
+    assert err.gate_decision == "HALT"
+
+
+def test_dq_gate_halt_with_dq_score_zero():
+    """DQGateHaltError stores dq_score=0 without issue."""
+    err = DQGateHaltError("halt", dq_score=0.0)
+    assert err.dq_score == 0.0
+
+
+def test_exception_hierarchy_depth():
+    """All leaf exceptions are at least 2 levels deep from Exception."""
+    for cls in (SSHConnectionError, DatabaseConnectionError, PipelineTimeoutError, DQGateHaltError):
+        assert issubclass(cls, ValinorError)
+        assert issubclass(cls, Exception)

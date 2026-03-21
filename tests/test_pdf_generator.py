@@ -437,3 +437,176 @@ def test_missing_reports_key_fallback():
     assert isinstance(pdf, bytes)
     assert pdf.startswith(b"%PDF-")
     assert b"No executive report available" in pdf
+
+
+# ---------------------------------------------------------------------------
+# Test 33: _escape_pdf_string with empty string returns empty string
+# ---------------------------------------------------------------------------
+
+def test_escape_pdf_string_empty():
+    result = _escape_pdf_string("")
+    assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# Test 34: _escape_pdf_string applies both currency replacement and paren escape
+# ---------------------------------------------------------------------------
+
+def test_escape_pdf_string_currency_and_parens():
+    result = _escape_pdf_string("cost: (1000\u20ac)")
+    # € replaced by EUR; parens escaped
+    assert "EUR" in result
+    assert r"\(" in result
+    assert r"\)" in result
+    # No raw unescaped parens remain
+    assert "(" not in result.replace(r"\(", "")
+    assert ")" not in result.replace(r"\)", "")
+
+
+# ---------------------------------------------------------------------------
+# Test 35: _escape_pdf_string with tab character preserved (tab is latin-1)
+# ---------------------------------------------------------------------------
+
+def test_escape_pdf_string_tab_preserved():
+    result = _escape_pdf_string("col1\tcol2")
+    # Tab (\x09) is valid latin-1 and should survive unmodified
+    assert "\t" in result
+
+
+# ---------------------------------------------------------------------------
+# Test 36: _escape_pdf_string double-backslash does not quadruple
+# ---------------------------------------------------------------------------
+
+def test_escape_pdf_string_already_escaped_backslash():
+    # A single backslash in input → exactly one '\\' pair in output
+    result = _escape_pdf_string("a\\b")
+    # result should be 'a\\b' (literal 4 chars: a, \, \, b)
+    assert result == "a\\\\b"
+
+
+# ---------------------------------------------------------------------------
+# Test 37: _wrap_lines with whitespace-only paragraph produces empty line
+# ---------------------------------------------------------------------------
+
+def test_wrap_lines_whitespace_paragraph():
+    text = "hello\n   \nworld"
+    lines = _wrap_lines(text, max_chars=90)
+    assert "hello" in lines
+    assert "" in lines
+    assert "world" in lines
+
+
+# ---------------------------------------------------------------------------
+# Test 38: _wrap_lines single line without newlines returns list with one element
+# ---------------------------------------------------------------------------
+
+def test_wrap_lines_single_line():
+    text = "Single line with no newline character"
+    lines = _wrap_lines(text, max_chars=90)
+    assert lines == ["Single line with no newline character"]
+
+
+# ---------------------------------------------------------------------------
+# Test 39: _wrap_lines wraps long paragraph into multiple lines
+# ---------------------------------------------------------------------------
+
+def test_wrap_lines_long_paragraph_wrapped():
+    # 120 characters, max_chars=60 → should produce at least 2 lines
+    text = "word " * 24  # 120 chars
+    lines = _wrap_lines(text.strip(), max_chars=60)
+    assert len(lines) >= 2
+    for line in lines:
+        assert len(line) <= 60
+
+
+# ---------------------------------------------------------------------------
+# Test 40: execution_time_seconds as integer still formats with one decimal
+# ---------------------------------------------------------------------------
+
+def test_execution_time_integer_formatted():
+    results = dict(SAMPLE_RESULTS)
+    results["execution_time_seconds"] = 30
+    pdf = generate_pdf_report(results)
+    # 30 as int → formatted as "30.0s"
+    assert b"30.0s" in pdf
+
+
+# ---------------------------------------------------------------------------
+# Test 41: execution_time_seconds = 0 is not treated as None (shows "0.0s")
+# ---------------------------------------------------------------------------
+
+def test_execution_time_zero_not_na():
+    results = dict(SAMPLE_RESULTS)
+    results["execution_time_seconds"] = 0
+    pdf = generate_pdf_report(results)
+    assert b"0.0s" in pdf
+    # "N/A" should NOT appear for exec time; note N/A may appear for other
+    # missing fields — we check the time line specifically
+    content = pdf.decode("latin-1", errors="replace")
+    # The exec time line must contain 0.0s, not N/A
+    exec_line = [l for l in content.splitlines() if "Exec. Time" in l]
+    assert exec_line, "Exec. Time line not found"
+    assert "0.0s" in exec_line[0]
+    assert "N/A" not in exec_line[0]
+
+
+# ---------------------------------------------------------------------------
+# Test 42: generate_pdf_report with findings=None raises AttributeError
+#          (documents current behavior: no guard for None findings value)
+# ---------------------------------------------------------------------------
+
+def test_findings_none_raises():
+    results = dict(SAMPLE_RESULTS)
+    results["findings"] = None
+    # The module calls findings.values() without a None guard → AttributeError
+    with pytest.raises(AttributeError):
+        generate_pdf_report(results)
+
+
+# ---------------------------------------------------------------------------
+# Test 43: timestamp field from input appears in the PDF output
+# ---------------------------------------------------------------------------
+
+def test_timestamp_field_in_pdf():
+    results = dict(SAMPLE_RESULTS)
+    results["timestamp"] = "2026-01-15T08:30:00"
+    pdf = generate_pdf_report(results)
+    assert b"2026-01-15T08:30:00" in pdf
+
+
+# ---------------------------------------------------------------------------
+# Test 44: PDF MediaBox is 612x792 (US Letter) in the page object
+# ---------------------------------------------------------------------------
+
+def test_pdf_mediabox_dimensions():
+    pdf = generate_pdf_report(SAMPLE_RESULTS)
+    assert b"612 792" in pdf
+
+
+# ---------------------------------------------------------------------------
+# Test 45: PDF references Courier font
+# ---------------------------------------------------------------------------
+
+def test_pdf_references_courier_font():
+    pdf = generate_pdf_report(SAMPLE_RESULTS)
+    assert b"Courier" in pdf
+
+
+# ---------------------------------------------------------------------------
+# Test 46: Multiple calls produce independent byte buffers (no state leakage)
+# ---------------------------------------------------------------------------
+
+def test_multiple_calls_independent():
+    results_a = dict(SAMPLE_RESULTS)
+    results_a["client_name"] = "ClientAlpha"
+
+    results_b = dict(SAMPLE_RESULTS)
+    results_b["client_name"] = "ClientBeta"
+
+    pdf_a = generate_pdf_report(results_a)
+    pdf_b = generate_pdf_report(results_b)
+
+    assert b"ClientAlpha" in pdf_a
+    assert b"ClientBeta" not in pdf_a
+    assert b"ClientBeta" in pdf_b
+    assert b"ClientAlpha" not in pdf_b

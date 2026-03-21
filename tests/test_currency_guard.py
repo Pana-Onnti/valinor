@@ -375,3 +375,82 @@ class TestCurrencyGuardExtended:
         """dominant_currency must always be a string (e.g. 'EUR', 'USD', or 'unknown')."""
         result = self.guard.check_result_set([])
         assert isinstance(result.dominant_currency, str)
+
+
+# ---------------------------------------------------------------------------
+# Further CurrencyGuard tests
+# ---------------------------------------------------------------------------
+
+class TestCurrencyGuardFurther:
+    """Further coverage for CurrencyGuard and CurrencyCheckResult."""
+
+    def setup_method(self):
+        self.guard = CurrencyGuard()
+
+    def test_check_result_set_returns_currency_check_result(self):
+        """check_result_set always returns a CurrencyCheckResult."""
+        rows = make_rows("EUR", 100.0, 5)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        assert isinstance(result, CurrencyCheckResult)
+
+    def test_all_same_currency_is_homogeneous(self):
+        """10 rows with same currency → is_homogeneous True."""
+        rows = make_rows("EUR", 100.0, 10)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        assert result.is_homogeneous is True
+
+    def test_all_same_currency_safe_to_aggregate(self):
+        """Homogeneous currency result → safe_to_aggregate True."""
+        rows = make_rows("USD", 50.0, 8)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        assert result.safe_to_aggregate is True
+
+    def test_dominant_currency_correct_for_single_currency(self):
+        """When all rows are GBP, dominant_currency must be GBP."""
+        rows = make_rows("GBP", 100.0, 5)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        assert result.dominant_currency == "GBP"
+
+    def test_dominant_pct_1_0_for_single_currency(self):
+        """All-same-currency → dominant_pct == 1.0."""
+        rows = make_rows("EUR", 100.0, 10)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        assert result.dominant_pct == pytest.approx(1.0)
+
+    def test_mixed_exposure_0_for_single_currency(self):
+        """All-same-currency → mixed_exposure_pct == 0.0."""
+        rows = make_rows("EUR", 100.0, 10)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        assert result.mixed_exposure_pct == pytest.approx(0.0)
+
+    def test_50_50_split_mixed(self):
+        """Equal split between two currencies → neither is dominant by count."""
+        rows = make_rows("EUR", 100.0, 5) + make_rows("USD", 100.0, 5)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        assert result.is_homogeneous is False
+
+    def test_build_currency_context_block_returns_string(self):
+        """build_currency_context_block returns a string."""
+        rows = make_rows("EUR", 100.0, 5)
+        check = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        block = self.guard.build_currency_context_block(check)
+        assert isinstance(block, str)
+
+    def test_scan_query_results_returns_dict(self):
+        """scan_query_results always returns a dict."""
+        qr = {"results": {"rev": {"rows": make_rows("EUR", 100.0, 5)}}}
+        result = self.guard.scan_query_results(qr)
+        assert isinstance(result, dict)
+
+    def test_get_currency_guard_singleton(self):
+        """get_currency_guard returns a CurrencyGuard instance."""
+        guard = get_currency_guard()
+        assert isinstance(guard, CurrencyGuard)
+
+    def test_currency_check_result_has_required_fields(self):
+        """CurrencyCheckResult has all expected fields."""
+        rows = make_rows("EUR", 100.0, 3)
+        result = self.guard.check_result_set(rows, amount_col="amount", currency_col="currency")
+        for field in ("dominant_currency", "dominant_pct", "mixed_exposure_pct",
+                      "is_homogeneous", "safe_to_aggregate", "recommendation"):
+            assert hasattr(result, field), f"Missing field: {field}"

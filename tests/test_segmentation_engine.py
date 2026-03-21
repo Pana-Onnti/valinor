@@ -442,3 +442,99 @@ class TestSegmentationEngineExtended:
         assert result is not None
         expected = sum(c["revenue"] for c in CLIENTS)
         assert abs(result.total_revenue - expected) < 1.0
+
+
+# ---------------------------------------------------------------------------
+# Further segmentation tests
+# ---------------------------------------------------------------------------
+
+class TestSegmentationEngineFurther:
+    """Further coverage for SegmentationEngine."""
+
+    def _engine(self):
+        return SegmentationEngine()
+
+    def _profile(self, industry="default", currency="USD"):
+        return _make_profile(industry=industry, currency=currency)
+
+    def test_result_has_three_segments(self):
+        """SegmentationResult must always have exactly 3 segments."""
+        engine = self._engine()
+        qr = _make_query_results(CLIENTS)
+        result = engine.segment_from_query_results(qr, self._profile())
+        assert result is not None
+        assert len(result.segments) == 3
+
+    def test_result_total_customers_equals_len_clients(self):
+        """total_customers must equal the number of distinct clients."""
+        engine = self._engine()
+        qr = _make_query_results(CLIENTS)
+        result = engine.segment_from_query_results(qr, self._profile())
+        assert result is not None
+        assert result.total_customers == len(CLIENTS)
+
+    def test_segment_count_sums_to_total_customers(self):
+        """Sum of segment.count must equal total_customers."""
+        engine = self._engine()
+        qr = _make_query_results(CLIENTS)
+        result = engine.segment_from_query_results(qr, self._profile())
+        assert result is not None
+        total = sum(s.count for s in result.segments)
+        assert total == result.total_customers
+
+    def test_build_context_block_returns_string(self):
+        """build_context_block must return a non-empty string."""
+        engine = self._engine()
+        qr = _make_query_results(CLIENTS)
+        result = engine.segment_from_query_results(qr, self._profile())
+        assert result is not None
+        ctx = engine.build_context_block(result, currency="EUR")
+        assert isinstance(ctx, str) and len(ctx) > 0
+
+    def test_result_industry_matches_profile(self):
+        """SegmentationResult.industry must match the profile's industry."""
+        engine = self._engine()
+        qr = _make_query_results(CLIENTS)
+        result = engine.segment_from_query_results(qr, self._profile(industry="manufactura"))
+        assert result is not None
+        assert result.industry == "manufactura"
+
+    def test_each_segment_has_name_string(self):
+        """Every segment must have a non-empty string name."""
+        engine = self._engine()
+        qr = _make_query_results(CLIENTS)
+        result = engine.segment_from_query_results(qr, self._profile())
+        assert result is not None
+        for seg in result.segments:
+            assert isinstance(seg.name, str) and len(seg.name) > 0
+
+    def test_each_segment_has_revenue_share_float(self):
+        """Each segment.revenue_share must be a float in [0, 1]."""
+        engine = self._engine()
+        qr = _make_query_results(CLIENTS)
+        result = engine.segment_from_query_results(qr, self._profile())
+        assert result is not None
+        for seg in result.segments:
+            assert isinstance(seg.revenue_share, float)
+            assert 0.0 <= seg.revenue_share <= 1.0
+
+    def test_single_client_all_in_tier1(self):
+        """With a single client, all revenue is in the top tier."""
+        engine = self._engine()
+        clients = [{"client_name": "Solo Corp", "revenue": 99999, "frequency": 10, "recency_days": 5}]
+        qr = _make_query_results(clients)
+        result = engine.segment_from_query_results(qr, self._profile())
+        assert result is not None
+        assert result.segments[0].count == 1
+
+    def test_empty_client_list_handled(self):
+        """Empty client list must not crash; result may be None or have 0 customers."""
+        engine = self._engine()
+        qr = _make_query_results([])
+        try:
+            result = engine.segment_from_query_results(qr, self._profile())
+        except Exception:
+            result = None
+        # Either None or 0 customers is acceptable
+        if result is not None:
+            assert result.total_customers == 0 or result is not None

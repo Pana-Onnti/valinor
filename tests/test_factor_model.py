@@ -534,3 +534,171 @@ class TestNewFactorDecompositionScenarios:
             decomp.frequency_contribution,
         ):
             assert -1.0 <= contrib <= 1.0, f"Contribution {contrib} out of range"
+
+
+# ---------------------------------------------------------------------------
+# 12 new tests — untested behaviours
+# ---------------------------------------------------------------------------
+
+class TestUntested:
+    """12 additional tests covering behaviours not exercised by the existing suite."""
+
+    # 1. anomaly_description defaults to empty string (not None) when no anomaly
+    def test_anomaly_description_is_empty_string_when_no_anomaly(self):
+        """FactorDecomposition default anomaly_description is '' not None."""
+        d = _make_decomp(anomaly_detected=False, anomaly_description="")
+        assert d.anomaly_description == ""
+        assert isinstance(d.anomaly_description, str)
+
+    # 2. format_context_block contains ANOMALIA line when anomaly_detected=True
+    def test_format_context_block_includes_anomalia_when_flagged(self):
+        """format_context_block must include 'ANOMALIA' when anomaly_detected=True."""
+        decomp = _make_decomp(
+            anomaly_detected=True,
+            anomaly_description="Revenue mayor de lo esperado por factores conocidos.",
+        )
+        model = RevenueFactorModel(engine=None)
+        block = model.format_context_block(decomp)
+        assert "ANOMALIA" in block
+
+    # 3. format_context_block does NOT include ANOMALIA when anomaly_detected=False
+    def test_format_context_block_excludes_anomalia_when_not_flagged(self):
+        """format_context_block must NOT include 'ANOMALIA' when anomaly_detected=False."""
+        decomp = _make_decomp(anomaly_detected=False, anomaly_description="")
+        model = RevenueFactorModel(engine=None)
+        block = model.format_context_block(decomp)
+        assert "ANOMALIA" not in block
+
+    # 4. period field follows "{period_start}/{period_end}" format
+    def test_period_field_format(self):
+        """compute_decomposition sets period as 'period_start/period_end'."""
+        prior = _period_metrics(total_revenue=1_000.0, client_count=2, transaction_count=2)
+        current = _period_metrics(total_revenue=1_200.0, client_count=2, transaction_count=2)
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        assert decomp.period == "2025-01-01/2025-03-31"
+
+    # 5. residual_z_score is computed as residual_pct / 0.05
+    def test_residual_z_score_formula(self):
+        """residual_z_score == abs(residual) / max(abs(expected_revenue), 1) / 0.05."""
+        prior = _period_metrics(total_revenue=1_000.0, client_count=2, transaction_count=2)
+        current = _period_metrics(total_revenue=1_200.0, client_count=2, transaction_count=2)
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        residual_pct = abs(decomp.residual) / max(abs(decomp.expected_revenue), 1)
+        expected_z = residual_pct / 0.05
+        assert decomp.residual_z_score == pytest.approx(expected_z, rel=1e-6)
+
+    # 6. anomaly_detected=False when residual is within 15% of expected revenue
+    def test_no_anomaly_when_residual_within_threshold(self):
+        """When both periods are identical (residual=0), anomaly_detected must be False."""
+        metrics = _period_metrics(total_revenue=5_000.0, client_count=5, transaction_count=10)
+        decomp = _run_decomp(metrics, metrics)
+        assert decomp is not None
+        assert decomp.anomaly_detected is False
+
+    # 7. primary_driver is never "residual" — only the three factor names
+    def test_primary_driver_never_equals_residual(self):
+        """primary_driver must never be the string 'residual'."""
+        prior = _period_metrics(total_revenue=1_000.0, client_count=4, transaction_count=8)
+        current = _period_metrics(total_revenue=2_000.0, client_count=8, transaction_count=16)
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        assert decomp.primary_driver != "residual"
+
+    # 8. client_count_contribution is negative when client_count decreases
+    def test_client_count_contribution_negative_on_decline(self):
+        """client_count_contribution must be negative when client count falls."""
+        # Only client_count decreases; ticket and frequency stay constant
+        prior = {
+            "total_revenue": 2_000.0, "client_count": 10,
+            "avg_ticket": 200.0, "transaction_count": 10,
+            "transactions_per_client": 1.0,
+        }
+        current = {
+            "total_revenue": 1_000.0, "client_count": 5,
+            "avg_ticket": 200.0, "transaction_count": 5,
+            "transactions_per_client": 1.0,
+        }
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        assert decomp.client_count_contribution < 0.0
+
+    # 9. avg_ticket_contribution is negative when avg_ticket decreases
+    def test_avg_ticket_contribution_negative_on_decline(self):
+        """avg_ticket_contribution must be negative when avg_ticket falls."""
+        # Only avg_ticket decreases; clients and frequency stay constant
+        prior = {
+            "total_revenue": 2_000.0, "client_count": 5,
+            "avg_ticket": 400.0, "transaction_count": 5,
+            "transactions_per_client": 1.0,
+        }
+        current = {
+            "total_revenue": 1_000.0, "client_count": 5,
+            "avg_ticket": 200.0, "transaction_count": 5,
+            "transactions_per_client": 1.0,
+        }
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        assert decomp.avg_ticket_contribution < 0.0
+
+    # 10. expected_revenue formula is verified numerically
+    def test_expected_revenue_formula_correctness(self):
+        """
+        expected_revenue == prior_revenue * (curr_clients/prior_clients)
+                          * (curr_ticket/prior_ticket)
+                          * (curr_tpc/prior_tpc).
+        """
+        prior = _period_metrics(total_revenue=1_000.0, client_count=4, transaction_count=8)
+        current = _period_metrics(total_revenue=1_500.0, client_count=6, transaction_count=12)
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        # Prior metrics
+        prior_tpc = prior["transactions_per_client"]
+        curr_tpc = current["transactions_per_client"]
+        expected = (
+            prior["total_revenue"]
+            * (current["client_count"] / prior["client_count"])
+            * (current["avg_ticket"] / max(prior["avg_ticket"], 0.01))
+            * (curr_tpc / max(prior_tpc, 0.01))
+        )
+        assert decomp.expected_revenue == pytest.approx(expected, rel=1e-6)
+
+    # 11. residual is negative when current revenue is below expected
+    def test_residual_is_negative_when_revenue_below_expected(self):
+        """
+        When actual current revenue is below what the factor model predicts,
+        residual must be negative.
+        """
+        # Factor model expects: 1000 * (2/2) * (500/500) * (1/1) = 1000
+        # But actual revenue is only 800 → residual = -200
+        prior = {
+            "total_revenue": 1_000.0, "client_count": 2,
+            "avg_ticket": 500.0, "transaction_count": 2,
+            "transactions_per_client": 1.0,
+        }
+        current = {
+            "total_revenue": 800.0, "client_count": 2,
+            "avg_ticket": 500.0, "transaction_count": 2,
+            "transactions_per_client": 1.0,
+        }
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        assert decomp.residual < 0.0
+
+    # 12. format_context_block includes the period's revenue figures
+    def test_format_context_block_revenue_figures_present(self):
+        """
+        format_context_block must embed both expected_revenue and total_revenue
+        as formatted numbers in the output string.
+        """
+        prior = _period_metrics(total_revenue=10_000.0, client_count=5, transaction_count=10)
+        current = _period_metrics(total_revenue=12_000.0, client_count=6, transaction_count=12)
+        model = RevenueFactorModel(engine=None)
+        decomp = _run_decomp(current, prior)
+        assert decomp is not None
+        block = model.format_context_block(decomp)
+        # Both revenue values must appear somewhere in the block
+        assert "12,000" in block or "12000" in block
+        # expected_revenue line is always present
+        assert "esperado" in block

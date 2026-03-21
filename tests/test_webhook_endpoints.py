@@ -718,3 +718,278 @@ class TestDeleteWebhookExtra:
                 params={"url": url},
             )
         store.save.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# build_job_summary — unit tests (api.webhooks module)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildJobSummary:
+    """Unit tests for api.webhooks.build_job_summary."""
+
+    def _import(self):
+        # Force reload so test_worker_tasks.py's api.webhooks stub doesn't interfere.
+        import importlib
+        import api.webhooks as _wh_mod  # noqa: PLC0415
+        importlib.reload(_wh_mod)
+        return _wh_mod.build_job_summary
+
+    def test_empty_results_returns_defaults(self):
+        """An empty results dict yields zero counts and None quality fields."""
+        build_job_summary = self._import()
+        summary = build_job_summary({})
+        assert summary["total_findings"] == 0
+        assert summary["critical_count"] == 0
+        assert summary["high_count"] == 0
+        assert summary["dq_score"] is None
+        assert summary["dq_label"] is None
+        assert summary["triggered_alerts"] == 0
+        assert summary["alert_labels"] == []
+
+    def test_counts_critical_and_high_findings(self):
+        """Critical and high severity findings are counted separately."""
+        build_job_summary = self._import()
+        findings = {
+            "agent_a": [
+                {"severity": "CRITICAL", "detail": "x"},
+                {"severity": "HIGH", "detail": "y"},
+                {"severity": "LOW", "detail": "z"},
+            ]
+        }
+        summary = build_job_summary({"findings": findings})
+        assert summary["critical_count"] == 1
+        assert summary["high_count"] == 1
+        assert summary["total_findings"] == 3
+
+    def test_findings_from_dict_agent_results(self):
+        """Findings nested under a 'findings' key in dict agent results are counted."""
+        build_job_summary = self._import()
+        findings = {
+            "agent_b": {
+                "findings": [
+                    {"severity": "CRITICAL"},
+                    {"severity": "CRITICAL"},
+                ]
+            }
+        }
+        summary = build_job_summary({"findings": findings})
+        assert summary["critical_count"] == 2
+        assert summary["total_findings"] == 2
+
+    def test_dq_score_and_label_extracted(self):
+        """data_quality score and confidence_label are surfaced in the summary."""
+        build_job_summary = self._import()
+        results = {
+            "data_quality": {"score": 0.92, "confidence_label": "HIGH"},
+        }
+        summary = build_job_summary(results)
+        assert summary["dq_score"] == 0.92
+        assert summary["dq_label"] == "HIGH"
+
+    def test_triggered_alerts_count_and_labels(self):
+        """triggered_alerts count and first-5 labels are returned."""
+        build_job_summary = self._import()
+        alerts = [
+            {"threshold_label": f"alert_{i}"} for i in range(7)
+        ]
+        summary = build_job_summary({"triggered_alerts": alerts})
+        assert summary["triggered_alerts"] == 7
+        # Only first 5 labels are included
+        assert len(summary["alert_labels"]) == 5
+        assert summary["alert_labels"][0] == "alert_0"
+        assert summary["alert_labels"][4] == "alert_4"
+
+    def test_period_and_run_delta_forwarded(self):
+        """period and run_delta are forwarded verbatim."""
+        build_job_summary = self._import()
+        results = {
+            "period": "2026-Q1",
+            "run_delta": {"revenue_pct": 3.5},
+        }
+        summary = build_job_summary(results)
+        assert summary["period"] == "2026-Q1"
+        assert summary["run_delta"] == {"revenue_pct": 3.5}
+
+    def test_mixed_list_and_dict_agent_findings(self):
+        """Findings from both list-type and dict-type agent results are aggregated."""
+        build_job_summary = self._import()
+        findings = {
+            "agent_list": [{"severity": "HIGH"}, {"severity": "LOW"}],
+            "agent_dict": {"findings": [{"severity": "CRITICAL"}]},
+        }
+        summary = build_job_summary({"findings": findings})
+        assert summary["total_findings"] == 3
+        assert summary["critical_count"] == 1
+        assert summary["high_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# fire_job_completion_webhook — unit tests (api.webhooks module)
+# ---------------------------------------------------------------------------
+
+
+class TestFireJobCompletionWebhook:
+    """Unit tests for api.webhooks.fire_job_completion_webhook."""
+
+    def _import(self):
+        import importlib
+        import api.webhooks as _wh_mod  # noqa: PLC0415
+        importlib.reload(_wh_mod)
+        return _wh_mod.fire_job_completion_webhook
+
+    @pytest.mark.asyncio
+    async def test_success_on_first_attempt(self):
+        """A 200 response on the first attempt returns success=True, attempts=1."""
+        fire = self._import()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        mock_post = AsyncMock(return_value=mock_response)
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=MagicMock(post=mock_post)
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await fire(
+                "https://example.com/hook", "job-1", "acme", "completed"
+            )
+
+        assert result["success"] is True
+        assert result["attempts"] == 1
+        assert result["last_status_code"] == 200
+
+    @pytest.mark.asyncio
+    async def test_failure_exhausts_all_attempts(self):
+        """Network errors on every attempt return success=False after MAX_ATTEMPTS."""
+        fire = self._import()
+
+        async def _raising_post(*args, **kwargs):
+            raise httpx.ConnectError("refused")
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=MagicMock(post=_raising_post)
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await fire(
+                "https://example.com/hook", "job-2", "acme", "failed"
+            )
+
+        import importlib
+        import api.webhooks as _wh  # noqa: PLC0415
+        importlib.reload(_wh)
+        MAX_ATTEMPTS = _wh.MAX_ATTEMPTS
+        assert result["success"] is False
+        assert result["attempts"] == MAX_ATTEMPTS
+        assert result["last_status_code"] is None
+
+    @pytest.mark.asyncio
+    async def test_event_field_completed_vs_failed(self):
+        """Payload event is 'job.completed' for status='completed', 'job.failed' otherwise."""
+        fire = self._import()
+        captured_payloads = []
+
+        async def _capture_post(url, content, headers):
+            import json as _json  # noqa: PLC0415
+            captured_payloads.append(_json.loads(content))
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            return mock_resp
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=MagicMock(post=_capture_post)
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            await fire("https://example.com/hook", "j1", "acme", "completed")
+            await fire("https://example.com/hook", "j2", "acme", "failed")
+
+        assert captured_payloads[0]["event"] == "job.completed"
+        assert captured_payloads[1]["event"] == "job.failed"
+
+    @pytest.mark.asyncio
+    async def test_signature_header_present(self):
+        """X-Valinor-Signature header is sent with every request."""
+        fire = self._import()
+        captured_headers = []
+
+        async def _capture_post(url, content, headers):
+            captured_headers.append(dict(headers))
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            return mock_resp
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(
+                return_value=MagicMock(post=_capture_post)
+            )
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            await fire("https://example.com/hook", "j1", "acme", "completed")
+
+        assert "X-Valinor-Signature" in captured_headers[0]
+        assert captured_headers[0]["X-Valinor-Signature"].startswith("sha256=")
+
+
+# ---------------------------------------------------------------------------
+# Additional endpoint edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterWebhookEdgeCases:
+    @pytest.mark.asyncio
+    async def test_register_sets_registered_at_field(self, client):
+        """The saved webhook entry contains a 'registered_at' timestamp field."""
+        profile = _make_profile()
+        store = _make_profile_store_mock()
+        store.load_or_create = AsyncMock(return_value=profile)
+
+        with _webhook_patch(store):
+            response = await client.post(
+                "/api/clients/acme/webhooks",
+                json={"url": "https://example.com/hook"},
+            )
+        assert response.status_code == 200
+        # The endpoint appends {"url": ..., "registered_at": ..., "active": True}
+        assert any("registered_at" in w for w in profile.webhooks)
+
+    @pytest.mark.asyncio
+    async def test_register_invalid_url_does_not_call_save(self, client):
+        """store.save must NOT be called when the URL is rejected."""
+        profile = _make_profile()
+        store = _make_profile_store_mock()
+        store.load_or_create = AsyncMock(return_value=profile)
+
+        with _webhook_patch(store):
+            await client.post(
+                "/api/clients/acme/webhooks",
+                json={"url": "ftp://bad.example.com/hook"},
+            )
+        store.save.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_register_caps_to_five_when_six_exist(self, client):
+        """When 6 webhooks already exist, the list is trimmed to 5 after adding."""
+        existing = [
+            {"url": f"https://example.com/hook{i}", "active": True}
+            for i in range(6)
+        ]
+        profile = _make_profile(webhooks=existing)
+        store = _make_profile_store_mock()
+        store.load_or_create = AsyncMock(return_value=profile)
+
+        with _webhook_patch(store):
+            response = await client.post(
+                "/api/clients/acme/webhooks",
+                json={"url": "https://new.example.com/hook"},
+            )
+        assert response.status_code == 200
+        assert len(profile.webhooks) <= 5
