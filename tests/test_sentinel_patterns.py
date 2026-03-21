@@ -152,3 +152,69 @@ def test_all_patterns_have_required_fields():
             f"Pattern '{p.id}' has empty erp_tables"
         )
         assert p.sql_template.strip(), f"Pattern '{p.id}' has empty sql_template"
+
+
+# ---------------------------------------------------------------------------
+# get_patterns_by_category
+# ---------------------------------------------------------------------------
+
+def test_get_patterns_by_category_fraud_risk_returns_only_fraud_risk():
+    """get_patterns_by_category('fraud_risk') returns only fraud_risk patterns."""
+    result = get_patterns_by_category("fraud_risk")
+    assert len(result) > 0
+    for p in result:
+        assert p.category == "fraud_risk", (
+            f"Pattern '{p.id}' has category '{p.category}', expected 'fraud_risk'"
+        )
+
+
+def test_get_patterns_by_category_financial_returns_only_financial():
+    """get_patterns_by_category('financial') returns only financial patterns."""
+    result = get_patterns_by_category("financial")
+    assert len(result) > 0
+    for p in result:
+        assert p.category == "financial"
+
+
+def test_get_patterns_by_category_unknown_returns_empty():
+    """Unknown category returns empty list."""
+    result = get_patterns_by_category("nonexistent_category")
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Pattern IDs are unique
+# ---------------------------------------------------------------------------
+
+def test_all_pattern_ids_are_unique():
+    """No two patterns should share the same id."""
+    ids = [p.id for p in PATTERNS]
+    assert len(ids) == len(set(ids)), (
+        f"Duplicate pattern IDs found: {[i for i in ids if ids.count(i) > 1]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# build_sentinel_context output structure
+# ---------------------------------------------------------------------------
+
+def test_build_sentinel_context_contains_severity_labels():
+    """The context string must include severity labels in brackets."""
+    patterns = get_patterns_by_severity("CRITICAL") + get_patterns_by_severity("HIGH")
+    context = build_sentinel_context(patterns)
+    assert "[CRITICAL]" in context or "[HIGH]" in context, (
+        "build_sentinel_context should include severity labels like [CRITICAL] or [HIGH]"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Ghost vendor pattern sanity
+# ---------------------------------------------------------------------------
+
+def test_ghost_vendor_pattern_is_critical():
+    """The ghost_vendor pattern must have CRITICAL severity."""
+    pattern = next((p for p in PATTERNS if p.id == "ghost_vendor"), None)
+    assert pattern is not None, "ghost_vendor pattern must exist in PATTERNS"
+    assert pattern.severity == "CRITICAL", (
+        f"ghost_vendor should be CRITICAL; got '{pattern.severity}'"
+    )
