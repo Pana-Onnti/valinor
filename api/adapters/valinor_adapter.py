@@ -527,6 +527,32 @@ RETURN ONLY THE JSON OBJECT."""
             except Exception as _fm_err:
                 logger.warning("Factor model failed, skipping", error=str(_fm_err))
 
+            # ── CUSUM structural break detection on revenue history ────────────
+            try:
+                from core.valinor.quality.statistical_checks import cusum_structural_break
+                _revenue_history = profile.baseline_history.get("total_revenue") if hasattr(profile, "baseline_history") and profile.baseline_history else None
+                if _revenue_history and len(_revenue_history) >= 4:
+                    # baseline_history entries are KPIDataPoint dicts with numeric_value
+                    _rev_values = [
+                        float(e["numeric_value"]) for e in _revenue_history
+                        if isinstance(e, dict) and e.get("numeric_value") is not None
+                    ]
+                    if len(_rev_values) < 4:
+                        _rev_values = []
+                if _rev_values:
+                    _cusum_result = cusum_structural_break(_rev_values)
+                    if _cusum_result.get("break_detected"):
+                        _break_idx = len(_rev_values) - 1
+                        results["_cusum_warning"] = {
+                            "detected": True,
+                            "break_point": _break_idx,
+                            "message": f"Structural break detected in revenue at period {_break_idx}",
+                        }
+                        logger.info("CUSUM structural break detected in revenue", period=_break_idx,
+                                    cusum_last=_cusum_result.get("cusum_last"))
+            except Exception as _cusum_err:
+                logger.warning("CUSUM structural break detection failed, skipping", error=str(_cusum_err))
+
             # ═══ STAGE 2: QUERY BUILDER ═══
             await self._progress("query_builder", 30, "Building analysis queries...")
 
@@ -645,6 +671,15 @@ RETURN ONLY THE JSON OBJECT."""
             # Inject currency context block
             if results.get("_currency_context"):
                 memory["currency_context"] = results["_currency_context"]
+
+            # Inject CUSUM structural break warning if detected
+            if results.get("_cusum_warning"):
+                _cw = results["_cusum_warning"]
+                _period_n = _cw.get("break_point", "?")
+                memory["cusum_warning"] = (
+                    f"AVISO: Ruptura estructural detectada en los ingresos (período {_period_n}). "
+                    "Puede indicar un cambio de régimen del negocio."
+                )
 
             # Inject sentinel fraud patterns for available tables
             try:
