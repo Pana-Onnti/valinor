@@ -431,12 +431,12 @@ class TestSegmentationEngineIntegration:
             rows = [{"name": r[0], "total": r[1]} for r in raw]
 
         return {
-            "results": [
-                {
+            "results": {
+                "customer_revenue": {
                     "columns": ["name", "total"],
                     "rows": rows,
                 }
-            ]
+            }
         }
 
     def test_segmentation_returns_result(self, populated_engine):
@@ -505,7 +505,7 @@ class TestSegmentationEngineIntegration:
     def test_no_data_returns_none(self):
         engine = SegmentationEngine()
         profile = self._make_profile()
-        result = engine.segment_from_query_results({"results": []}, profile)
+        result = engine.segment_from_query_results({"results": {}}, profile)
         assert result is None
 
     def test_champions_count_is_roughly_top_20_pct(self, populated_engine):

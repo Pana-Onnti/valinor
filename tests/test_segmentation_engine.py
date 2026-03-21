@@ -49,12 +49,12 @@ def _make_query_results(clients: list[dict]) -> dict:
     """
     rows = [{"customer": c["client_name"], "revenue": c["revenue"]} for c in clients]
     return {
-        "results": [
-            {
+        "results": {
+            "customer_concentration": {
                 "columns": ["customer", "revenue"],
                 "rows": rows,
             }
-        ]
+        }
     }
 
 
@@ -268,7 +268,7 @@ class TestSegmentationEdgeCases:
     def test_empty_query_results_returns_none(self):
         """No matching revenue data → segment_from_query_results returns None."""
         engine = SegmentationEngine()
-        result = engine.segment_from_query_results({"results": []}, self._profile())
+        result = engine.segment_from_query_results({"results": {}}, self._profile())
         assert result is None
 
     def test_build_context_block_returns_string(self):

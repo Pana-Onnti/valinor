@@ -104,7 +104,7 @@ def _findings_dict(table_sql_pairs) -> dict:
 
 def _qr(*entries) -> dict:
     """Build a query_results dict from (name, rows) pairs."""
-    return {"results": [{"name": n, "rows": r} for n, r in entries]}
+    return {"results": {n: {"rows": r} for n, r in entries}}
 
 
 # ===========================================================================

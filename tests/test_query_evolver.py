@@ -39,10 +39,7 @@ def _make_qr(*entries):
     Each entry is a (name, rows) tuple where rows is a list (possibly empty).
     """
     return {
-        "results": [
-            {"name": name, "rows": rows}
-            for name, rows in entries
-        ]
+        "results": {name: {"rows": rows} for name, rows in entries}
     }
 
 
@@ -329,7 +326,7 @@ class TestQueryEvolver:
         """
         evolver = QueryEvolver()
         profile = _make_profile()
-        qr = {"results": [{"name": "missing_rows_query"}]}  # no 'rows' key
+        qr = {"results": {"missing_rows_query": {}}}  # no 'rows' key
 
         result = evolver.analyze_query_results(qr, {}, profile)
 

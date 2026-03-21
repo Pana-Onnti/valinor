@@ -737,12 +737,12 @@ def test_segmentation_engine_500_customers_under_500ms():
         for i in range(500)
     ]
     query_results = {
-        "results": [
-            {
+        "results": {
+            "customer_concentration": {
                 "columns": ["customer_name", "grandtotal"],
                 "rows": rows,
             }
-        ]
+        }
     }
 
     start = time.perf_counter()
