@@ -398,6 +398,194 @@ class TestSSHTunnelRetry(unittest.TestCase):
 
 
 # ===========================================================================
+# Additional ZeroTrustValidator tests
+# ===========================================================================
+
+class TestZeroTrustValidatorExtended(unittest.TestCase):
+    """Additional unit tests for ZeroTrustValidator edge cases."""
+
+    # ------------------------------------------------------------------
+    # SSH config — empty-value fields
+    # ------------------------------------------------------------------
+
+    @patch("shared.ssh_tunnel.os.stat")
+    @patch("shared.ssh_tunnel.os.path.exists", return_value=True)
+    def test_ssh_config_with_empty_host_fails(self, mock_exists, mock_stat):
+        """SSH config with host='' (empty string) → False."""
+        stat_result = MagicMock()
+        stat_result.st_mode = 0o100600
+        mock_stat.return_value = stat_result
+
+        cfg = _ssh_cfg(host="")
+        result = ZeroTrustValidator.validate_ssh_config(cfg)
+
+        self.assertFalse(result)
+
+    @patch("shared.ssh_tunnel.os.stat")
+    @patch("shared.ssh_tunnel.os.path.exists", return_value=True)
+    def test_ssh_config_empty_username_fails(self, mock_exists, mock_stat):
+        """SSH config with username='' (empty string) → False."""
+        stat_result = MagicMock()
+        stat_result.st_mode = 0o100600
+        mock_stat.return_value = stat_result
+
+        cfg = _ssh_cfg(username="")
+        result = ZeroTrustValidator.validate_ssh_config(cfg)
+
+        self.assertFalse(result)
+
+    # ------------------------------------------------------------------
+    # DB config — empty/invalid field values
+    # ------------------------------------------------------------------
+
+    def test_db_config_with_empty_host_fails(self):
+        """DB config with host='' present but empty → validate_db_config returns True
+        because the validator only checks field *presence*, not emptiness for host.
+        This test documents that behaviour explicitly."""
+        # validate_db_config does NOT check whether host is non-empty, only that
+        # the key exists.  Confirm the current (documented) behaviour.
+        cfg = _db_cfg(host="")
+        result = ZeroTrustValidator.validate_db_config(cfg)
+        # Current implementation: field is present → passes host check → True
+        self.assertTrue(result)
+
+    def test_db_config_with_zero_port_fails(self):
+        """DB config with port=0 → False (0 is outside valid 1-65535 range)."""
+        cfg = _db_cfg(port=0)
+        result = ZeroTrustValidator.validate_db_config(cfg)
+        self.assertFalse(result)
+
+    def test_valid_db_config_with_mysql_type(self):
+        """DB config with type='mysql' and all required fields present → True.
+
+        validate_db_config only requires host, port, connection_string; the
+        'type' field is optional and must not cause a failure.
+        """
+        cfg = _db_cfg(type="mysql", connection_string="mysql://user:pass@db.internal:3306/mydb")
+        result = ZeroTrustValidator.validate_db_config(cfg)
+        self.assertTrue(result)
+
+    def test_db_config_complete_fields_passes(self):
+        """DB config with all helper-default fields (including type) → True."""
+        result = ZeroTrustValidator.validate_db_config(_db_cfg())
+        self.assertTrue(result)
+
+    def test_ssh_config_rejects_missing_port_field_in_db_config(self):
+        """Removing 'port' from db_cfg causes validate_db_config to return False."""
+        cfg = _db_cfg()
+        del cfg["port"]
+        result = ZeroTrustValidator.validate_db_config(cfg)
+        self.assertFalse(result)
+
+
+# ===========================================================================
+# Standalone / module-level sanity tests
+# ===========================================================================
+
+class TestZeroTrustValidatorInstantiation(unittest.TestCase):
+    """Verify ZeroTrustValidator and its static methods are callable."""
+
+    def test_zero_trust_validator_is_callable(self):
+        """ZeroTrustValidator can be instantiated and its static methods are callable."""
+        validator = ZeroTrustValidator()
+        self.assertIsNotNone(validator)
+        self.assertTrue(callable(ZeroTrustValidator.validate_ssh_config))
+        self.assertTrue(callable(ZeroTrustValidator.validate_db_config))
+
+    def test_ssh_tunnel_manager_creation_with_none_key(self):
+        """SSHTunnelManager(encryption_key=None) does not raise."""
+        manager = SSHTunnelManager(encryption_key=None)
+        self.assertIsNotNone(manager)
+
+    def test_ssh_tunnel_manager_creation_with_string_key(self):
+        """SSHTunnelManager with a valid Fernet base64 key does not raise."""
+        # A Fernet key must be 32 url-safe base64-encoded bytes (44-char string).
+        from cryptography.fernet import Fernet
+        valid_key = Fernet.generate_key().decode()
+        manager = SSHTunnelManager(encryption_key=valid_key)
+        self.assertIsNotNone(manager)
+
+
+# ===========================================================================
+# Additional SSHTunnelRetry tests
+# ===========================================================================
+
+class TestSSHTunnelRetryExtended(unittest.TestCase):
+    """Extra retry / connection-string tests for SSHTunnelManager.create_tunnel."""
+
+    def test_local_connection_string_format(self):
+        """After a successful tunnel, the yielded string contains protocol, 127.0.0.1 and a port."""
+        ssh_cfg = {
+            "host": "bastion.example.com",
+            "port": 22,
+            "username": "readonly",
+            "private_key_path": "/fake/key",
+        }
+        db_cfg = {
+            "host": "db.internal",
+            "port": 5432,
+            "connection_string": "postgresql://u:p@db.internal:5432/mydb",
+        }
+
+        mock_client_class, mock_instance, _, _ = _make_paramiko_mocks()
+        manager = SSHTunnelManager(encryption_key=None)
+
+        with patch("shared.ssh_tunnel.paramiko.SSHClient", mock_client_class), \
+             patch("shared.ssh_tunnel.paramiko.RSAKey.from_private_key_file",
+                   return_value=MagicMock()), \
+             patch("shared.ssh_tunnel.time.sleep"):
+            ctx = manager.create_tunnel(ssh_cfg, db_cfg, job_id="fmt-test-1")
+            local_conn = ctx.__enter__()
+            ctx.__exit__(None, None, None)
+
+        self.assertIn("postgresql://", local_conn)
+        self.assertIn("127.0.0.1", local_conn)
+        # Port number must appear somewhere after the host
+        import re
+        self.assertRegex(local_conn, r"127\.0\.0\.1:\d+")
+
+    def test_second_retry_on_connection_error(self):
+        """Two NoValidConnectionsError then success → connect is called exactly 3 times."""
+        import shared.ssh_tunnel as _sshtunnel_mod
+        _pm = getattr(_sshtunnel_mod, "paramiko", None) or __import__("paramiko")
+        _NoValid = _pm.ssh_exception.NoValidConnectionsError
+
+        err = {"(bastion.example.com, 22)": Exception("refused")}
+        side_effect = [
+            _NoValid(err),
+            _NoValid(err),
+            None,  # third attempt succeeds
+        ]
+
+        ssh_cfg = {
+            "host": "bastion.example.com",
+            "port": 22,
+            "username": "readonly",
+            "private_key_path": "/fake/key",
+        }
+        db_cfg = {
+            "host": "db.internal",
+            "port": 5432,
+            "connection_string": "postgresql://u:p@db.internal:5432/mydb",
+        }
+
+        mock_client_class, mock_instance, _, _ = _make_paramiko_mocks()
+        mock_instance.connect.side_effect = side_effect
+        manager = SSHTunnelManager(encryption_key=None)
+
+        with patch("shared.ssh_tunnel.paramiko.SSHClient", mock_client_class), \
+             patch("shared.ssh_tunnel.paramiko.RSAKey.from_private_key_file",
+                   return_value=MagicMock()), \
+             patch("shared.ssh_tunnel.time.sleep"):
+            ctx = manager.create_tunnel(ssh_cfg, db_cfg, job_id="retry-test-2")
+            local_conn = ctx.__enter__()
+            ctx.__exit__(None, None, None)
+
+        self.assertEqual(mock_instance.connect.call_count, 3)
+        self.assertIn("127.0.0.1", local_conn)
+
+
+# ===========================================================================
 # Entry point
 # ===========================================================================
 

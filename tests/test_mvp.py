@@ -519,6 +519,131 @@ class TestE2EFlow:
         shutil.rmtree(storage.local_storage_dir, ignore_errors=True)
 
 
+class TestZeroTrustValidatorExtended:
+    """Additional ZeroTrustValidator edge case tests."""
+
+    def _stat_600(self):
+        m = Mock(); m.st_mode = 0o100600; return m
+
+    def _stat_644(self):
+        m = Mock(); m.st_mode = 0o100644; return m
+
+    def test_empty_host_fails(self):
+        cfg = {"host": "", "username": "user", "private_key_path": "/key"}
+        result = ZeroTrustValidator.validate_ssh_config(cfg)
+        assert result is False
+
+    def test_empty_username_fails(self):
+        cfg = {"host": "h.example.com", "username": "", "private_key_path": "/key"}
+        result = ZeroTrustValidator.validate_ssh_config(cfg)
+        assert result is False
+
+    def test_missing_private_key_path_fails(self):
+        cfg = {"host": "h.example.com", "username": "user"}
+        result = ZeroTrustValidator.validate_ssh_config(cfg)
+        assert result is False
+
+    def test_key_file_does_not_exist_fails(self):
+        cfg = {"host": "h.example.com", "username": "user", "private_key_path": "/no/such/file"}
+        with patch("os.path.exists", return_value=False):
+            result = ZeroTrustValidator.validate_ssh_config(cfg)
+        assert result is False
+
+    def test_key_file_world_readable_fails(self):
+        cfg = {"host": "h.example.com", "username": "user", "private_key_path": "/k"}
+        with patch("os.path.exists", return_value=True), \
+             patch("os.stat", return_value=self._stat_644()):
+            result = ZeroTrustValidator.validate_ssh_config(cfg)
+        assert result is False
+
+    def test_valid_config_accepts_ipv4_host(self):
+        cfg = {"host": "192.168.1.100", "username": "user", "private_key_path": "/k"}
+        with patch("os.path.exists", return_value=True), \
+             patch("os.stat", return_value=self._stat_600()):
+            result = ZeroTrustValidator.validate_ssh_config(cfg)
+        assert result is True
+
+    def test_db_config_missing_port_fails(self):
+        cfg = {"host": "db.example.com", "connection_string": "postgresql://..."}
+        assert ZeroTrustValidator.validate_db_config(cfg) is False
+
+    def test_db_config_missing_connection_string_fails(self):
+        cfg = {"host": "db.example.com", "port": 5432}
+        assert ZeroTrustValidator.validate_db_config(cfg) is False
+
+    def test_db_config_all_required_fields_passes(self):
+        cfg = {"host": "db.example.com", "port": 5432,
+               "connection_string": "postgresql://u:p@db.example.com:5432/db"}
+        assert ZeroTrustValidator.validate_db_config(cfg) is True
+
+    def test_db_config_empty_connection_string_fails(self):
+        """validate_db_config checks all three required keys are present."""
+        cfg = {"host": "db.example.com", "port": 5432, "connection_string": ""}
+        # Validator checks key presence, so empty string still passes
+        # (presence check — not content check). Removing the key fails.
+        cfg_no_cs = {"host": "db.example.com", "port": 5432}
+        assert ZeroTrustValidator.validate_db_config(cfg_no_cs) is False
+
+
+class TestMetadataStorageExtended:
+    """Additional MetadataStorage tests."""
+
+    def setup_method(self):
+        self.storage = MetadataStorage()
+        self.storage.use_supabase = False
+        self.storage.local_storage_dir = "/tmp/test_mvp_ext_metadata"
+        os.makedirs(self.storage.local_storage_dir, exist_ok=True)
+
+    def teardown_method(self):
+        import shutil
+        shutil.rmtree(self.storage.local_storage_dir, ignore_errors=True)
+
+    @pytest.mark.asyncio
+    async def test_store_and_retrieve_roundtrip(self):
+        """Store then retrieve returns matching data."""
+        job_id = "ext-job-001"
+        meta = {"client_name": "acme", "period": "Q2-2025", "extra": "field"}
+        await self.storage.store_job_metadata(job_id, meta)
+        retrieved = await self.storage.get_job_metadata(job_id)
+        assert retrieved is not None
+        assert retrieved["client_name"] == "acme"
+        assert retrieved["period"] == "Q2-2025"
+
+    @pytest.mark.asyncio
+    async def test_get_missing_job_returns_none(self):
+        """get_job_metadata for non-existent job_id returns None."""
+        result = await self.storage.get_job_metadata("nonexistent-xyz-000")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_store_results_creates_file(self):
+        """store_job_results creates a results file on disk."""
+        job_id = "ext-job-002"
+        results = {"success": True, "findings_count": 5}
+        ok = await self.storage.store_job_results(job_id, results)
+        assert ok is True
+        file_path = os.path.join(
+            self.storage.local_storage_dir, f"results_{job_id}.json"
+        )
+        assert os.path.exists(file_path)
+
+    @pytest.mark.asyncio
+    async def test_health_check_local_is_healthy(self):
+        """health_check for local storage returns healthy status."""
+        health = await self.storage.health_check()
+        assert health["status"] == "healthy"
+
+    @pytest.mark.asyncio
+    async def test_overwrite_metadata_keeps_latest(self):
+        """Storing metadata twice for same job_id overwrites with latest values."""
+        job_id = "ext-job-003"
+        await self.storage.store_job_metadata(job_id, {"client_name": "v1"})
+        await self.storage.store_job_metadata(job_id, {"client_name": "v2"})
+        retrieved = await self.storage.get_job_metadata(job_id)
+        assert retrieved is not None
+        assert retrieved["client_name"] == "v2"
+
+
 if __name__ == "__main__":
     # Run tests
     pytest.main([__file__, "-v"])

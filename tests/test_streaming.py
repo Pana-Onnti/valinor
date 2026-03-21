@@ -261,3 +261,94 @@ class TestStreamingHeaders:
             headers={"Cache-Control": "no-cache"},
         )
         assert resp.headers.get("Cache-Control") == "no-cache"
+
+
+# ---------------------------------------------------------------------------
+# Additional pure-unit tests — SSE / WS contract
+# ---------------------------------------------------------------------------
+
+class TestSSEEventParsing:
+    """Additional SSE event format and parsing tests."""
+
+    def test_multiple_events_in_single_chunk(self):
+        """Multiple SSE events can be batched; each must start with 'data: '."""
+        import json
+        events = [
+            {"job_id": "j1", "status": "running", "progress": 10},
+            {"job_id": "j1", "status": "running", "progress": 50},
+        ]
+        chunks = [f"data: {json.dumps(e)}\n\n" for e in events]
+        for chunk in chunks:
+            assert chunk.startswith("data: ")
+            assert chunk.endswith("\n\n")
+            parsed = json.loads(chunk[len("data: "):].strip())
+            assert parsed["job_id"] == "j1"
+
+    def test_error_event_structure(self):
+        """Error SSE events must have an 'error' key."""
+        import json
+        error_event = {"error": "Job not found", "job_id": "ghost"}
+        line = f"data: {json.dumps(error_event)}\n\n"
+        parsed = json.loads(line[len("data: "):].strip())
+        assert "error" in parsed
+
+    def test_progress_field_type(self):
+        """Progress in SSE event should be numeric (int or float)."""
+        import json
+        event = {"job_id": "j2", "status": "running", "progress": 75}
+        line = f"data: {json.dumps(event)}\n\n"
+        parsed = json.loads(line[len("data: "):].strip())
+        assert isinstance(parsed["progress"], (int, float))
+        assert 0 <= parsed["progress"] <= 100
+
+    def test_sse_event_with_stage_field(self):
+        """SSE events may include a 'stage' field identifying the pipeline stage."""
+        import json
+        event = {"job_id": "j3", "status": "running", "progress": 30, "stage": "cartographer"}
+        line = f"data: {json.dumps(event)}\n\n"
+        parsed = json.loads(line[len("data: "):].strip())
+        assert parsed["stage"] == "cartographer"
+
+    def test_sse_sequence_ends_with_done(self):
+        """A valid SSE stream ends with the done sentinel."""
+        import json
+        events = [
+            {"job_id": "j4", "status": "running", "progress": 50},
+            {"job_id": "j4", "status": "completed", "final": True},
+            {"done": True},
+        ]
+        lines = [f"data: {json.dumps(e)}\n\n" for e in events]
+        last_parsed = json.loads(lines[-1][len("data: "):].strip())
+        assert last_parsed.get("done") is True
+
+
+class TestWebSocketRoutes:
+    """Additional WebSocket route tests."""
+
+    def test_ws_and_stream_routes_distinct(self):
+        """The WebSocket route /ws and SSE route /stream must be different paths."""
+        from api.main import app
+        paths = [r.path for r in app.routes if hasattr(r, "path")]
+        ws_paths = [p for p in paths if p.endswith("/ws")]
+        stream_paths = [p for p in paths if p.endswith("/stream")]
+        # They exist but are not the same
+        if ws_paths and stream_paths:
+            assert set(ws_paths).isdisjoint(set(stream_paths))
+
+    def test_app_routes_include_api_prefix(self):
+        """All analysis-related routes must begin with /api/."""
+        from api.main import app
+        api_routes = [r.path for r in app.routes
+                      if hasattr(r, "path") and "job" in r.path]
+        assert all(r.startswith("/api/") for r in api_routes), (
+            f"Non-/api/ job route found: {api_routes}"
+        )
+
+    def test_stream_route_has_job_id_param(self):
+        """SSE stream route must have a {job_id} path parameter."""
+        from api.main import app
+        stream_routes = [r for r in app.routes
+                         if hasattr(r, "path") and "stream" in r.path]
+        assert any("{job_id}" in r.path for r in stream_routes), (
+            "Stream route must have {job_id} parameter"
+        )

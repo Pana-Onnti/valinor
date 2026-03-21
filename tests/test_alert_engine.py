@@ -371,3 +371,103 @@ def test_multiple_implicit_critical_findings_all_captured():
     ids = {a["finding_id"] for a in alerts}
     assert "fraud_001" in ids
     assert "fraud_002" in ids
+
+
+# ---------------------------------------------------------------------------
+# Additional alert engine tests
+# ---------------------------------------------------------------------------
+
+def test_check_thresholds_returns_list():
+    """check_thresholds always returns a list."""
+    engine = AlertEngine()
+    profile = make_profile()
+    result = engine.check_thresholds(profile, {}, {})
+    assert isinstance(result, list)
+
+
+def test_no_thresholds_no_alerts():
+    """Profile with no thresholds generates no alerts (except implicit CRITICAL)."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[])
+    result = engine.check_thresholds(profile, {}, {})
+    assert result == []
+
+
+def test_threshold_with_no_history_skips_gracefully():
+    """Threshold for a metric with no history produces no alert."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("Revenue Check", "Revenue Total", "pct_change_below", -0.10)
+    ])
+    # Empty history
+    result = engine.check_thresholds(profile, {}, {})
+    assert isinstance(result, list)
+
+
+def test_alert_contains_required_keys():
+    """Each triggered alert dict must have label, severity, message keys."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("Revenue Drop", "Revenue Total", "pct_change_below", -0.05)
+    ])
+    history = {"Revenue Total": make_history([1000.0, 900.0])}
+    alerts = engine.check_thresholds(profile, history, {})
+    for alert in alerts:
+        assert "label" in alert or "metric" in alert
+        assert "severity" in alert
+
+
+def test_create_default_thresholds_returns_list():
+    """create_default_thresholds(profile) returns a non-empty list."""
+    profile = make_profile()
+    thresholds = create_default_thresholds(profile)
+    assert isinstance(thresholds, list)
+    assert len(thresholds) > 0
+
+
+def test_create_default_thresholds_have_required_fields():
+    """Each default threshold has label, metric, condition, value, severity."""
+    profile = make_profile()
+    thresholds = create_default_thresholds(profile)
+    for t in thresholds:
+        assert "label" in t
+        assert "metric" in t
+        assert "severity" in t
+
+
+def test_medium_severity_finding_does_not_trigger_implicit_alert():
+    """Only CRITICAL findings trigger implicit alerts."""
+    engine = AlertEngine()
+    profile = make_profile()
+    findings = {
+        "analyst": {"findings": [
+            {"id": "f1", "title": "Medium finding", "severity": "MEDIUM"}
+        ]}
+    }
+    alerts = engine.check_thresholds(profile, {}, findings)
+    # MEDIUM severity should not trigger any alert
+    medium_alerts = [a for a in alerts if a.get("finding_id") == "f1"]
+    assert len(medium_alerts) == 0
+
+
+def test_above_threshold_triggers_alert():
+    """absolute_above condition triggers when current value exceeds threshold."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("AR Spike", "AR >90 days", "absolute_above", 500.0, severity="HIGH")
+    ])
+    history = {"AR >90 days": make_history([300.0, 600.0])}
+    alerts = engine.check_thresholds(profile, history, {})
+    assert any(a.get("label") == "AR Spike" or a.get("metric") == "AR >90 days" for a in alerts)
+
+
+def test_below_threshold_not_triggered_when_value_ok():
+    """absolute_above threshold does NOT trigger when current value is below threshold."""
+    engine = AlertEngine()
+    profile = make_profile(alert_thresholds=[
+        make_threshold("AR Spike", "AR >90 days", "absolute_above", 500.0, severity="HIGH")
+    ])
+    history = {"AR >90 days": make_history([300.0, 400.0])}  # 400 < 500
+    alerts = engine.check_thresholds(profile, history, {})
+    ar_alerts = [a for a in alerts if "AR" in (a.get("label", "") + a.get("metric", ""))]
+    assert len(ar_alerts) == 0

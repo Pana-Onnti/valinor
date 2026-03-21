@@ -204,3 +204,77 @@ class TestIndustryDetectorConfidence:
         assert high_result["industry"] != "desconocida"
         # No-signal → fallback (score == 0)
         assert no_result["industry"] == "desconocida"
+
+
+# ---------------------------------------------------------------------------
+# Additional tests
+# ---------------------------------------------------------------------------
+
+class TestIndustryDetectorAdditional:
+    """Additional edge cases for IndustryDetector."""
+
+    def setup_method(self):
+        self.detector = IndustryDetector()
+
+    def test_detect_returns_dict_with_industry_key(self):
+        """detect() must return a dict with 'industry' key."""
+        result = self.detector.detect(_make_entity_map("some_table"), {})
+        assert isinstance(result, dict)
+        assert "industry" in result
+
+    def test_detect_returns_dict_with_currency_key(self):
+        """detect() result must contain 'currency' key."""
+        result = self.detector.detect(_make_entity_map("some_table"), {})
+        assert "currency" in result
+
+    def test_detect_industry_is_string(self):
+        """detect() result['industry'] must be a non-empty string."""
+        result = self.detector.detect(_make_entity_map("account_invoice"), {})
+        assert isinstance(result["industry"], str)
+        assert len(result["industry"]) > 0
+
+    def test_detect_currency_is_string(self):
+        """detect() result['currency'] must be a non-empty string."""
+        result = self.detector.detect(_make_entity_map(), {})
+        assert isinstance(result["currency"], str)
+        assert len(result["currency"]) > 0
+
+    def test_detect_deterministic_same_input(self):
+        """Same entity_map always returns same industry."""
+        em = _make_entity_map("res_partner", "account_move", "stock_picking")
+        r1 = self.detector.detect(em, {})
+        r2 = self.detector.detect(em, {})
+        assert r1["industry"] == r2["industry"]
+
+    def test_update_profile_sets_industry(self):
+        """update_profile() sets profile.industry_inferred."""
+        profile = _make_profile("UpdateTest")
+        em = _make_entity_map("mrp_production", "bom")
+        self.detector.update_profile(profile, em, {})
+        assert profile.industry_inferred is not None
+        assert isinstance(profile.industry_inferred, str)
+
+    def test_detect_with_empty_entity_map(self):
+        """detect() with empty entity dict doesn't raise."""
+        result = self.detector.detect({"entities": {}}, {})
+        assert isinstance(result, dict)
+        assert "industry" in result
+
+    def test_detect_with_missing_entities_key(self):
+        """detect() with completely empty dict doesn't raise."""
+        result = self.detector.detect({}, {})
+        assert isinstance(result, dict)
+
+    def test_table_name_case_insensitive(self):
+        """Upper and lower case table names yield the same industry."""
+        upper = self.detector.detect(_make_entity_map("MRP_PRODUCTION", "BOM"), {})
+        lower = self.detector.detect(_make_entity_map("mrp_production", "bom"), {})
+        assert upper["industry"] == lower["industry"]
+
+    def test_update_profile_currency_detected(self):
+        """update_profile() may set profile.currency_detected."""
+        profile = _make_profile("CurrencyTest")
+        em = _make_entity_map("account_move", "res_partner")
+        self.detector.update_profile(profile, em, {"currency": "EUR"})
+        # Either it was set or remained None — no crash is the main check
+        assert profile.currency_detected is None or isinstance(profile.currency_detected, str)

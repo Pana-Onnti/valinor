@@ -700,3 +700,79 @@ class TestDQContextBuilder:
             f"Clamped score expected to be 0.0, got {report.overall_score}"
         )
         assert report.gate_decision == "HALT"
+
+
+# ---------------------------------------------------------------------------
+# Additional DQ tests
+# ---------------------------------------------------------------------------
+
+class TestQualityCheckResultAdditional:
+    """Tests for QualityCheckResult attributes."""
+
+    def test_passed_check_has_correct_fields(self):
+        result = QualityCheckResult("row_count", True, 100, "INFO", "ok")
+        assert result.check_name == "row_count"
+        assert result.passed is True
+        assert result.score_impact == 100
+        assert result.severity == "INFO"
+
+    def test_failed_check_passed_is_false(self):
+        result = QualityCheckResult("pk_uniqueness", False, 80, "CRITICAL", "duplicates found")
+        assert result.passed is False
+        assert result.score_impact == 80
+
+    def test_optional_recommendation_field(self):
+        result = QualityCheckResult("null_ratio", True, 90, "WARNING", "ok", "check nulls")
+        assert result.recommendation == "check nulls"
+
+    def test_default_recommendation_is_none_or_empty(self):
+        result = QualityCheckResult("freshness", True, 100, "INFO", "fresh")
+        # recommendation is optional — None or empty string
+        assert result.recommendation is None or result.recommendation == ""
+
+
+class TestDataQualityReportAdditional:
+    """Tests for DataQualityReport computed properties."""
+
+    def _make_report(self, score, decision):
+        """Build a DataQualityReport directly (bypassing run())."""
+        report = DataQualityReport(
+            period_start="2026-01-01",
+            period_end="2026-03-31",
+        )
+        report.overall_score = score
+        report.gate_decision = decision
+        return report
+
+    def test_can_proceed_true_when_proceed(self):
+        from valinor.quality.data_quality_gate import DataQualityReport
+        report = DataQualityReport(period_start="2026-01-01", period_end="2026-03-31")
+        report.gate_decision = "PROCEED"
+        report.overall_score = 85.0
+        assert report.can_proceed is True
+
+    def test_can_proceed_false_when_halt(self):
+        from valinor.quality.data_quality_gate import DataQualityReport
+        report = DataQualityReport(period_start="2026-01-01", period_end="2026-03-31")
+        report.gate_decision = "HALT"
+        report.overall_score = 30.0
+        assert report.can_proceed is False
+
+    def test_to_prompt_context_is_string(self):
+        from valinor.quality.data_quality_gate import DataQualityReport
+        report = DataQualityReport(period_start="2026-01-01", period_end="2026-03-31")
+        report.gate_decision = "PROCEED"
+        report.overall_score = 90.0
+        ctx = report.to_prompt_context()
+        assert isinstance(ctx, str)
+        assert len(ctx) > 0
+
+    def test_data_quality_tag_reflects_score(self):
+        """data_quality_tag label should reflect the score tier."""
+        from valinor.quality.data_quality_gate import DataQualityReport
+        report = DataQualityReport(period_start="2026-01-01", period_end="2026-03-31")
+        report.overall_score = 95.0
+        report.gate_decision = "PROCEED"
+        tag = report.data_quality_tag
+        assert isinstance(tag, str)
+        assert len(tag) > 0

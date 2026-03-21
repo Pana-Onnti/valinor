@@ -133,3 +133,51 @@ def test_reraise_valinor_subclass():
 def test_dq_gate_halt_error_gate_decision_default():
     err = DQGateHaltError("no decision provided")
     assert err.gate_decision is None
+
+
+# ── 16. Exception messages are preserved ─────────────────────────────────────
+def test_exception_message_preserved():
+    msg = "critical pipeline failure"
+    err = PipelineTimeoutError(msg)
+    assert str(err) == msg or msg in str(err)
+
+
+# ── 17. SSHConnectionError carries host info if provided ─────────────────────
+def test_ssh_connection_error_message():
+    err = SSHConnectionError("Connection refused to bastion.example.com")
+    assert "bastion" in str(err) or "Connection" in str(err)
+
+
+# ── 18. Multiple exception types in single except clause ─────────────────────
+def test_catch_multiple_valinor_errors():
+    errors = [
+        SSHConnectionError("ssh"),
+        DatabaseConnectionError("db"),
+        PipelineTimeoutError("timeout"),
+    ]
+    caught = []
+    for e in errors:
+        try:
+            raise e
+        except (SSHConnectionError, DatabaseConnectionError, PipelineTimeoutError):
+            caught.append(type(e).__name__)
+    assert len(caught) == 3
+
+
+# ── 19. DQGateHaltError with gate_decision provided ──────────────────────────
+def test_dq_gate_halt_error_with_decision():
+    decision = {"halted": True, "failed_checks": ["null_ratio"], "score": 0.3}
+    err = DQGateHaltError("gate halted", gate_decision=decision)
+    assert err.gate_decision == decision
+    assert err.gate_decision["halted"] is True
+
+
+# ── 20. ValinorError is hashable / usable in sets ────────────────────────────
+def test_valinor_error_in_exception_tracking():
+    seen_types = set()
+    for exc_class in [SSHConnectionError, DatabaseConnectionError, PipelineTimeoutError]:
+        try:
+            raise exc_class("test")
+        except ValinorError as e:
+            seen_types.add(type(e))
+    assert len(seen_types) == 3

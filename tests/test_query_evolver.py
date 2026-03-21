@@ -345,3 +345,103 @@ class TestQueryEvolver:
         result = evolver.analyze_query_results(_make_qr(), {}, profile)
 
         assert result["high_value_tables"] == []
+
+
+# ---------------------------------------------------------------------------
+# Additional QueryEvolver tests
+# ---------------------------------------------------------------------------
+
+class TestQueryEvolverAdditional:
+    """Extended tests for QueryEvolver edge cases and behaviors."""
+
+    def test_multiple_empty_queries_all_tracked(self):
+        """When multiple queries return empty, all appear in empty_queries."""
+        evolver = QueryEvolver()
+        profile = _make_profile()
+        qr = _make_qr(("q_alpha", []), ("q_beta", []), ("q_gamma", []))
+
+        result = evolver.analyze_query_results(qr, {}, profile)
+
+        for name in ("q_alpha", "q_beta", "q_gamma"):
+            assert name in result["empty_queries"]
+
+    def test_mixed_empty_and_nonempty_correctly_classified(self):
+        """Only empty queries appear in empty_queries; non-empty ones don't."""
+        evolver = QueryEvolver()
+        profile = _make_profile()
+        qr = _make_qr(
+            ("empty_one", []),
+            ("has_data", [{"col": "val"}]),
+            ("empty_two", []),
+        )
+
+        result = evolver.analyze_query_results(qr, {}, profile)
+
+        assert "empty_one" in result["empty_queries"]
+        assert "empty_two" in result["empty_queries"]
+        assert "has_data" not in result["empty_queries"]
+
+    def test_multiple_high_value_tables_detected(self):
+        """When multiple focus_tables appear in findings, all are high-value."""
+        evolver = QueryEvolver()
+        profile = _make_profile(focus_tables=["account_move", "sale_order", "res_partner"])
+        findings = _make_findings([
+            ("account_move", "SELECT * FROM account_move WHERE ..."),
+            ("sale_order",   "SELECT * FROM sale_order WHERE ..."),
+        ])
+
+        result = evolver.analyze_query_results(_make_qr(), findings, profile)
+
+        assert "account_move" in result["high_value_tables"]
+        assert "sale_order" in result["high_value_tables"]
+        assert "res_partner" not in result["high_value_tables"]
+
+    def test_empty_query_count_starts_at_one(self):
+        """First time a query is empty, its count should be 1."""
+        evolver = QueryEvolver()
+        profile = _make_profile()
+        qr = _make_qr(("first_run_empty", []))
+
+        evolver.analyze_query_results(qr, {}, profile)
+
+        counts = profile.metadata.get("empty_query_counts", {})
+        assert counts.get("first_run_empty", 0) == 1
+
+    def test_format_context_returns_non_empty_for_fresh_profile(self):
+        """format_context on a brand-new profile must return a non-empty string."""
+        evolver = QueryEvolver()
+        profile = _make_profile()
+        ctx = evolver.format_context(profile)
+        assert isinstance(ctx, str)
+        assert len(ctx.strip()) > 0
+
+    def test_analyze_returns_dict(self):
+        """analyze_query_results must always return a dict."""
+        evolver = QueryEvolver()
+        profile = _make_profile()
+        result = evolver.analyze_query_results({}, {}, profile)
+        assert isinstance(result, dict)
+
+    def test_findings_without_sql_key_no_crash(self):
+        """Findings entries without 'sql' key must not raise an exception."""
+        evolver = QueryEvolver()
+        profile = _make_profile(focus_tables=["account_move"])
+        # Findings with no 'sql' key — evolver must handle gracefully
+        findings = {"analyst": {"findings": [{"id": "F001", "severity": "HIGH"}]}}
+        result = evolver.analyze_query_results(_make_qr(), findings, profile)
+        assert "high_value_tables" in result
+
+    def test_run_count_is_zero_initially(self):
+        """A new ClientProfile must have run_count == 0."""
+        profile = _make_profile()
+        assert profile.run_count == 0
+
+    def test_focus_tables_default_empty(self):
+        """A freshly created profile must have an empty focus_tables list."""
+        profile = _make_profile()
+        assert profile.focus_tables == []
+
+    def test_preferred_queries_default_empty(self):
+        """A freshly created profile must have an empty preferred_queries list."""
+        profile = _make_profile()
+        assert profile.preferred_queries == []
