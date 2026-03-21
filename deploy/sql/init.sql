@@ -61,6 +61,15 @@ CREATE TABLE IF NOT EXISTS client_profiles (
 
 CREATE INDEX IF NOT EXISTS idx_client_profiles_name ON client_profiles(client_name);
 
+-- GIN indexes for JSONB queries on client_profiles (DQ history, findings, segmentation)
+CREATE INDEX IF NOT EXISTS idx_client_profiles_profile_gin ON client_profiles USING gin(profile);
+
+-- Partial index for quick "clients with critical findings" queries
+CREATE INDEX IF NOT EXISTS idx_client_profiles_updated ON client_profiles(updated_at DESC);
+
 -- Extended analysis_jobs table with run_delta and profile snapshot
 ALTER TABLE analyses ADD COLUMN IF NOT EXISTS run_delta JSONB;
 ALTER TABLE analyses ADD COLUMN IF NOT EXISTS client_profile_snapshot JSONB;
+
+-- Index for fast status lookups on analyses
+CREATE INDEX IF NOT EXISTS idx_analyses_completed_at ON analyses(completed_at DESC) WHERE status = 'completed';
