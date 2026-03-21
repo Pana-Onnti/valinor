@@ -624,3 +624,425 @@ class TestAuditEndpoints:
         # Only the valid entry should appear
         assert data["total_returned"] == 1
         assert data["events"][0]["event_type"] == "ok_event"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/jobs/{job_id}/status  — 404 and field validation
+# ---------------------------------------------------------------------------
+
+
+class TestJobStatusEndpoint:
+    @pytest.mark.asyncio
+    async def test_job_status_returns_404_for_unknown_job(self, client):
+        """Non-existent job_id must return 404."""
+        response = await client.get("/api/jobs/does-not-exist/status")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_job_status_404_has_error_info(self, client):
+        """404 response body must include either a detail or an error field."""
+        response = await client.get("/api/jobs/no-such-job/status")
+        data = response.json()
+        assert "detail" in data or "error" in data
+
+    @pytest.mark.asyncio
+    async def test_job_status_returns_job_fields(self, redis_mock, storage_mock):
+        """A found job should include job_id and status fields."""
+        from api.main import app  # noqa: PLC0415
+
+        job_id = "test-job-abc"
+        redis_mock.hgetall = AsyncMock(return_value={
+            "status": "running",
+            "stage": "cartographer",
+            "progress": "30",
+            "message": "Mapping schema",
+            "started_at": "2026-03-21T10:00:00",
+        })
+
+        with (
+            patch("redis.asyncio.from_url", return_value=redis_mock),
+            patch("api.main.metadata_storage", storage_mock),
+            patch("api.main.redis_client", redis_mock),
+        ):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as ac:
+                response = await ac.get(f"/api/jobs/{job_id}/status")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["job_id"] == job_id
+        assert data["status"] == "running"
+        assert data["stage"] == "cartographer"
+        assert data["progress"] == 30
+
+
+# ---------------------------------------------------------------------------
+# GET /api/jobs/{job_id}/results  — 404 / 400 paths
+# ---------------------------------------------------------------------------
+
+
+class TestJobResultsEndpoint:
+    @pytest.mark.asyncio
+    async def test_job_results_returns_404_for_unknown_job(self, client):
+        """GET /api/jobs/{id}/results must return 404 when job does not exist."""
+        response = await client.get("/api/jobs/ghost-job/results")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_job_results_returns_400_when_not_completed(self, redis_mock, storage_mock):
+        """Results endpoint returns 400 when job is still running."""
+        from api.main import app  # noqa: PLC0415
+
+        redis_mock.hgetall = AsyncMock(return_value={"status": "running"})
+        redis_mock.get = AsyncMock(return_value=None)
+
+        with (
+            patch("redis.asyncio.from_url", return_value=redis_mock),
+            patch("api.main.metadata_storage", storage_mock),
+            patch("api.main.redis_client", redis_mock),
+        ):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as ac:
+                response = await ac.get("/api/jobs/running-job/results")
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_job_results_returns_completed_data(self, redis_mock, storage_mock):
+        """When job is completed and results exist, they are returned."""
+        import json as _json
+        from api.main import app  # noqa: PLC0415
+        import api.main as _main
+
+        job_id = "done-job-xyz"
+        results_payload = {
+            "job_id": job_id,
+            "client_name": "acme",
+            "period": "Q1-2026",
+            "status": "completed",
+            "stages": {},
+        }
+
+        redis_mock.hgetall = AsyncMock(return_value={"status": "completed"})
+        redis_mock.get = AsyncMock(return_value=_json.dumps(results_payload))
+
+        # Ensure the in-memory cache does not serve stale data for this job
+        _main._results_cache.pop(job_id, None)
+
+        with (
+            patch("redis.asyncio.from_url", return_value=redis_mock),
+            patch("api.main.metadata_storage", storage_mock),
+            patch("api.main.redis_client", redis_mock),
+        ):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as ac:
+                response = await ac.get(f"/api/jobs/{job_id}/results")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["client_name"] == "acme"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/jobs  — listing / pagination / validation
+# ---------------------------------------------------------------------------
+
+
+class TestListJobsEndpoint:
+    @pytest.mark.asyncio
+    async def test_list_jobs_returns_200(self, client):
+        response = await client.get("/api/jobs")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_list_jobs_has_pagination_fields(self, client):
+        response = await client.get("/api/jobs")
+        data = response.json()
+        for field in ("jobs", "total", "page", "page_size", "pages"):
+            assert field in data, f"Missing field: {field}"
+
+    @pytest.mark.asyncio
+    async def test_list_jobs_invalid_page_returns_400(self, client):
+        """page=0 is invalid and must return 400."""
+        response = await client.get("/api/jobs?page=0")
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_list_jobs_invalid_page_size_returns_400(self, client):
+        """page_size=0 is out of [1, 100] and must return 400."""
+        response = await client.get("/api/jobs?page_size=0")
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_list_jobs_invalid_sort_by_returns_400(self, client):
+        """Unknown sort_by value must return 400."""
+        response = await client.get("/api/jobs?sort_by=nonexistent_field")
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_list_jobs_invalid_sort_order_returns_400(self, client):
+        """sort_order must be 'asc' or 'desc'."""
+        response = await client.get("/api/jobs?sort_order=random")
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_list_jobs_empty_when_no_keys(self, client):
+        """With no job keys in Redis the jobs list should be empty."""
+        response = await client.get("/api/jobs")
+        data = response.json()
+        assert data["jobs"] == []
+        assert data["total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# POST /api/jobs/{job_id}/cancel  and  POST /api/jobs/{job_id}/retry
+# ---------------------------------------------------------------------------
+
+
+class TestJobControlEndpoints:
+    @pytest.mark.asyncio
+    async def test_cancel_job_returns_404_for_unknown_job(self, client):
+        response = await client.post("/api/jobs/ghost-job/cancel")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_cancel_running_job_returns_cancelled(self, redis_mock, storage_mock):
+        """Cancelling a running job sets status to cancelled."""
+        from api.main import app  # noqa: PLC0415
+
+        job_id = "run-job-1"
+        redis_mock.hgetall = AsyncMock(return_value={"status": "running"})
+
+        with (
+            patch("redis.asyncio.from_url", return_value=redis_mock),
+            patch("api.main.metadata_storage", storage_mock),
+            patch("api.main.redis_client", redis_mock),
+        ):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as ac:
+                response = await ac.post(f"/api/jobs/{job_id}/cancel")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "cancelled"
+        assert data["job_id"] == job_id
+
+    @pytest.mark.asyncio
+    async def test_cancel_already_completed_job_returns_current_status(self, redis_mock, storage_mock):
+        """Cancelling an already-completed job returns its current status without error."""
+        from api.main import app  # noqa: PLC0415
+
+        redis_mock.hgetall = AsyncMock(return_value={"status": "completed"})
+
+        with (
+            patch("redis.asyncio.from_url", return_value=redis_mock),
+            patch("api.main.metadata_storage", storage_mock),
+            patch("api.main.redis_client", redis_mock),
+        ):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as ac:
+                response = await ac.post("/api/jobs/done-job/cancel")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_retry_non_failed_job_returns_400(self, redis_mock, storage_mock):
+        """Retrying a running (non-failed) job must return 400."""
+        from api.main import app  # noqa: PLC0415
+
+        redis_mock.hgetall = AsyncMock(return_value={"status": "running"})
+
+        with (
+            patch("redis.asyncio.from_url", return_value=redis_mock),
+            patch("api.main.metadata_storage", storage_mock),
+            patch("api.main.redis_client", redis_mock),
+        ):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as ac:
+                response = await ac.post("/api/jobs/run-job/retry")
+
+        assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# GET /api/jobs/{job_id}/export/pdf
+# ---------------------------------------------------------------------------
+
+
+class TestExportPdfEndpoint:
+    @pytest.mark.asyncio
+    async def test_export_pdf_returns_404_for_unknown_job(self, client):
+        response = await client.get("/api/jobs/no-job/export/pdf")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_export_pdf_returns_400_when_not_completed(self, redis_mock, storage_mock):
+        from api.main import app  # noqa: PLC0415
+
+        redis_mock.hgetall = AsyncMock(return_value={"status": "pending"})
+
+        with (
+            patch("redis.asyncio.from_url", return_value=redis_mock),
+            patch("api.main.metadata_storage", storage_mock),
+            patch("api.main.redis_client", redis_mock),
+        ):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as ac:
+                response = await ac.get("/api/jobs/pending-job/export/pdf")
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_export_pdf_returns_pdf_content_type(self, redis_mock, storage_mock):
+        """A completed job must return application/pdf with Content-Disposition."""
+        import json as _json
+        from api.main import app  # noqa: PLC0415
+
+        redis_mock.hgetall = AsyncMock(return_value={"status": "completed"})
+        redis_mock.get = AsyncMock(return_value=_json.dumps({
+            "job_id": "pdf-job",
+            "client_name": "testcorp",
+            "period": "Q1-2026",
+        }))
+
+        with (
+            patch("redis.asyncio.from_url", return_value=redis_mock),
+            patch("api.main.metadata_storage", storage_mock),
+            patch("api.main.redis_client", redis_mock),
+        ):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as ac:
+                response = await ac.get("/api/jobs/pdf-job/export/pdf")
+
+        assert response.status_code == 200
+        assert "application/pdf" in response.headers["content-type"]
+        assert "attachment" in response.headers.get("content-disposition", "")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/jobs/{job_id}/download/{filename}  — security validation
+# ---------------------------------------------------------------------------
+
+
+class TestDownloadEndpoint:
+    @pytest.mark.asyncio
+    async def test_download_disallowed_filename_returns_400(self, client):
+        """Requesting a filename not on the allowed list returns 400."""
+        response = await client.get("/api/jobs/some-job/download/../../etc/passwd")
+        assert response.status_code in (400, 404)
+
+    @pytest.mark.asyncio
+    async def test_download_invalid_filename_extension_returns_400(self, client):
+        """A filename with an arbitrary extension is rejected."""
+        response = await client.get("/api/jobs/some-job/download/evil.sh")
+        assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# GET /api/system/status  — additional field checks
+# ---------------------------------------------------------------------------
+
+
+class TestSystemStatusAdditionalFields:
+    @pytest.mark.asyncio
+    async def test_system_status_has_redis_info(self, client):
+        """Response should include a redis key (dict or empty dict)."""
+        response = await client.get("/api/system/status")
+        data = response.json()
+        assert "redis" in data
+        assert isinstance(data["redis"], dict)
+
+    @pytest.mark.asyncio
+    async def test_system_status_has_llm_provider(self, client):
+        """llm_provider field must be present and be a string."""
+        response = await client.get("/api/system/status")
+        data = response.json()
+        assert "llm_provider" in data
+        assert isinstance(data["llm_provider"], str)
+
+    @pytest.mark.asyncio
+    async def test_system_status_has_timestamp(self, client):
+        response = await client.get("/api/system/status")
+        data = response.json()
+        assert "timestamp" in data
+        assert isinstance(data["timestamp"], str)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/version  — additional field checks
+# ---------------------------------------------------------------------------
+
+
+class TestVersionAdditionalFields:
+    @pytest.mark.asyncio
+    async def test_version_has_cost_per_analysis(self, client):
+        """cost_per_analysis_usd must be present and numeric."""
+        response = await client.get("/api/version")
+        data = response.json()
+        assert "cost_per_analysis_usd" in data
+        assert isinstance(data["cost_per_analysis_usd"], (int, float))
+
+    @pytest.mark.asyncio
+    async def test_version_has_api_prefix(self, client):
+        """api_prefix must be present."""
+        response = await client.get("/api/version")
+        data = response.json()
+        assert "api_prefix" in data
+        assert isinstance(data["api_prefix"], str)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/analyze  — validation edge-cases
+# ---------------------------------------------------------------------------
+
+
+class TestAnalyzeValidation:
+    _VALID_PAYLOAD = {
+        "client_name": "acme",
+        "period": "Q1-2026",
+        "db_config": {
+            "host": "db.example.com",
+            "port": 5432,
+            "type": "postgres",
+            "user": "admin",
+            "password": "secret",
+            "name": "prod_db",
+        },
+    }
+
+    @pytest.mark.asyncio
+    async def test_analyze_missing_db_config_returns_422(self, client):
+        """Submitting a request without db_config must return 422."""
+        response = await client.post(
+            "/api/analyze",
+            json={"client_name": "acme", "period": "Q1-2026"},
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_analyze_valid_payload_returns_job_id(self, client):
+        """A valid request must return a job_id in the response."""
+        response = await client.post("/api/analyze", json=self._VALID_PAYLOAD)
+        # 200 (success) or 429 (monthly limit hit in CI) are both acceptable
+        assert response.status_code in (200, 429)
+        if response.status_code == 200:
+            data = response.json()
+            assert "job_id" in data
+            assert data["status"] == "pending"

@@ -534,3 +534,181 @@ class TestRefinementAgentHeuristic:
 
         assert isinstance(result.generated_at, str)
         assert len(result.generated_at) > 0
+
+
+# ===========================================================================
+# Additional tests (44-56)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# PromptTuner — extended edge cases
+# ---------------------------------------------------------------------------
+
+class TestPromptTunerExtended:
+
+    # 44. focus_tables capped at 5 in block
+    def test_focus_tables_capped_at_5_in_block(self):
+        tuner = PromptTuner()
+        p = _profile(run_count=1, focus_tables=[f"t{i}" for i in range(8)])
+        block = tuner.build_context_block(p)
+        # Only up to 5 tables should appear in the tables line
+        # t5, t6, t7 (indices 5-7) must NOT be present beyond the cap
+        for t in ["t5", "t6", "t7"]:
+            assert t not in block
+
+    # 45. Multiple persistent findings (runs_open >= 3) all appear in block
+    def test_multiple_persistent_findings_appear(self):
+        tuner = PromptTuner()
+        p = _profile(run_count=1)
+        p.known_findings["A-1"] = {
+            "id": "A-1", "title": "issue A", "severity": "CRITICAL",
+            "agent": "analyst", "first_seen": "2026-01-01", "last_seen": "2026-03-01",
+            "runs_open": 5,
+        }
+        p.known_findings["B-2"] = {
+            "id": "B-2", "title": "issue B", "severity": "HIGH",
+            "agent": "analyst", "first_seen": "2026-01-01", "last_seen": "2026-03-01",
+            "runs_open": 3,
+        }
+        block = tuner.build_context_block(p)
+        assert "A-1" in block
+        assert "B-2" in block
+
+    # 46. inject_into_memory: known_findings_count matches profile
+    def test_inject_into_memory_known_findings_count(self):
+        tuner = PromptTuner()
+        p = _profile(run_count=1)
+        p.known_findings["X-1"] = {"runs_open": 1}
+        p.known_findings["X-2"] = {"runs_open": 2}
+        enhanced = tuner.inject_into_memory({}, p)
+        assert enhanced["client_profile_summary"]["known_findings_count"] == 2
+
+    # 47. inject_into_memory: resolved_findings_count matches profile
+    def test_inject_into_memory_resolved_findings_count(self):
+        tuner = PromptTuner()
+        p = _profile(run_count=1)
+        p.resolved_findings["R-1"] = {"id": "R-1", "title": "done"}
+        enhanced = tuner.inject_into_memory({}, p)
+        assert enhanced["client_profile_summary"]["resolved_findings_count"] == 1
+
+    # 48. build_context_block: both focus_areas AND query_hints in same block
+    def test_block_contains_both_hints_and_focus_areas(self):
+        tuner = PromptTuner()
+        p = _profile(run_count=1)
+        p.refinement = {
+            "table_weights": {},
+            "query_hints": ["use index on date_col"],
+            "focus_areas": ["ventas"],
+            "suppress_ids": [],
+            "context_block": "",
+            "generated_at": "",
+        }
+        block = tuner.build_context_block(p)
+        assert "use index on date_col" in block
+        assert "ventas" in block
+
+
+# ---------------------------------------------------------------------------
+# FocusRanker — extended edge cases
+# ---------------------------------------------------------------------------
+
+class TestFocusRankerExtended:
+
+    # 49. Single entity — no crash, still gets _focus_ranked flag
+    def test_single_entity_ranked(self):
+        ranker = FocusRanker()
+        p = _profile_with_weights({"only_table": 0.7})
+        em = _entity_map(("only_e", "only_table"))
+        result = ranker.rerank_entity_map(em, p)
+        assert result.get("_focus_ranked") is True
+        assert list(result["entities"].keys()) == ["only_e"]
+
+    # 50. entity without 'table' key falls back to entity key for weight lookup
+    def test_entity_without_table_key_uses_entity_key(self):
+        ranker = FocusRanker()
+        p = _profile_with_weights({"hi_key": 1.0, "lo_key": 0.0})
+        em = {
+            "entities": {
+                "lo_key": {},          # no 'table' key — uses entity key "lo_key"
+                "hi_key": {},          # no 'table' key — uses entity key "hi_key"
+            }
+        }
+        result = ranker.rerank_entity_map(em, p)
+        keys = list(result["entities"].keys())
+        assert keys[0] == "hi_key"
+        assert keys[-1] == "lo_key"
+
+    # 51. rerank_entity_map returns a NEW dict (does not mutate input)
+    def test_rerank_does_not_mutate_original(self):
+        ranker = FocusRanker()
+        p = _profile_with_weights({"t1": 0.9, "t2": 0.1})
+        em = _entity_map(("e2", "t2"), ("e1", "t1"))
+        original_keys = list(em["entities"].keys())
+        ranker.rerank_entity_map(em, p)
+        # Original order must be intact
+        assert list(em["entities"].keys()) == original_keys
+
+
+# ---------------------------------------------------------------------------
+# QueryEvolver — extended edge cases
+# ---------------------------------------------------------------------------
+
+class TestQueryEvolverExtended:
+
+    # 52. analyze_query_results: high_value table only added once to preferred_queries
+    def test_high_value_table_added_once_to_preferred_queries(self):
+        evolver = QueryEvolver()
+        p = _profile(focus_tables=["c_invoice"])
+        findings = _findings_dict([("c_invoice", "SELECT * FROM c_invoice")])
+        evolver.analyze_query_results(_qr(), findings, p)
+        evolver.analyze_query_results(_qr(), findings, p)  # second call
+        hints = [
+            pq if isinstance(pq, str) else pq.get("hint", "")
+            for pq in p.preferred_queries
+        ]
+        assert hints.count("priorizar tabla: c_invoice") == 1
+
+    # 53. format_context: high-value tables from preferred_queries appear
+    def test_format_context_shows_high_value_tables(self):
+        evolver = QueryEvolver()
+        p = _profile(focus_tables=["orders"])
+        findings = _findings_dict([("orders", "SELECT id FROM orders WHERE status='open'")])
+        evolver.analyze_query_results(_qr(), findings, p)
+        ctx = evolver.format_context(p)
+        assert "orders" in ctx
+
+    # 54. analyze_query_results with empty query_results dict — no crash
+    def test_empty_query_results_no_crash(self):
+        evolver = QueryEvolver()
+        p = _profile()
+        result = evolver.analyze_query_results({}, {}, p)
+        assert result["empty_queries"] == []
+        assert result["high_value_tables"] == []
+
+    # 55. preferred_queries capped at 10 hints
+    def test_preferred_queries_capped_at_10(self):
+        evolver = QueryEvolver()
+        tables = [f"t{i}" for i in range(12)]
+        p = _profile(focus_tables=tables)
+        for tbl in tables:
+            findings = _findings_dict([(tbl, f"SELECT * FROM {tbl}")])
+            evolver.analyze_query_results(_qr(), findings, p)
+        assert len(p.preferred_queries) <= 10
+
+
+# ---------------------------------------------------------------------------
+# RefinementAgent._heuristic_analyze — extended edge cases
+# ---------------------------------------------------------------------------
+
+class TestRefinementAgentHeuristicExtended:
+
+    def _agent(self) -> RefinementAgent:
+        return RefinementAgent()
+
+    # 56. Both c_invoice AND c_bpartner in focus_tables — both hints added
+    def test_both_hints_added_when_both_tables_present(self):
+        agent = self._agent()
+        p = _profile(run_count=1, focus_tables=["c_invoice", "c_bpartner", "c_payment"])
+        result = agent._heuristic_analyze(p, {}, {}, None)
+        assert any("DocStatus" in h for h in result.query_hints)
+        assert any("iscustomer" in h for h in result.query_hints)
