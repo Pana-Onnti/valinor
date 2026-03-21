@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { T } from '@/components/d4c/tokens'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -84,43 +85,54 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 function StepBar({ current }: { current: number }) {
   return (
-    <div className="flex items-center justify-center gap-0 mb-10">
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0, marginBottom: T.space.xl }}>
       {STEPS.map((step, idx) => {
         const StepIcon = step.icon
         const isCompleted = current > step.id
         const isActive = current === step.id
 
         return (
-          <div key={step.id} className="flex items-center">
+          <div key={step.id} style={{ display: 'flex', alignItems: 'center' }}>
             {/* Circle */}
-            <div
-              className={[
-                'flex flex-col items-center',
-              ].join(' ')}
-            >
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div
-                className={[
-                  'w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border-2',
-                  isCompleted
-                    ? 'bg-emerald-500 border-emerald-500 text-white'
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.3s',
+                  border: isCompleted
+                    ? `2px solid ${T.accent.teal}`
                     : isActive
-                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-500/25'
-                    : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-400',
-                ].join(' ')}
+                    ? `2px solid ${T.accent.teal}`
+                    : `2px solid ${T.bg.elevated}`,
+                  backgroundColor: isCompleted
+                    ? T.accent.teal
+                    : isActive
+                    ? T.accent.teal
+                    : T.bg.elevated,
+                  color: isCompleted || isActive ? T.text.inverse : T.text.tertiary,
+                }}
               >
                 {isCompleted
-                  ? <CheckCircle2 className="h-5 w-5" />
-                  : <StepIcon className="h-4 w-4" />}
+                  ? <CheckCircle2 style={{ height: '20px', width: '20px' }} />
+                  : <StepIcon style={{ height: '16px', width: '16px' }} />}
               </div>
               <span
-                className={[
-                  'text-xs mt-1.5 font-medium whitespace-nowrap',
-                  isActive
-                    ? 'text-indigo-600 dark:text-indigo-400'
+                style={{
+                  fontSize: '12px',
+                  marginTop: '6px',
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                  color: isActive
+                    ? T.accent.teal
                     : isCompleted
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-gray-400',
-                ].join(' ')}
+                    ? T.accent.teal
+                    : T.text.tertiary,
+                }}
               >
                 {step.label}
               </span>
@@ -129,12 +141,14 @@ function StepBar({ current }: { current: number }) {
             {/* Connector */}
             {idx < STEPS.length - 1 && (
               <div
-                className={[
-                  'w-16 h-0.5 mx-1 mb-5 transition-colors duration-300',
-                  current > step.id
-                    ? 'bg-emerald-500'
-                    : 'bg-gray-200 dark:bg-gray-700',
-                ].join(' ')}
+                style={{
+                  width: '64px',
+                  height: '2px',
+                  margin: '0 4px',
+                  marginBottom: '20px',
+                  transition: 'background-color 0.3s',
+                  backgroundColor: current > step.id ? T.accent.teal : T.bg.elevated,
+                }}
               />
             )}
           </div>
@@ -157,12 +171,12 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+      <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: T.text.secondary, marginBottom: '4px' }}>
         {label}
       </label>
       {children}
       {hint && (
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{hint}</p>
+        <p style={{ marginTop: '4px', fontSize: '12px', color: T.text.tertiary }}>{hint}</p>
       )}
     </div>
   )
@@ -187,14 +201,8 @@ function Input({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className={[
-        'w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600',
-        'bg-white dark:bg-gray-800 text-gray-900 dark:text-white',
-        'placeholder:text-gray-400 dark:placeholder:text-gray-500',
-        'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
-        'text-sm transition-colors',
-        className,
-      ].join(' ')}
+      className={`d4c-input${className ? ' ' + className : ''}`}
+      style={{ width: '100%' }}
     />
   )
 }
@@ -209,18 +217,18 @@ function StepSSH({
   onChange: (patch: Partial<SSHForm>) => void
 }) {
   return (
-    <div className="space-y-5">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.lg }}>
       <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
+        <h2 style={{ fontSize: '20px', fontWeight: 700, color: T.text.primary, marginBottom: '4px' }}>
           Conexión SSH
         </h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p style={{ fontSize: '14px', color: T.text.secondary }}>
           Valinor accede a tu base de datos a través de un túnel SSH efímero. Ningún dato es almacenado.
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-2">
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: T.space.md }}>
+        <div>
           <Field label="SSH Host *" hint="IP o dominio del servidor SSH del cliente">
             <Input
               value={form.ssh_host}
@@ -283,29 +291,41 @@ function StepDatabase({
   const allFilled = !!(form.db_host && form.db_port && form.db_name && form.db_user && form.db_password)
 
   return (
-    <div className="space-y-5">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.lg }}>
       <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
+        <h2 style={{ fontSize: '20px', fontWeight: 700, color: T.text.primary, marginBottom: '4px' }}>
           Base de Datos
         </h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p style={{ fontSize: '14px', color: T.text.secondary }}>
           Datos de conexión a la base de datos del cliente (accedida a través del túnel SSH).
         </p>
       </div>
 
       <Field label="Tipo de base de datos *">
-        <div className="grid grid-cols-2 gap-2">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: T.space.sm }}>
           {DB_TYPES.map((db) => (
             <button
               key={db.id}
               type="button"
               onClick={() => handleDbTypeChange(db.id)}
-              className={[
-                'px-3 py-2 rounded-lg border text-sm font-medium text-left transition-all',
-                form.db_type === db.id
-                  ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
-                  : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:border-indigo-300',
-              ].join(' ')}
+              style={{
+                padding: `${T.space.sm} ${T.space.md}`,
+                borderRadius: T.radius.sm,
+                fontSize: '14px',
+                fontWeight: 500,
+                textAlign: 'left',
+                transition: 'all 0.15s',
+                cursor: 'pointer',
+                border: form.db_type === db.id
+                  ? `2px solid ${T.accent.teal}`
+                  : `1px solid ${T.bg.elevated}`,
+                backgroundColor: form.db_type === db.id
+                  ? T.accent.teal + '10'
+                  : T.bg.card,
+                color: form.db_type === db.id
+                  ? T.accent.teal
+                  : T.text.secondary,
+              }}
             >
               {db.label}
             </button>
@@ -313,8 +333,8 @@ function StepDatabase({
         </div>
       </Field>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-2">
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: T.space.md }}>
+        <div>
           <Field label="Host de la DB *" hint="Dirección del servidor de BD (desde el servidor SSH)">
             <Input
               value={form.db_host}
@@ -342,7 +362,7 @@ function StepDatabase({
         />
       </Field>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: T.space.md }}>
         <Field label="Usuario *">
           <Input
             value={form.db_user}
@@ -362,23 +382,29 @@ function StepDatabase({
 
       {/* Estimated cost banner */}
       <div
-        className={[
-          'flex items-center gap-3 px-4 py-3 rounded-xl border transition-all',
-          estimatingCost
-            ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
-            : estimatedCost !== null
-            ? 'border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-900/20'
-            : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50',
-        ].join(' ')}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: T.space.md,
+          padding: `${T.space.md} ${T.space.lg}`,
+          borderRadius: T.radius.md,
+          transition: 'all 0.15s',
+          border: estimatedCost !== null && !estimatingCost
+            ? `1px solid ${T.accent.teal}40`
+            : `1px solid ${T.bg.elevated}`,
+          backgroundColor: estimatedCost !== null && !estimatingCost
+            ? T.accent.teal + '10'
+            : T.bg.elevated,
+        }}
       >
         {estimatingCost ? (
-          <Loader2 className="h-4 w-4 text-violet-500 animate-spin flex-shrink-0" />
+          <Loader2 style={{ height: '16px', width: '16px', color: T.accent.teal, flexShrink: 0 }} className="animate-spin" />
         ) : (
-          <DollarSign className="h-4 w-4 text-violet-500 flex-shrink-0" />
+          <DollarSign style={{ height: '16px', width: '16px', color: T.accent.teal, flexShrink: 0 }} />
         )}
         <div>
-          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">Costo estimado</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p style={{ fontSize: '12px', fontWeight: 600, color: T.text.primary }}>Costo estimado</p>
+          <p style={{ fontSize: '12px', color: T.text.secondary }}>
             {estimatingCost
               ? 'Calculando…'
               : estimatedCost !== null
@@ -411,12 +437,12 @@ function StepTest({
   onTest: () => void
 }) {
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.lg }}>
       <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
+        <h2 style={{ fontSize: '20px', fontWeight: 700, color: T.text.primary, marginBottom: '4px' }}>
           Test de Conexión
         </h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p style={{ fontSize: '14px', color: T.text.secondary }}>
           Verificamos que SSH y la base de datos son accesibles antes de lanzar el análisis.
         </p>
       </div>
@@ -428,10 +454,18 @@ function StepTest({
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg"
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: T.space.sm,
+              padding: T.space.md,
+              backgroundColor: T.accent.yellow + '15',
+              border: `1px solid ${T.accent.yellow}40`,
+              borderRadius: T.radius.sm,
+            }}
           >
-            <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-            <p className="text-sm text-amber-700 dark:text-amber-300">
+            <AlertTriangle style={{ height: '16px', width: '16px', color: T.accent.yellow, marginTop: '2px', flexShrink: 0 }} />
+            <p style={{ fontSize: '14px', color: T.accent.yellow }}>
               Modificaste los datos de conexión después del último test. El resultado puede estar desactualizado — volvé a testear antes de continuar.
             </p>
           </motion.div>
@@ -439,23 +473,35 @@ function StepTest({
       </AnimatePresence>
 
       {/* Summary card */}
-      <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 space-y-2">
-        <p className="text-xs font-mono text-gray-500 uppercase tracking-wide mb-2">Configuración a probar</p>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
-          <span className="text-gray-500 dark:text-gray-400">SSH host</span>
-          <span className="font-mono text-gray-900 dark:text-white truncate">
+      <div
+        style={{
+          backgroundColor: T.bg.elevated,
+          borderRadius: T.radius.md,
+          padding: T.space.md,
+          border: T.border.card,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: T.space.sm,
+        }}
+      >
+        <p style={{ fontSize: '12px', fontFamily: T.font.mono, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: T.space.sm }}>
+          Configuración a probar
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: T.space.xl, rowGap: '4px', fontSize: '14px' }}>
+          <span style={{ color: T.text.secondary }}>SSH host</span>
+          <span style={{ fontFamily: T.font.mono, color: T.text.primary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {sshForm.ssh_host || '—'}:{sshForm.ssh_port}
           </span>
-          <span className="text-gray-500 dark:text-gray-400">SSH user</span>
-          <span className="font-mono text-gray-900 dark:text-white">{sshForm.ssh_user || '—'}</span>
-          <span className="text-gray-500 dark:text-gray-400">DB type</span>
-          <span className="font-mono text-gray-900 dark:text-white capitalize">{dbForm.db_type}</span>
-          <span className="text-gray-500 dark:text-gray-400">DB host:port</span>
-          <span className="font-mono text-gray-900 dark:text-white">
+          <span style={{ color: T.text.secondary }}>SSH user</span>
+          <span style={{ fontFamily: T.font.mono, color: T.text.primary }}>{sshForm.ssh_user || '—'}</span>
+          <span style={{ color: T.text.secondary }}>DB type</span>
+          <span style={{ fontFamily: T.font.mono, color: T.text.primary, textTransform: 'capitalize' }}>{dbForm.db_type}</span>
+          <span style={{ color: T.text.secondary }}>DB host:port</span>
+          <span style={{ fontFamily: T.font.mono, color: T.text.primary }}>
             {dbForm.db_host || '—'}:{dbForm.db_port}
           </span>
-          <span className="text-gray-500 dark:text-gray-400">Base de datos</span>
-          <span className="font-mono text-gray-900 dark:text-white">{dbForm.db_name || '—'}</span>
+          <span style={{ color: T.text.secondary }}>Base de datos</span>
+          <span style={{ fontFamily: T.font.mono, color: T.text.primary }}>{dbForm.db_name || '—'}</span>
         </div>
       </div>
 
@@ -464,22 +510,26 @@ function StepTest({
         type="button"
         onClick={onTest}
         disabled={testing}
-        className={[
-          'w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl',
-          'font-semibold text-sm transition-all',
-          testing
-            ? 'bg-indigo-400 cursor-not-allowed text-white'
-            : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-500/20',
-        ].join(' ')}
+        className="d4c-btn-primary"
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: T.space.sm,
+          padding: `${T.space.md} ${T.space.lg}`,
+          opacity: testing ? 0.7 : 1,
+          cursor: testing ? 'not-allowed' : 'pointer',
+        }}
       >
         {testing ? (
           <>
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 style={{ height: '16px', width: '16px' }} className="animate-spin" />
             Probando conexión…
           </>
         ) : (
           <>
-            <Wifi className="h-4 w-4" />
+            <Wifi style={{ height: '16px', width: '16px' }} />
             {testResult ? 'Volver a testear' : 'Probar conexión ahora'}
           </>
         )}
@@ -492,7 +542,7 @@ function StepTest({
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="space-y-3"
+            style={{ display: 'flex', flexDirection: 'column', gap: T.space.md }}
           >
             <CheckRow
               label="SSH Tunnel"
@@ -514,18 +564,40 @@ function StepTest({
             />
 
             {testResult.error && (
-              <div className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                <XCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
-                <p className="text-sm text-red-700 dark:text-red-300 font-mono break-all">
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: T.space.sm,
+                  padding: T.space.md,
+                  backgroundColor: T.accent.red + '15',
+                  border: `1px solid ${T.accent.red}40`,
+                  borderRadius: T.radius.sm,
+                  color: T.accent.red,
+                }}
+              >
+                <XCircle style={{ height: '16px', width: '16px', marginTop: '2px', flexShrink: 0 }} />
+                <p style={{ fontSize: '14px', fontFamily: T.font.mono, wordBreak: 'break-all' }}>
                   {testResult.error}
                 </p>
               </div>
             )}
 
             {testResult.ssh_ok && testResult.db_ok && !testStale && (
-              <div className="flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                <p className="text-sm text-emerald-700 dark:text-emerald-300 font-semibold">
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: T.space.sm,
+                  padding: T.space.md,
+                  backgroundColor: T.accent.teal + '15',
+                  border: `1px solid ${T.accent.teal}40`,
+                  borderRadius: T.radius.sm,
+                  color: T.accent.teal,
+                }}
+              >
+                <CheckCircle2 style={{ height: '16px', width: '16px', flexShrink: 0 }} />
+                <p style={{ fontSize: '14px', fontWeight: 600 }}>
                   Todo listo — puedes continuar con el análisis.
                 </p>
               </div>
@@ -540,23 +612,30 @@ function StepTest({
 function CheckRow({ label, ok, detail }: { label: string; ok: boolean; detail: string }) {
   return (
     <div
-      className={[
-        'flex items-center gap-3 p-3 rounded-lg border',
-        ok
-          ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
-          : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800',
-      ].join(' ')}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: T.space.md,
+        padding: T.space.md,
+        borderRadius: T.radius.sm,
+        border: ok
+          ? `1px solid ${T.accent.teal}40`
+          : `1px solid ${T.accent.red}40`,
+        backgroundColor: ok
+          ? T.accent.teal + '10'
+          : T.accent.red + '10',
+      }}
     >
       {ok ? (
-        <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+        <CheckCircle2 style={{ height: '20px', width: '20px', color: T.accent.teal, flexShrink: 0 }} />
       ) : (
-        <XCircle className="h-5 w-5 text-red-500 shrink-0" />
+        <XCircle style={{ height: '20px', width: '20px', color: T.accent.red, flexShrink: 0 }} />
       )}
       <div>
-        <p className={`font-semibold text-sm ${ok ? 'text-emerald-800 dark:text-emerald-200' : 'text-red-800 dark:text-red-200'}`}>
+        <p style={{ fontWeight: 600, fontSize: '14px', color: ok ? T.accent.teal : T.accent.red }}>
           {label}
         </p>
-        <p className={`text-xs ${ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+        <p style={{ fontSize: '12px', color: ok ? T.accent.teal : T.accent.red, opacity: 0.8 }}>
           {detail}
         </p>
       </div>
@@ -583,12 +662,12 @@ function StepConfigure({
   const canSubmit = !!(form.client_name && form.period && !nameInvalid && !submitting)
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.lg }}>
       <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
+        <h2 style={{ fontSize: '20px', fontWeight: 700, color: T.text.primary, marginBottom: '4px' }}>
           Configurar Análisis
         </h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p style={{ fontSize: '14px', color: T.text.secondary }}>
           Define el período y el nombre del cliente para el reporte ejecutivo.
         </p>
       </div>
@@ -597,32 +676,47 @@ function StepConfigure({
         label="Nombre del cliente *"
         hint={nameInvalid ? undefined : 'Solo letras, números y guiones bajos (_). Se usa como identificador en la URL.'}
       >
-        <Input
+        <input
           value={form.client_name}
-          onChange={(v) => onChange({ client_name: v })}
+          onChange={(e) => onChange({ client_name: e.target.value })}
           placeholder="acme_corp"
-          className={nameInvalid ? 'border-red-400 focus:ring-red-400' : ''}
+          className="d4c-input"
+          style={{
+            width: '100%',
+            ...(nameInvalid ? { borderColor: T.accent.red } : {}),
+          }}
         />
         {nameInvalid && (
-          <p className="mt-1 text-xs text-red-500">
+          <p style={{ marginTop: '4px', fontSize: '12px', color: T.accent.red }}>
             Solo se permiten letras, números y guiones bajos (_).
           </p>
         )}
       </Field>
 
       <Field label="Período a analizar *">
-        <div className="grid grid-cols-3 gap-2">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: T.space.sm }}>
           {PERIODS.map((p) => (
             <button
               key={p}
               type="button"
               onClick={() => onChange({ period: p })}
-              className={[
-                'px-3 py-2 rounded-lg border text-sm font-medium transition-all',
-                form.period === p
-                  ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
-                  : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:border-indigo-300',
-              ].join(' ')}
+              style={{
+                padding: `${T.space.sm} ${T.space.md}`,
+                borderRadius: T.radius.sm,
+                fontSize: '14px',
+                fontWeight: 500,
+                transition: 'all 0.15s',
+                cursor: 'pointer',
+                border: form.period === p
+                  ? `2px solid ${T.accent.teal}`
+                  : `1px solid ${T.bg.elevated}`,
+                backgroundColor: form.period === p
+                  ? T.accent.teal + '10'
+                  : T.bg.card,
+                color: form.period === p
+                  ? T.accent.teal
+                  : T.text.secondary,
+              }}
             >
               {p}
             </button>
@@ -634,23 +728,27 @@ function StepConfigure({
         type="button"
         onClick={onSubmit}
         disabled={!canSubmit}
-        className={[
-          'w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl',
-          'font-semibold text-sm transition-all',
-          !canSubmit
-            ? 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed text-gray-500 dark:text-gray-400'
-            : 'bg-violet-600 hover:bg-violet-700 text-white shadow-md shadow-violet-500/20',
-        ].join(' ')}
+        className={canSubmit ? 'd4c-btn-primary' : 'd4c-btn-ghost'}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: T.space.sm,
+          padding: `14px ${T.space.lg}`,
+          opacity: !canSubmit ? 0.5 : 1,
+          cursor: !canSubmit ? 'not-allowed' : 'pointer',
+        }}
       >
         {submitting ? (
           <>
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 style={{ height: '16px', width: '16px' }} className="animate-spin" />
             Iniciando análisis…
           </>
         ) : (
           <>
             Lanzar análisis
-            <ArrowRight className="h-4 w-4" />
+            <ArrowRight style={{ height: '16px', width: '16px' }} />
           </>
         )}
       </button>
@@ -662,10 +760,19 @@ function StepConfigure({
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg"
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: T.space.sm,
+              padding: T.space.md,
+              backgroundColor: T.accent.red + '15',
+              border: `1px solid ${T.accent.red}40`,
+              borderRadius: T.radius.sm,
+              color: T.accent.red,
+            }}
           >
-            <XCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
-            <p className="text-sm text-red-700 dark:text-red-300">{submitError}</p>
+            <XCircle style={{ height: '16px', width: '16px', marginTop: '2px', flexShrink: 0 }} />
+            <p style={{ fontSize: '14px' }}>{submitError}</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -893,29 +1000,46 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-indigo-900">
+    <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary, fontFamily: T.font.display }}>
       {/* Header */}
-      <header className="border-b border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between py-4">
+      <header
+        style={{
+          borderBottom: T.border.subtle,
+          backgroundColor: T.bg.card + 'CC',
+          backdropFilter: 'blur(8px)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 50,
+        }}
+      >
+        <div style={{ maxWidth: '768px', margin: '0 auto', padding: `0 ${T.space.lg}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${T.space.md} 0` }}>
             <Link
               href="/dashboard"
-              className="flex items-center gap-2 text-sm text-gray-500 hover:text-indigo-600 dark:text-gray-400 dark:hover:text-indigo-400 transition-colors"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: T.space.sm,
+                fontSize: '14px',
+                color: T.text.secondary,
+                textDecoration: 'none',
+                transition: 'color 0.15s',
+              }}
             >
-              <ArrowLeft className="h-4 w-4" />
-              <span className="hidden sm:inline">Dashboard</span>
+              <ArrowLeft style={{ height: '16px', width: '16px' }} />
+              <span>Dashboard</span>
             </Link>
-            <span className="text-sm font-semibold text-gray-900 dark:text-white">
+            <span style={{ fontSize: '14px', fontWeight: 600, color: T.text.primary }}>
               Onboarding — Valinor SaaS
             </span>
-            <span className="text-xs text-gray-400 font-mono">
+            <span style={{ fontSize: '12px', color: T.text.tertiary, fontFamily: T.font.mono }}>
               Paso {step} / {STEPS.length}
             </span>
           </div>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <main style={{ maxWidth: '768px', margin: '0 auto', padding: `${T.space.xxl} ${T.space.lg}` }}>
         {/* Step progress bar */}
         <StepBar current={step} />
 
@@ -926,16 +1050,33 @@ export default function OnboardingPage() {
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="mb-6 flex items-start gap-2 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl"
+              style={{
+                marginBottom: T.space.lg,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: T.space.sm,
+                padding: T.space.md,
+                backgroundColor: T.accent.red + '15',
+                border: `1px solid ${T.accent.red}40`,
+                borderRadius: T.radius.md,
+                color: T.accent.red,
+              }}
             >
-              <XCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
-              <p className="text-sm text-red-700 dark:text-red-300">{errorBanner}</p>
+              <XCircle style={{ height: '16px', width: '16px', marginTop: '2px', flexShrink: 0 }} />
+              <p style={{ fontSize: '14px' }}>{errorBanner}</p>
             </motion.div>
           )}
         </AnimatePresence>
 
         {/* Step card */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-8">
+        <div
+          style={{
+            backgroundColor: T.bg.card,
+            borderRadius: T.radius.lg,
+            border: T.border.card,
+            padding: T.space.xxl,
+          }}
+        >
           <AnimatePresence mode="wait">
             <motion.div
               key={step}
@@ -982,19 +1123,27 @@ export default function OnboardingPage() {
         </div>
 
         {/* Navigation */}
-        <div className="flex items-center justify-between mt-6">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: T.space.lg }}>
           <button
             type="button"
             onClick={handleBack}
             disabled={step === 1}
-            className={[
-              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
-              step === 1
-                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700',
-            ].join(' ')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: T.space.sm,
+              padding: `${T.space.sm} ${T.space.md}`,
+              borderRadius: T.radius.sm,
+              fontSize: '14px',
+              fontWeight: 500,
+              transition: 'all 0.15s',
+              background: 'none',
+              border: 'none',
+              cursor: step === 1 ? 'not-allowed' : 'pointer',
+              color: step === 1 ? T.text.tertiary : T.text.secondary,
+            }}
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft style={{ height: '16px', width: '16px' }} />
             Anterior
           </button>
 
@@ -1003,34 +1152,43 @@ export default function OnboardingPage() {
               type="button"
               onClick={handleNext}
               disabled={!canAdvance()}
-              className={[
-                'flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all',
-                canAdvance()
-                  ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-500/20'
-                  : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed',
-              ].join(' ')}
+              className={canAdvance() ? 'd4c-btn-primary' : 'd4c-btn-ghost'}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: T.space.sm,
+                padding: `${T.space.sm} ${T.space.lg}`,
+                opacity: !canAdvance() ? 0.5 : 1,
+                cursor: !canAdvance() ? 'not-allowed' : 'pointer',
+              }}
             >
               Siguiente
-              <ArrowRight className="h-4 w-4" />
+              <ArrowRight style={{ height: '16px', width: '16px' }} />
             </button>
           )}
 
           {step === 4 && (
-            <span className="text-xs text-gray-400 italic">
-              Presiona "Lanzar análisis" para continuar
+            <span style={{ fontSize: '12px', color: T.text.tertiary, fontStyle: 'italic' }}>
+              Presiona &quot;Lanzar análisis&quot; para continuar
             </span>
           )}
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="mt-auto border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex justify-between items-center text-sm text-gray-500 dark:text-gray-400">
+      <footer
+        style={{
+          marginTop: 'auto',
+          borderTop: T.border.subtle,
+          backgroundColor: T.bg.card,
+        }}
+      >
+        <div style={{ maxWidth: '768px', margin: '0 auto', padding: `${T.space.lg} ${T.space.lg}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px', color: T.text.tertiary }}>
             <p>© 2026 Delta 4C — Valinor SaaS v2.0</p>
             <Link
               href="/docs"
-              className="hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
+              style={{ color: T.text.tertiary, textDecoration: 'none', transition: 'color 0.15s' }}
             >
               API docs
             </Link>
