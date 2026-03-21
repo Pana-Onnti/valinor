@@ -35,6 +35,8 @@ class ConnectionTestResult(BaseModel):
     has_invoices: bool = False
     has_partners: bool = False
     recommended_analysis: Optional[str] = None  # "full" | "accounting_only" | "limited"
+    data_from: Optional[str] = None            # "YYYY-MM" — oldest transaction date found
+    data_to: Optional[str] = None              # "YYYY-MM" — most recent transaction date found
 
 
 class SSHTestRequest(BaseModel):
@@ -127,6 +129,9 @@ async def test_db_connection(request: ConnectionTestRequest):
             else:
                 recommended = "limited"
 
+            # Detect available date range from transaction tables
+            data_from, data_to = _detect_date_range(erp["name"], tables, conn)
+
         engine.dispose()
 
         return ConnectionTestResult(
@@ -139,6 +144,8 @@ async def test_db_connection(request: ConnectionTestRequest):
             has_invoices=has_invoices,
             has_partners=has_partners,
             recommended_analysis=recommended,
+            data_from=data_from,
+            data_to=data_to,
         )
 
     except Exception as e:
@@ -348,12 +355,17 @@ async def estimate_cost(request: CostEstimateRequest):
 async def validate_period(body: dict):
     """Validate that a period has data in the client database."""
     period = body.get("period", "")
-    patterns = [r'^Q[1-4]-\d{4}$', r'^H[12]-\d{4}$', r'^\d{4}$']
+    patterns = [
+        r'^Q[1-4]-\d{4}$',    # Q1-2025
+        r'^H[12]-\d{4}$',     # H1-2025
+        r'^\d{4}$',            # 2025
+        r'^\d{4}-\d{2}$',     # 2025-01 (monthly)
+    ]
     valid = any(re.match(p, period) for p in patterns)
     return {
         "valid": valid,
         "period": period,
-        "message": "Período válido" if valid else "Formato inválido. Usar: Q1-2025, H1-2025, 2025"
+        "message": "Período válido" if valid else "Formato inválido. Usar: 2025-01, Q1-2025, H1-2025, 2025"
     }
 
 
@@ -475,3 +487,49 @@ def _detect_erp(tables: list, conn) -> dict:
         return {"name": "generic_postgresql", "version": None}
 
     return {"name": "unknown", "version": None}
+
+
+def _detect_date_range(erp_name: str, tables: list, conn) -> tuple:
+    """
+    Query the most relevant transaction table to find MIN/MAX transaction dates.
+    Returns (data_from, data_to) as "YYYY-MM" strings, or (None, None) on failure.
+    """
+    from sqlalchemy import text as _text
+    from typing import Tuple
+
+    table_set = set(t.lower() for t in tables)
+
+    # Candidate queries: (table, date_column) ordered by preference
+    candidates = []
+    if erp_name == "idempiere":
+        if "c_invoice" in table_set:
+            candidates.append(("c_invoice", "dateinvoiced"))
+        if "c_order" in table_set:
+            candidates.append(("c_order", "dateordered"))
+    elif erp_name == "odoo":
+        if "account_move" in table_set:
+            candidates.append(("account_move", "invoice_date"))
+        if "sale_order" in table_set:
+            candidates.append(("sale_order", "date_order"))
+    elif erp_name == "sap_b1":
+        if "oinv" in table_set:
+            candidates.append(("oinv", "\"DocDate\""))
+    else:
+        # Generic: try common date-column names in any of these tables
+        for tbl in ("invoices", "orders", "transactions", "sales"):
+            if tbl in table_set:
+                candidates.append((tbl, "created_at"))
+
+    for table, col in candidates:
+        try:
+            row = conn.execute(_text(
+                f"SELECT MIN({col})::date, MAX({col})::date FROM {table} WHERE {col} IS NOT NULL"
+            )).fetchone()
+            if row and row[0] and row[1]:
+                d_from = str(row[0])[:7]  # "YYYY-MM"
+                d_to   = str(row[1])[:7]
+                return d_from, d_to
+        except Exception:
+            continue
+
+    return None, None

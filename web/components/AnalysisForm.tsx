@@ -9,7 +9,7 @@ import axios from 'axios'
 import {
   Database, Server, ChevronRight, ChevronLeft, Zap,
   CheckCircle2, Shield, Clock, AlertTriangle, Lock,
-  ArrowRight, Loader2
+  ArrowRight, Loader2, Calendar
 } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -68,7 +68,7 @@ const ERP_OPTIONS = [
   },
 ]
 
-// ── Zod schema (same as before) ───────────────────────────────────────────────
+// ── Zod schema ────────────────────────────────────────────────────────────────
 const ConnectionSchema = z.object({
   client_name: z.string().min(2, 'Mínimo 2 caracteres'),
   erp_type: z.string().min(1, 'Seleccioná un sistema'),
@@ -87,8 +87,72 @@ const ConnectionSchema = z.object({
 
 type ConnectionFormData = z.infer<typeof ConnectionSchema>
 
+interface TestResult {
+  success: boolean
+  latency_ms?: number
+  erp_detected?: string
+  error?: string
+  table_count?: number
+  data_from?: string   // "YYYY-MM"
+  data_to?: string     // "YYYY-MM"
+}
+
 interface AnalysisFormProps {
   onStartAnalysis: (jobId: string) => void
+}
+
+// ── Period helpers ────────────────────────────────────────────────────────────
+const ES_MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+const Q_RANGES  = [['Ene','Mar'],['Abr','Jun'],['Jul','Sep'],['Oct','Dic']]
+
+function buildMonthOptions(dataFrom?: string, dataTo?: string) {
+  const now = new Date()
+  const toYear   = dataTo   ? parseInt(dataTo.slice(0, 4))   : now.getFullYear()
+  const toMonth  = dataTo   ? parseInt(dataTo.slice(5, 7))   : now.getMonth() + 1
+  const fromYear = dataFrom ? parseInt(dataFrom.slice(0, 4)) : toYear - 2
+  const fromMonth= dataFrom ? parseInt(dataFrom.slice(5, 7)) : 1
+
+  const options: { value: string; label: string }[] = []
+  let y = toYear, m = toMonth
+  while ((y > fromYear || (y === fromYear && m >= fromMonth)) && options.length < 24) {
+    options.push({
+      value: `${y}-${String(m).padStart(2, '0')}`,
+      label: `${ES_MONTHS[m - 1]} ${y}`,
+    })
+    m--
+    if (m < 1) { m = 12; y-- }
+  }
+  return options
+}
+
+function buildQuarterOptions(dataFrom?: string, dataTo?: string) {
+  const now = new Date()
+  const toYear  = dataTo   ? parseInt(dataTo.slice(0, 4))   : now.getFullYear()
+  const toQ     = dataTo   ? Math.ceil(parseInt(dataTo.slice(5, 7)) / 3) : Math.ceil((now.getMonth() + 1) / 3)
+  const fromYear= dataFrom ? parseInt(dataFrom.slice(0, 4)) : toYear - 2
+
+  const options: { value: string; label: string }[] = []
+  let y = toYear, q = toQ
+  while (y >= fromYear && options.length < 12) {
+    options.push({
+      value: `Q${q}-${y}`,
+      label: `Q${q} ${y}  (${Q_RANGES[q - 1][0]}–${Q_RANGES[q - 1][1]})`,
+    })
+    q--
+    if (q < 1) { q = 4; y-- }
+  }
+  return options
+}
+
+function buildYearOptions(dataFrom?: string, dataTo?: string) {
+  const now = new Date()
+  const toYear  = dataTo   ? parseInt(dataTo.slice(0, 4))   : now.getFullYear()
+  const fromYear= dataFrom ? parseInt(dataFrom.slice(0, 4)) : toYear - 4
+  const options: { value: string; label: string }[] = []
+  for (let y = toYear; y >= fromYear && options.length < 6; y--) {
+    options.push({ value: String(y), label: `Año completo ${y}` })
+  }
+  return options
 }
 
 // ── Step indicator ─────────────────────────────────────────────────────────────
@@ -120,10 +184,7 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 
 // ── Step 1: ERP Selection ─────────────────────────────────────────────────────
 function Step1ERPSelection({
-  selected,
-  onSelect,
-  clientName,
-  onClientName,
+  selected, onSelect, clientName, onClientName,
 }: {
   selected: string
   onSelect: (id: string, db: string) => void
@@ -143,7 +204,6 @@ function Step1ERPSelection({
         Valinor se adapta a cualquier ERP o base de datos
       </p>
 
-      {/* Client name first */}
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
           Nombre del cliente / empresa
@@ -157,7 +217,6 @@ function Step1ERPSelection({
         />
       </div>
 
-      {/* ERP grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {ERP_OPTIONS.map(erp => (
           <button
@@ -214,19 +273,12 @@ function Step1ERPSelection({
 
 // ── Step 2: Connection details ────────────────────────────────────────────────
 function Step2Connection({
-  register,
-  errors,
-  watch,
-  dbType,
-  testResult,
-  testingConnection,
-  onTestConnection,
+  register, errors, watch, testResult, testingConnection, onTestConnection,
 }: {
   register: any
   errors: any
   watch: any
-  dbType: string
-  testResult: null | { success: boolean; latency_ms?: number; erp_detected?: string; error?: string; table_count?: number }
+  testResult: TestResult | null
   testingConnection: boolean
   onTestConnection: () => void
 }) {
@@ -255,7 +307,7 @@ function Step2Connection({
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2 sm:col-span-1">
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 uppercase tracking-wide">Host</label>
-          <input {...register('db_host')} placeholder="db.empresa.com"
+          <input {...register('db_host')} placeholder="localhost"
             className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
           {errors.db_host && <p className="text-xs text-red-500 mt-1">{errors.db_host.message}</p>}
         </div>
@@ -283,22 +335,33 @@ function Step2Connection({
           {errors.db_password && <p className="text-xs text-red-500 mt-1">{errors.db_password.message}</p>}
         </div>
 
-        {/* Test connection button */}
         <div className="col-span-2 mt-1">
           <button
             type="button"
             onClick={onTestConnection}
             disabled={testingConnection || !watch('db_host') || !watch('db_user')}
-            className="w-full py-2 px-4 rounded-lg border-2 border-violet-200 text-violet-700 hover:border-violet-400 disabled:opacity-50 text-sm"
+            className="w-full py-2 px-4 rounded-lg border-2 border-violet-200 text-violet-700 hover:border-violet-400 disabled:opacity-50 text-sm font-medium transition-all"
           >
-            {testingConnection ? 'Probando...' : 'Probar conexión'}
+            {testingConnection ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />Probando conexión...
+              </span>
+            ) : 'Probar conexión'}
           </button>
 
           {testResult && (
             <div className={`mt-2 rounded-lg p-3 text-sm ${testResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
               {testResult.success ? (
-                <div className="text-green-800">
-                  ✓ Conectado ({testResult.latency_ms}ms) · ERP: {testResult.erp_detected} · {testResult.table_count} tablas
+                <div className="space-y-1">
+                  <p className="text-green-800 font-medium">
+                    ✓ Conectado ({testResult.latency_ms}ms) · {testResult.erp_detected} · {testResult.table_count} tablas
+                  </p>
+                  {testResult.data_from && testResult.data_to && (
+                    <p className="text-green-700 text-xs flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      Datos disponibles: <strong>{testResult.data_from}</strong> → <strong>{testResult.data_to}</strong>
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="text-red-800">✗ Error: {testResult.error}</div>
@@ -308,7 +371,6 @@ function Step2Connection({
         </div>
       </div>
 
-      {/* SSH toggle */}
       <div className="mt-5">
         <label className="flex items-center gap-3 cursor-pointer">
           <div className={`relative w-10 h-5 rounded-full transition-colors ${useSsh ? 'bg-violet-600' : 'bg-gray-200 dark:bg-gray-700'}`}>
@@ -350,26 +412,14 @@ function Step2Connection({
   )
 }
 
-// ── Step 3: Confirm & Launch ──────────────────────────────────────────────────
-const CURRENT_PERIODS = [
-  { value: 'Q1-2026', label: 'Q1 2026 (Ene-Mar)' },
-  { value: 'Q4-2025', label: 'Q4 2025 (Oct-Dic)' },
-  { value: 'Q3-2025', label: 'Q3 2025 (Jul-Sep)' },
-  { value: 'H1-2025', label: 'H1 2025 (Ene-Jun)' },
-  { value: '2025',    label: 'Año completo 2025' },
-  { value: '2024',    label: 'Año completo 2024' },
-]
+// ── Step 3: Period + Confirm ───────────────────────────────────────────────────
+type PeriodTab = 'month' | 'quarter' | 'year'
 
 function Step3Confirm({
-  clientName,
-  erpId,
-  dbHost,
-  dbName,
-  period,
-  onPeriod,
-  isLoading,
-  error,
-  jobId,
+  clientName, erpId, dbHost, dbName,
+  period, onPeriod,
+  isLoading, error, jobId,
+  dataFrom, dataTo,
 }: {
   clientName: string
   erpId: string
@@ -380,8 +430,17 @@ function Step3Confirm({
   isLoading: boolean
   error: string | null
   jobId: string | null
+  dataFrom?: string
+  dataTo?: string
 }) {
+  const [tab, setTab] = useState<PeriodTab>('month')
   const erp = ERP_OPTIONS.find(e => e.id === erpId)
+
+  const monthOpts   = buildMonthOptions(dataFrom, dataTo)
+  const quarterOpts = buildQuarterOptions(dataFrom, dataTo)
+  const yearOpts    = buildYearOptions(dataFrom, dataTo)
+
+  const opts = tab === 'month' ? monthOpts : tab === 'quarter' ? quarterOpts : yearOpts
 
   const whatToExpect = [
     { icon: '🗺️', text: 'Mapeo automático de entidades de negocio' },
@@ -397,10 +456,12 @@ function Step3Confirm({
       exit={{ opacity: 0, x: -20 }}
     >
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-        Listo para analizar
+        Elegí el período a analizar
       </h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-        Revisá los datos y elegí el período a analizar
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+        {dataFrom && dataTo
+          ? `Datos disponibles: ${dataFrom} → ${dataTo}`
+          : 'Seleccioná el rango de tiempo para el análisis'}
       </p>
 
       {/* Summary card */}
@@ -425,31 +486,52 @@ function Step3Confirm({
         </div>
       </div>
 
-      {/* Period */}
-      <div className="mb-5">
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">
-          Período a analizar
-        </label>
-        <div className="grid grid-cols-3 gap-2">
-          {CURRENT_PERIODS.map(p => (
+      {/* Period tabs */}
+      <div className="mb-2">
+        <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl mb-3 w-fit">
+          {(['month', 'quarter', 'year'] as PeriodTab[]).map(t => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                tab === t
+                  ? 'bg-white dark:bg-gray-700 text-violet-700 dark:text-violet-300 shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+              }`}
+            >
+              {t === 'month' ? 'Mes' : t === 'quarter' ? 'Trimestre' : 'Año'}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-1">
+          {opts.map(p => (
             <button
               key={p.value}
               type="button"
               onClick={() => onPeriod(p.value)}
-              className={`text-xs py-2 px-3 rounded-xl border transition-all ${
+              className={`text-xs py-2 px-2 rounded-xl border transition-all text-left leading-tight ${
                 period === p.value
                   ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 font-semibold'
-                  : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300'
+                  : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-violet-300 hover:bg-gray-50'
               }`}
             >
               {p.label}
             </button>
           ))}
         </div>
+
+        {period && (
+          <div className="mt-2 flex items-center gap-2 text-xs text-violet-600 dark:text-violet-400">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Período seleccionado: <strong>{period}</strong>
+          </div>
+        )}
       </div>
 
       {/* What to expect */}
-      <div className="mb-5">
+      <div className="mt-4 mb-4">
         <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Qué vas a recibir</p>
         <div className="grid grid-cols-2 gap-2">
           {whatToExpect.map((item, i) => (
@@ -490,11 +572,11 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
   const [step, setStep] = useState(0)
   const [selectedErp, setSelectedErp] = useState('')
   const [clientName, setClientName] = useState('')
-  const [period, setPeriod] = useState('Q1-2026')
+  const [period, setPeriod] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingJobId, setPendingJobId] = useState<string | null>(null)
-  const [testResult, setTestResult] = useState<null | { success: boolean; latency_ms?: number; erp_detected?: string; error?: string; table_count?: number }>(null)
+  const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testingConnection, setTestingConnection] = useState(false)
 
   const {
@@ -506,7 +588,7 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
     formState: { errors },
   } = useForm<ConnectionFormData>({
     resolver: zodResolver(ConnectionSchema),
-    defaultValues: { db_type: 'postgresql', db_port: 5432, use_ssh: false, period: 'Q1-2026' },
+    defaultValues: { db_type: 'postgresql', db_port: 5432, use_ssh: false, period: '' },
   })
 
   const handleSelectERP = (id: string, db: string) => {
@@ -545,12 +627,15 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
     if (step === 0) return selectedErp !== '' && clientName.trim().length >= 2
     if (step === 1) {
       const v = getValues()
-      return v.db_host && v.db_name && v.db_user && v.db_password
+      return !!(v.db_host && v.db_name && v.db_user && v.db_password)
     }
     return period !== ''
   }
 
   const onSubmit = async (data: ConnectionFormData) => {
+    // Guard: only submit on the final confirmation step
+    if (step !== 2) return
+
     setIsLoading(true)
     setError(null)
     try {
@@ -608,7 +693,6 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
                 register={register}
                 errors={errors}
                 watch={watch}
-                dbType={selectedErp}
                 testResult={testResult}
                 testingConnection={testingConnection}
                 onTestConnection={handleTestConnection}
@@ -626,6 +710,8 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
                 isLoading={isLoading}
                 error={error}
                 jobId={pendingJobId}
+                dataFrom={testResult?.data_from}
+                dataTo={testResult?.data_to}
               />
             )}
           </AnimatePresence>
