@@ -623,32 +623,40 @@ async def get_job_results(
     Get results from completed analysis job.
     """
     try:
+        # ── Cache hit: return without touching Redis ──────────────────────
+        now = time.time()
+        cached = _results_cache.get(job_id)
+        if cached is not None:
+            cached_results, cached_at = cached
+            if now - cached_at <= _RESULTS_CACHE_TTL:
+                return cached_results
+
         job_data = await redis_client.hgetall(f"job:{job_id}")
-        
+
         if not job_data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Job not found"
             )
-        
+
         if job_data.get("status") != "completed":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Job not completed. Current status: {job_data.get('status', 'unknown')}"
             )
-        
+
         # Get results from Redis
         results_key = f"job:{job_id}:results"
         results_data = await redis_client.get(results_key)
-        
+
         if not results_data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Results not found"
             )
-        
+
         results = json.loads(results_data)
-        
+
         # Add download URLs for output files
         output_dir = results.get("stages", {}).get("delivery", {}).get("output_path")
         if output_dir and Path(output_dir).exists():
@@ -668,8 +676,11 @@ async def get_job_results(
                 "tag": results["data_quality"]["tag"],
             }
 
+        # ── Store in cache for subsequent requests ────────────────────────
+        _results_cache[job_id] = (results, time.time())
+
         return results
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -682,6 +693,30 @@ async def get_job_results(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get job results: {str(e)}"
         )
+
+
+@app.get("/api/cache/stats", summary="In-memory results cache statistics", tags=["Observability"])
+async def get_cache_stats():
+    """
+    Return observability metrics for the in-memory completed-job results cache.
+    """
+    now = time.time()
+    # Evict stale entries so counts reflect only live entries
+    stale_keys = [k for k, (_, ts) in _results_cache.items() if now - ts > _RESULTS_CACHE_TTL]
+    for k in stale_keys:
+        del _results_cache[k]
+
+    cached_jobs = len(_results_cache)
+    if cached_jobs == 0:
+        oldest_age = 0.0
+    else:
+        oldest_age = round(max(now - ts for _, ts in _results_cache.values()), 2)
+
+    return {
+        "cached_jobs": cached_jobs,
+        "oldest_entry_age_seconds": oldest_age,
+    }
+
 
 @app.get("/api/jobs/{job_id}/download/{filename}", summary="Download result file")
 async def download_file(job_id: str, filename: str):
@@ -744,15 +779,37 @@ async def download_file(job_id: str, filename: str):
             detail=f"Failed to download file: {str(e)}"
         )
 
+_VALID_SORT_FIELDS = {"created_at", "status", "client_name"}
+
 @app.get("/api/jobs", summary="List jobs")
 async def list_jobs(
-    limit: int = 20,
+    page: int = 1,
+    page_size: int = 20,
     status_filter: Optional[str] = None,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
 ):
     """
-    List recent analysis jobs with optional status filter.
-    Use status_filter=completed|failed|pending|running|cancelled.
+    List analysis jobs with pagination, sorting and optional status filter.
+
+    - **page**: 1-based page number (default 1)
+    - **page_size**: items per page, max 100 (default 20)
+    - **status_filter**: filter by status — completed|failed|pending|running|cancelled
+    - **sort_by**: field to sort by — created_at|status|client_name (default created_at)
+    - **sort_order**: asc or desc (default desc)
     """
+    if page < 1:
+        raise HTTPException(status_code=400, detail="page must be >= 1")
+    if not (1 <= page_size <= 100):
+        raise HTTPException(status_code=400, detail="page_size must be between 1 and 100")
+    if sort_by not in _VALID_SORT_FIELDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"sort_by must be one of: {', '.join(sorted(_VALID_SORT_FIELDS))}",
+        )
+    if sort_order not in ("asc", "desc"):
+        raise HTTPException(status_code=400, detail="sort_order must be 'asc' or 'desc'")
+
     redis_client = await get_redis()
 
     # Scan for job keys (scan_iter avoids blocking)
@@ -782,9 +839,23 @@ async def list_jobs(
             "progress": job_data.get("progress"),
         })
 
-    # Sort by created_at desc
-    jobs.sort(key=lambda x: x.get("created_at") or "", reverse=True)
-    return {"jobs": jobs[:limit], "total": len(jobs)}
+    # Sort by requested field
+    reverse = sort_order == "desc"
+    jobs.sort(key=lambda x: x.get(sort_by) or "", reverse=reverse)
+
+    total = len(jobs)
+    import math
+    pages = math.ceil(total / page_size) if page_size else 1
+    start = (page - 1) * page_size
+    end = start + page_size
+
+    return {
+        "jobs": jobs[start:end],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": pages,
+    }
 
 # ── Client Profile endpoints ──────────────────────────────────────────────────
 
@@ -1063,19 +1134,30 @@ async def get_clients_comparison(clients: Optional[str] = None):
 
 
 @app.get("/api/clients/{client_name}/findings", tags=["Clients"])
-async def get_client_findings(client_name: str):
+async def get_client_findings(
+    client_name: str,
+    severity_filter: Optional[str] = None,
+):
     """
     Return all active findings for a client with full details.
 
     Reads from profile.known_findings (dict keyed by finding_id).
     Counts by severity and resolved findings are included in the summary.
+
+    - **severity_filter**: optional — filter to a single severity level
+      (CRITICAL|HIGH|MEDIUM|LOW|UNKNOWN).  Case-insensitive.
     """
     import sys, os
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
     from shared.memory.profile_store import get_profile_store
 
+    severity_filter_upper: Optional[str] = severity_filter.upper() if severity_filter else None
+
     store = get_profile_store()
-    profile = await store.load_or_create(client_name)
+    profile = await store.load(client_name)
+
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Client '{client_name}' not found")
 
     known_findings: dict = profile.known_findings or {}
 
@@ -1094,6 +1176,10 @@ async def get_client_findings(client_name: str):
 
         severity = record.get("severity", "UNKNOWN")
         severity_counts[severity] = severity_counts.get(severity, 0) + 1
+
+        # Apply severity filter before appending
+        if severity_filter_upper and severity != severity_filter_upper:
+            continue
 
         findings_list.append({
             "id": finding_id,
@@ -1116,6 +1202,7 @@ async def get_client_findings(client_name: str):
         "critical": severity_counts.get("CRITICAL", 0),
         "high": severity_counts.get("HIGH", 0),
         "resolved_count": resolved_count,
+        "severity_filter": severity_filter_upper,
     }
 
 
@@ -1545,6 +1632,9 @@ async def preview_email_digest(job_id: str):
         "high": sum(1 for f in top_findings if f.get("severity","").upper() == "HIGH"),
     }
 
+    data_quality = results.get("data_quality")
+    triggered_alerts = results.get("triggered_alerts")
+
     from api.email_digest import build_digest_html
     html = build_digest_html(
         client_name=client_name,
@@ -1552,6 +1642,8 @@ async def preview_email_digest(job_id: str):
         run_delta=run_delta,
         findings_summary=findings_summary,
         top_findings=top_findings[:5],
+        triggered_alerts=triggered_alerts,
+        data_quality=data_quality,
     )
     return HTMLResponse(content=html)
 
@@ -1572,14 +1664,32 @@ async def send_email_digest(job_id: str, to_email: str):
     results = _json.loads(results_raw)
     client_name = results.get("client_name", "Cliente")
     period = results.get("period", "")
+    run_delta = results.get("run_delta", {})
+    findings = results.get("findings", {})
+    data_quality = results.get("data_quality")
+    triggered_alerts = results.get("triggered_alerts")
+
+    # Build top findings list
+    top_findings = []
+    for agent_result in findings.values():
+        if isinstance(agent_result, dict):
+            top_findings.extend(agent_result.get("findings", []))
+    top_findings.sort(key=lambda f: {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}.get(f.get("severity", "").upper(), 4))
+
+    findings_summary = {
+        "critical": sum(1 for f in top_findings if f.get("severity", "").upper() == "CRITICAL"),
+        "high": sum(1 for f in top_findings if f.get("severity", "").upper() == "HIGH"),
+    }
 
     from api.email_digest import build_digest_html, send_digest
     html = build_digest_html(
         client_name=client_name,
         period=period,
-        run_delta=results.get("run_delta", {}),
-        findings_summary={},
-        top_findings=[],
+        run_delta=run_delta,
+        findings_summary=findings_summary,
+        top_findings=top_findings[:5],
+        triggered_alerts=triggered_alerts,
+        data_quality=data_quality,
     )
     sent = await send_digest(
         to_email=to_email,
