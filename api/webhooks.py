@@ -12,6 +12,10 @@ from typing import Optional, Dict, Any
 import httpx
 import structlog
 
+# Delays (in seconds) between retry attempts: attempt 1→2, attempt 2→3, attempt 3→give up
+RETRY_DELAYS = [1, 5, 15]
+MAX_ATTEMPTS = 3
+
 logger = structlog.get_logger()
 
 WEBHOOK_SECRET = "valinor_webhook_v1"  # In prod, per-client secret from env/config
@@ -23,11 +27,13 @@ async def fire_job_completion_webhook(
     client_name: str,
     status: str,  # "completed" | "failed"
     summary: Optional[Dict[str, Any]] = None,
-) -> bool:
+) -> Dict[str, Any]:
     """
-    Fire a webhook POST to the registered URL.
+    Fire a webhook POST to the registered URL with exponential backoff retries.
     Payload is signed with HMAC-SHA256 for verification.
-    Returns True if delivered successfully.
+
+    Returns a dict: {"success": bool, "attempts": int, "last_status_code": int | None}
+    Retries up to MAX_ATTEMPTS times with delays defined in RETRY_DELAYS.
     """
     payload = {
         "event": "job.completed" if status == "completed" else "job.failed",
@@ -52,21 +58,52 @@ async def fire_job_completion_webhook(
         "User-Agent": "Valinor-Webhooks/1.0",
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(webhook_url, content=payload_json, headers=headers)
-            success = response.status_code < 300
-            logger.info(
-                "Webhook fired",
+    last_status_code: Optional[int] = None
+
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(webhook_url, content=payload_json, headers=headers)
+                last_status_code = response.status_code
+                success = response.status_code < 300
+                logger.info(
+                    "Webhook fired",
+                    url=webhook_url[:40],
+                    status_code=response.status_code,
+                    success=success,
+                    job_id=job_id,
+                    attempt=attempt,
+                )
+                if success:
+                    return {"success": True, "attempts": attempt, "last_status_code": last_status_code}
+        except Exception as e:
+            logger.warning(
+                "Webhook delivery failed",
                 url=webhook_url[:40],
-                status_code=response.status_code,
-                success=success,
+                error=str(e),
+                attempt=attempt,
                 job_id=job_id,
             )
-            return success
-    except Exception as e:
-        logger.warning("Webhook delivery failed", url=webhook_url[:40], error=str(e))
-        return False
+
+        if attempt < MAX_ATTEMPTS:
+            delay = RETRY_DELAYS[attempt - 1]
+            logger.info(
+                "Webhook retry scheduled",
+                url=webhook_url[:40],
+                next_attempt=attempt + 1,
+                delay_seconds=delay,
+                job_id=job_id,
+            )
+            await asyncio.sleep(delay)
+
+    logger.error(
+        "Webhook delivery exhausted all attempts",
+        url=webhook_url[:40],
+        attempts=MAX_ATTEMPTS,
+        last_status_code=last_status_code,
+        job_id=job_id,
+    )
+    return {"success": False, "attempts": MAX_ATTEMPTS, "last_status_code": last_status_code}
 
 
 def build_job_summary(results: dict) -> dict:

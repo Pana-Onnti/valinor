@@ -249,8 +249,9 @@ export default function ClientHistoryPage() {
                   {dqHistory.dq_history.map((d, i) => (
                     <circle key={i} cx={i * 24 + 12} cy={40 - (d.score / 100) * 36} r="3"
                       fill={d.score >= 90 ? '#34d399' : d.score >= 75 ? '#fbbf24' : '#fb923c'}
-                      title={`${d.run_date?.slice(0, 10)}: ${d.score}`}
-                    />
+                    >
+                      <title>{`${d.run_date?.slice(0, 10)}: ${d.score}`}</title>
+                    </circle>
                   ))}
                 </svg>
               </div>
