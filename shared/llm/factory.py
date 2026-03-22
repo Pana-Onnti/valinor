@@ -4,6 +4,7 @@ Central point for provider instantiation and management.
 """
 
 import asyncio
+import os
 from typing import Optional, Dict, Any, Type
 from contextlib import asynccontextmanager
 import logging
@@ -248,6 +249,19 @@ class MonitoredProvider(LLMProvider):
 async def get_provider(config: Optional[LLMConfig] = None) -> LLMProvider:
     """Get configured LLM provider instance"""
     return await LLMProviderFactory.create(config)
+
+
+def get_batch_provider():
+    """
+    Return a :class:`BatchAnthropicProvider` if the ``ENABLE_BATCH_API`` env
+    var is set to a truthy value, otherwise ``None``.
+
+    VAL-25: Batch API support for cost optimisation.
+    """
+    if os.getenv("ENABLE_BATCH_API", "").lower() in ("1", "true"):
+        from .providers.batch_provider import BatchAnthropicProvider
+        return BatchAnthropicProvider()
+    return None
 
 
 # Context manager for automatic cleanup
