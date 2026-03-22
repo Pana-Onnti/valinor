@@ -231,6 +231,11 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(RequestIDMiddleware)
+
+# Tenant context (must run after RequestID so tenant_id is bound to same context)
+from api.tenant import TenantMiddleware  # noqa: E402
+app.add_middleware(TenantMiddleware)
+
 app.add_middleware(PrometheusMiddleware)
 
 
