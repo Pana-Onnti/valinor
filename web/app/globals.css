@@ -3,17 +3,21 @@
 @tailwind utilities;
 
 /* ── D4C Design System — CSS vars ─────────────────────────────────────────── */
+/* Token lightening: backgrounds raised ~1 stop for better contrast ratios.
+   bg-primary: #0A0A0F -> #0E0E14 (less pitch-black)
+   bg-card:    #111116 -> #15151C (better card separation)
+   text-secondary: #8A8A9A -> #9A9AAA (WCAG AA on bg-card)            */
 :root {
-  --d4c-bg-primary:    #0A0A0F;
-  --d4c-bg-card:       #111116;
-  --d4c-bg-elevated:   #1A1A22;
-  --d4c-bg-hover:      #222230;
+  --d4c-bg-primary:    #0E0E14;
+  --d4c-bg-card:       #15151C;
+  --d4c-bg-elevated:   #1E1E28;
+  --d4c-bg-hover:      #282838;
   --d4c-text-primary:  #F0F0F5;
-  --d4c-text-secondary:#8A8A9A;
-  --d4c-text-tertiary: #5A5A6A;
+  --d4c-text-secondary:#9A9AAA;
+  --d4c-text-tertiary: #6A6A7A;
   --d4c-accent-teal:   #2A9D8F;
   --d4c-accent-red:    #E63946;
-  --d4c-border:        #222230;
+  --d4c-border:        #282838;
 }
 
 html,
@@ -97,13 +101,13 @@ body {
 .d4c-nav-link {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 14px;
+  padding: 8px 10px;
+  font-size: 13px;
   font-weight: 500;
   text-decoration: none;
-  transition: background-color 150ms ease, color 150ms ease;
+  transition: background-color 150ms ease, color 150ms ease, width 200ms ease;
   color: var(--d4c-text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -118,4 +122,31 @@ body {
   background-color: color-mix(in srgb, var(--d4c-accent-teal) 15%, transparent);
   color: var(--d4c-accent-teal);
   box-shadow: inset 2px 0 0 var(--d4c-accent-teal);
+}
+
+/* ── Content density utilities ────────────────────────────────────────────── */
+/* Tighter padding on data-heavy pages (dashboards, results, tables) */
+.d4c-dense {
+  --d4c-page-pad: 16px;
+}
+.d4c-dense .d4c-card {
+  padding: 12px 14px;
+}
+.d4c-dense table th,
+.d4c-dense table td {
+  padding: 6px 10px;
+}
+
+/* Standard card component with reduced chrome */
+.d4c-card {
+  background-color: var(--d4c-bg-card);
+  border: 1px solid var(--d4c-border);
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+
+/* Compact variant */
+.d4c-card--compact {
+  padding: 10px 14px;
+  border-radius: 8px;
 }

@@ -5,8 +5,11 @@ P&L analysis, provisions, anomalies, forecast, and regulatory flags.
 """
 
 import json
+import logging
 
 from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """
@@ -70,6 +73,7 @@ async def narrate_controller(
     client_config: dict,
     baseline: dict,
     query_results: dict,
+    verification_report=None,
 ) -> str:
     """Produce the controller report."""
     options = ClaudeAgentOptions(
@@ -85,6 +89,13 @@ async def narrate_controller(
                  "top_debtors", "data_freshness", "duplicate_detection", "null_analysis")
     }
 
+    number_registry_section = ""
+    if verification_report and hasattr(verification_report, "to_prompt_context"):
+        number_registry_section = f"""
+    NUMBER REGISTRY — USE ONLY THESE VALUES
+    {verification_report.to_prompt_context()}
+    """
+
     prompt = f"""
     CLIENT: {client_config.get('display_name', client_config.get('name', 'Unknown'))}
     SECTOR: {client_config.get('sector', 'Unknown')}
@@ -94,7 +105,7 @@ async def narrate_controller(
 
     REVENUE BASELINE (measured from database):
     {json.dumps(baseline, indent=2, ensure_ascii=False, default=str)}
-
+    {number_registry_section}
     KEY QUERY RESULTS (actual database rows):
     {json.dumps(key_query_results, indent=2, ensure_ascii=False, default=str)}
 
@@ -119,7 +130,7 @@ async def narrate_controller(
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         output.append(block.text)
-    except Exception:
-        pass
+    except (RuntimeError, ConnectionError, TypeError, ValueError) as exc:
+        logger.warning("controller narrator query failed", exc_info=exc)
 
     return "\n".join(output)

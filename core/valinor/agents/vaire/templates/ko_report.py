@@ -1,8 +1,14 @@
 """
-KO Report HTML template — Vairë.
+KO Report HTML template — Vaire.
 
-Genera HTML completo del KO Report v2 con tokens D4C.
+Genera HTML completo del KO Report v3 con tokens D4C.
 Usa string templates (sin dependencia de Jinja2) para portabilidad.
+
+Design principles:
+  - Minto Pyramid: Situation -> Complication -> Resolution per finding
+  - Loss framing (Kahneman): "you are losing $X/month" not "you could save $X"
+  - Hero numbers: large, prominent key metrics at the top
+  - Tufte: high data-ink ratio, no chartjunk, clear typography
 """
 
 from __future__ import annotations
@@ -12,7 +18,7 @@ from html import escape
 from typing import Any
 
 
-# ── D4C Design Tokens ─────────────────────────────────────────────────────────
+# -- D4C Design Tokens ---------------------------------------------------------
 
 BG_PRIMARY  = '#0A0A0F'
 BG_CARD     = '#111116'
@@ -41,7 +47,7 @@ SEV_COLOR = {
 }
 
 SEV_LABEL = {
-    'CRITICAL': 'Crítico',
+    'CRITICAL': 'Critico',
     'HIGH':     'Alto',
     'MEDIUM':   'Medio',
     'LOW':      'Bajo',
@@ -49,7 +55,7 @@ SEV_LABEL = {
 }
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# -- Helpers -------------------------------------------------------------------
 
 def _badge(severity: str) -> str:
     color = SEV_COLOR.get(severity, ACCENT_BLUE)
@@ -62,12 +68,98 @@ def _badge(severity: str) -> str:
     )
 
 
-def _finding_card(f: dict[str, Any]) -> str:
+def _hero_number(value: str, label: str, color: str = ACCENT_TEAL) -> str:
+    """Large, prominent metric -- Tufte: let the number speak."""
+    return f"""
+    <div style="text-align:center;padding:0 12px;">
+      <div style="font-family:{FONT_MONO};font-size:36px;font-weight:700;
+                  color:{color};line-height:1.1;letter-spacing:-0.02em;">
+        {escape(str(value))}
+      </div>
+      <div style="font-family:{FONT_DISPLAY};font-size:11px;font-weight:500;
+                  color:{TEXT_SECONDARY};margin-top:4px;letter-spacing:0.03em;
+                  text-transform:uppercase;">
+        {escape(label)}
+      </div>
+    </div>
+    """
+
+
+def _minto_finding_card(f: dict[str, Any]) -> str:
+    """
+    Finding card with Minto Pyramid structure:
+      Situation -> Complication -> Resolution
+    Falls back to flat body if Minto fields are absent (backward compat).
+    """
     severity = f.get('severity', 'INFO')
     color = SEV_COLOR.get(severity, ACCENT_BLUE)
     fid = escape(str(f.get('id', '')))
     title = escape(str(f.get('title', '')))
+
+    # Minto fields (optional -- backward compatible)
+    situation = escape(str(f.get('situation', '')))
+    complication = escape(str(f.get('complication', '')))
+    resolution = escape(str(f.get('resolution', '')))
     body = escape(str(f.get('body', '')))
+
+    # Build Minto structure if fields are present, otherwise fall back to body
+    has_minto = any([situation, complication, resolution])
+
+    if has_minto:
+        minto_html = ''
+        label_style = (
+            f'font-family:{FONT_MONO};font-size:9px;font-weight:600;'
+            f'letter-spacing:0.08em;text-transform:uppercase;'
+            f'color:{TEXT_TERTIARY};margin-bottom:2px;'
+        )
+        text_style = (
+            f'font-family:{FONT_DISPLAY};font-size:13px;'
+            f'color:{TEXT_SECONDARY};line-height:1.5;margin:0;'
+        )
+
+        if situation:
+            minto_html += f"""
+            <div style="margin-bottom:8px;">
+              <div style="{label_style}">Situacion</div>
+              <p style="{text_style}">{situation}</p>
+            </div>
+            """
+        if complication:
+            minto_html += f"""
+            <div style="margin-bottom:8px;">
+              <div style="{label_style}color:{color};">Complicacion</div>
+              <p style="{text_style}">{complication}</p>
+            </div>
+            """
+        if resolution:
+            minto_html += f"""
+            <div>
+              <div style="{label_style}color:{ACCENT_TEAL};">Resolucion</div>
+              <p style="{text_style}">{resolution}</p>
+            </div>
+            """
+
+        detail_html = f'<div style="margin-top:12px;padding-top:10px;border-top:1px solid {BG_HOVER};">{minto_html}</div>'
+    elif body:
+        detail_html = (
+            f'<p style="font-family:{FONT_DISPLAY};font-size:13px;color:{TEXT_SECONDARY};'
+            f'margin:12px 0 0 0;line-height:1.6;">{body}</p>'
+        )
+    else:
+        detail_html = ''
+
+    # Loss-framed impact line (if present)
+    impact = f.get('impact', '')
+    impact_html = ''
+    if impact:
+        impact_html = (
+            f'<div style="margin-top:10px;padding:8px 12px;'
+            f'background:{ACCENT_RED}10;border-left:2px solid {ACCENT_RED};'
+            f'border-radius:0 6px 6px 0;">'
+            f'<span style="font-family:{FONT_MONO};font-size:12px;font-weight:600;'
+            f'color:{ACCENT_RED};">{escape(str(impact))}</span>'
+            f'</div>'
+        )
 
     return f"""
     <div style="background:{BG_CARD};border:1px solid {BG_HOVER};
@@ -75,14 +167,15 @@ def _finding_card(f: dict[str, Any]) -> str:
                 padding:16px 20px;margin-bottom:10px;">
       <div style="display:flex;align-items:flex-start;gap:10px;">
         {_badge(severity)}
-        <div>
+        <div style="flex:1;">
           <div style="font-family:{FONT_MONO};font-size:10px;
                       color:{TEXT_TERTIARY};margin-bottom:4px;">{fid}</div>
           <div style="font-family:{FONT_DISPLAY};font-size:14px;font-weight:600;
                       color:{TEXT_PRIMARY};line-height:1.4;">{title}</div>
         </div>
       </div>
-      {f'<p style="font-family:{FONT_DISPLAY};font-size:13px;color:{TEXT_SECONDARY};margin:12px 0 0 0;line-height:1.6;">{body}</p>' if body else ''}
+      {impact_html}
+      {detail_html}
     </div>
     """
 
@@ -106,7 +199,17 @@ def _section_header(num: str, title: str, description: str = '') -> str:
     """
 
 
-# ── Main renderer ─────────────────────────────────────────────────────────────
+def _sparkline_bar(value: float, max_value: float = 1.0, color: str = ACCENT_TEAL) -> str:
+    """Tufte-style inline sparkline bar -- minimal, no chrome."""
+    pct = min(100, max(0, (value / max_value) * 100)) if max_value > 0 else 0
+    return (
+        f'<div style="width:100%;height:4px;background:{BG_HOVER};border-radius:2px;overflow:hidden;">'
+        f'<div style="width:{pct:.0f}%;height:100%;background:{color};border-radius:2px;"></div>'
+        f'</div>'
+    )
+
+
+# -- Main renderer -------------------------------------------------------------
 
 def render_ko_report_html(
     company_name: str,
@@ -115,15 +218,16 @@ def render_ko_report_html(
     findings: list[dict[str, Any]],
     metrics: dict[str, Any] | None = None,
 ) -> str:
-    """Genera HTML completo del KO Report v2 con tokens D4C."""
+    """Genera HTML completo del KO Report v3 con Minto + loss framing + Tufte."""
 
     today = date.today().strftime('%d de %B de %Y')
+    metrics = metrics or {}
 
     critical = [f for f in findings if f.get('severity') == 'CRITICAL']
     high     = [f for f in findings if f.get('severity') == 'HIGH']
     other    = [f for f in findings if f.get('severity') not in ('CRITICAL', 'HIGH')]
 
-    # Ordenar: CRITICAL → HIGH → resto
+    # Ordenar: CRITICAL -> HIGH -> resto
     ordered = critical + high + other
 
     # DQ badge
@@ -133,27 +237,145 @@ def render_ko_report_html(
     # Severity summary
     sev_html = ''
     if critical:
-        sev_html += f'<span style="font-family:{FONT_MONO};font-size:10px;color:{ACCENT_RED};">{len(critical)} crítico(s)</span> '
+        sev_html += f'<span style="font-family:{FONT_MONO};font-size:10px;color:{ACCENT_RED};">{len(critical)} critico(s)</span> '
     if high:
         sev_html += f'<span style="font-family:{FONT_MONO};font-size:10px;color:{ACCENT_ORANGE};">{len(high)} alto(s)</span>'
 
-    # Headline loss framing
+    # ── Hero numbers section (Tufte: let the data speak) ─────────────────────
+    hero_items = []
+
+    # Total findings
+    hero_items.append(_hero_number(
+        str(len(findings)),
+        'Hallazgos',
+        ACCENT_RED if critical else ACCENT_YELLOW if high else ACCENT_TEAL,
+    ))
+
+    # Critical count
+    if critical:
+        hero_items.append(_hero_number(
+            str(len(critical)),
+            'Criticos',
+            ACCENT_RED,
+        ))
+
+    # DQ score
+    hero_items.append(_hero_number(
+        f'{dq_pct}%',
+        'Calidad de datos',
+        dq_color,
+    ))
+
+    # Custom metrics from pipeline (loss-framed numbers)
+    monthly_loss = metrics.get('monthly_loss') or metrics.get('perdida_mensual')
+    if monthly_loss:
+        hero_items.append(_hero_number(
+            f'${monthly_loss:,.0f}' if isinstance(monthly_loss, (int, float)) else str(monthly_loss),
+            'Perdida mensual estimada',
+            ACCENT_RED,
+        ))
+
+    annual_risk = metrics.get('annual_risk') or metrics.get('riesgo_anual')
+    if annual_risk:
+        hero_items.append(_hero_number(
+            f'${annual_risk:,.0f}' if isinstance(annual_risk, (int, float)) else str(annual_risk),
+            'Riesgo anual',
+            ACCENT_ORANGE,
+        ))
+
+    hero_html = ''.join(hero_items) if hero_items else ''
+    hero_section = f"""
+    <div style="display:flex;justify-content:center;gap:32px;flex-wrap:wrap;
+                padding:24px 0;margin-bottom:32px;
+                border-bottom:1px solid {BG_ELEVATED};">
+      {hero_html}
+    </div>
+    """ if hero_html else ''
+
+    # Pre-compute strings that contain special chars (can't use \u in f-strings)
+    middot = '\u00b7'
+    exec_subtitle = f'{company_name} {middot} {run_date}'
+    footer_left = f'Generado por Valinor {middot} Delta 4C {middot} {today}'
+
+    # ── Loss-framed headline ─────────────────────────────────────────────────
     headline = ''
     if critical:
+        loss_text = ''
+        if monthly_loss:
+            formatted = f'${monthly_loss:,.0f}' if isinstance(monthly_loss, (int, float)) else str(monthly_loss)
+            loss_text = f' Esta perdiendo aproximadamente {formatted}/mes.'
+
         headline = f"""
-        <div style="background:{ACCENT_RED}10;border:1px solid {ACCENT_RED}40;border-left:3px solid {ACCENT_RED};
-                    border-radius:12px;padding:16px 20px;margin-bottom:24px;">
-          <div style="font-family:{FONT_DISPLAY};font-size:20px;font-weight:700;
-                      color:{TEXT_PRIMARY};line-height:1.3;">
-            {escape(company_name)} tiene {len(critical)} problema{'s' if len(critical) > 1 else ''} crítico{'s' if len(critical) > 1 else ''} que requieren acción inmediata.
+        <div style="background:{ACCENT_RED}08;border:1px solid {ACCENT_RED}30;
+                    border-left:3px solid {ACCENT_RED};
+                    border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:24px;">
+          <div style="font-family:{FONT_DISPLAY};font-size:18px;font-weight:700;
+                      color:{TEXT_PRIMARY};line-height:1.4;">
+            {escape(company_name)} tiene {len(critical)} problema{'s' if len(critical) > 1 else ''} critico{'s' if len(critical) > 1 else ''} que requieren accion inmediata.{loss_text}
+          </div>
+        </div>
+        """
+    elif high:
+        headline = f"""
+        <div style="background:{ACCENT_ORANGE}08;border:1px solid {ACCENT_ORANGE}30;
+                    border-left:3px solid {ACCENT_ORANGE};
+                    border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:24px;">
+          <div style="font-family:{FONT_DISPLAY};font-size:18px;font-weight:700;
+                      color:{TEXT_PRIMARY};line-height:1.4;">
+            {escape(company_name)} tiene {len(high)} hallazgo{'s' if len(high) > 1 else ''} de alta prioridad que merecen atencion.
           </div>
         </div>
         """
 
-    # Findings HTML
-    findings_html = ''.join(_finding_card(f) for f in ordered)
+    # ── Severity distribution (Tufte sparkline bars, no chart chrome) ────────
+    total = len(findings) or 1
+    sev_dist_html = ''
+    sev_counts = [
+        ('CRITICAL', len(critical), ACCENT_RED),
+        ('HIGH', len(high), ACCENT_ORANGE),
+        ('MEDIUM', len([f for f in findings if f.get('severity') == 'MEDIUM']), ACCENT_YELLOW),
+        ('LOW', len([f for f in findings if f.get('severity') == 'LOW']), ACCENT_BLUE),
+    ]
+    if findings:
+        rows = ''
+        for sev_name, count, color in sev_counts:
+            if count > 0:
+                rows += f"""
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+                  <span style="font-family:{FONT_MONO};font-size:10px;color:{color};
+                              width:60px;text-transform:uppercase;letter-spacing:0.05em;">
+                    {SEV_LABEL.get(sev_name, sev_name)}
+                  </span>
+                  <div style="flex:1;">{_sparkline_bar(count, total, color)}</div>
+                  <span style="font-family:{FONT_MONO};font-size:11px;color:{TEXT_SECONDARY};
+                              width:24px;text-align:right;">{count}</span>
+                </div>
+                """
+        if rows:
+            sev_dist_html = f"""
+            <div style="margin-bottom:32px;padding:16px;background:{BG_CARD};
+                        border:1px solid {BG_HOVER};border-radius:12px;">
+              <div style="font-family:{FONT_MONO};font-size:10px;color:{TEXT_TERTIARY};
+                          text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">
+                Distribucion por severidad
+              </div>
+              {rows}
+            </div>
+            """
+
+    # ── Findings HTML ────────────────────────────────────────────────────────
+    findings_html = ''.join(_minto_finding_card(f) for f in ordered)
     if not findings_html:
         findings_html = f'<p style="font-family:{FONT_DISPLAY};font-size:13px;color:{TEXT_TERTIARY};">Sin hallazgos registrados.</p>'
+
+    # ── DQ score bar (Tufte: small-multiple inline) ──────────────────────────
+    dq_bar_html = f"""
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-family:{FONT_MONO};font-size:11px;color:{TEXT_TERTIARY};">DQ</span>
+      <div style="width:80px;">{_sparkline_bar(dq_score, 1.0, dq_color)}</div>
+      <span style="font-family:{FONT_MONO};font-size:13px;font-weight:700;color:{dq_color};">{dq_pct}%</span>
+    </div>
+    """
 
     return f"""<!DOCTYPE html>
 <html lang="es">
@@ -169,28 +391,30 @@ def render_ko_report_html(
       color: {TEXT_PRIMARY};
       font-family: {FONT_DISPLAY};
       min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }}
+    /* Tufte: generous line-height for readability */
+    p {{ line-height: 1.6; }}
     @media print {{
+      body {{ background: #fff; color: #111; }}
       .no-print {{ display: none !important; }}
     }}
   </style>
 </head>
 <body>
-  <!-- Nav Header -->
+  <!-- Nav Header — minimal, Tufte-style -->
   <header style="background:{BG_CARD};border-bottom:1px solid {BG_HOVER};
                  padding:14px 32px;display:flex;align-items:center;
                  justify-content:space-between;position:sticky;top:0;z-index:100;">
     <div style="display:flex;align-items:center;gap:16px;">
       <span style="font-family:{FONT_MONO};font-size:14px;font-weight:700;
-                   color:{ACCENT_TEAL};letter-spacing:-0.02em;">◈ VALINOR</span>
+                   color:{ACCENT_TEAL};letter-spacing:-0.02em;">VALINOR</span>
       <div style="width:1px;height:16px;background:{BG_HOVER};"></div>
       <span style="font-family:{FONT_DISPLAY};font-size:13px;color:{TEXT_SECONDARY};">Intelligence Report</span>
     </div>
     <div style="display:flex;align-items:center;gap:24px;">
-      <div style="display:flex;align-items:center;gap:6px;">
-        <span style="font-family:{FONT_MONO};font-size:11px;color:{TEXT_TERTIARY};">DQ</span>
-        <span style="font-family:{FONT_MONO};font-size:13px;font-weight:700;color:{dq_color};">{dq_pct}%</span>
-      </div>
+      {dq_bar_html}
       {sev_html}
     </div>
   </header>
@@ -198,23 +422,29 @@ def render_ko_report_html(
   <!-- Body -->
   <main style="max-width:960px;margin:0 auto;padding:48px 32px;">
 
-    <!-- 01 Executive Summary -->
+    <!-- Hero Numbers -->
+    {hero_section}
+
+    <!-- 01 Executive Summary (Minto: answer first) -->
     <section style="margin-bottom:48px;">
-      {_section_header('01', 'Resumen Ejecutivo', f'{company_name} · {run_date}')}
+      {_section_header('01', 'Resumen Ejecutivo', exec_subtitle)}
       {headline}
     </section>
 
-    <!-- 02 Hallazgos -->
+    <!-- Severity Distribution (Tufte sparklines) -->
+    {sev_dist_html}
+
+    <!-- 02 Hallazgos (Minto: supporting arguments) -->
     <section style="margin-bottom:48px;">
       {_section_header('02', 'Hallazgos', f'{len(findings)} hallazgos ordenados por severidad')}
       {findings_html}
     </section>
 
-    <!-- Footer -->
+    <!-- Footer — minimal, Tufte -->
     <footer style="border-top:1px solid {BG_ELEVATED};padding-top:24px;
                    display:flex;justify-content:space-between;align-items:center;">
       <span style="font-family:{FONT_MONO};font-size:11px;color:{TEXT_TERTIARY};">
-        Generado por Valinor · Delta 4C · {today}
+        {footer_left}
       </span>
       <span style="font-family:{FONT_MONO};font-size:11px;color:{TEXT_TERTIARY};">
         {escape(run_date)}

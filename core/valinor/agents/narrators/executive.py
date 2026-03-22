@@ -6,9 +6,12 @@ and produces a comprehensive executive summary with action calendar.
 """
 
 import json
+import logging
 
 from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
 from valinor.agents.narrators.system_prompts import build_executive_system_prompt
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """
@@ -86,6 +89,7 @@ async def narrate_executive(
     memory: dict | None,
     client_config: dict,
     baseline: dict,
+    verification_report=None,
 ) -> str:
     """Produce the executive summary synthesizing all agents."""
     # Build enhanced system prompt with DQ context, factor model, and Output KO methodology
@@ -97,6 +101,13 @@ async def narrate_executive(
         max_turns=15,
     )
 
+    number_registry_section = ""
+    if verification_report and hasattr(verification_report, "to_prompt_context"):
+        number_registry_section = f"""
+    NUMBER REGISTRY — USE ONLY THESE VALUES
+    {verification_report.to_prompt_context()}
+    """
+
     prompt = f"""
     CLIENT: {client_config.get('display_name', client_config.get('name', 'Unknown'))}
     SECTOR: {client_config.get('sector', 'Unknown')}
@@ -105,7 +116,7 @@ async def narrate_executive(
 
     REVENUE BASELINE (measured from actual database queries — ground truth):
     {json.dumps(baseline, indent=2, ensure_ascii=False, default=str)}
-
+    {number_registry_section}
     FINDINGS FROM AGENTS:
     {json.dumps(findings, indent=2, ensure_ascii=False, default=str)}
 
@@ -129,7 +140,7 @@ async def narrate_executive(
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         output.append(block.text)
-    except Exception:
-        pass
+    except (RuntimeError, ConnectionError, TypeError, ValueError) as exc:
+        logger.warning("executive narrator query failed", exc_info=exc)
 
     return "\n".join(output)

@@ -5,20 +5,20 @@
  */
 
 export const T = {
-  // ── Backgrounds ─────────────────────────────────────────────────────────────
+  // ── Backgrounds (lightened 1 stop for better contrast ratios) ────────────
   bg: {
-    primary:  '#0A0A0F',   // capa base — deep void
-    card:     '#111116',   // superficie de card
-    elevated: '#1A1A22',   // hover, tooltips, elementos anidados
-    hover:    '#222230',   // estado activo/presionado
+    primary:  '#0E0E14',   // capa base — slightly raised from pure void
+    card:     '#15151C',   // superficie de card — visible separation
+    elevated: '#1E1E28',   // hover, tooltips, elementos anidados
+    hover:    '#282838',   // estado activo/presionado
   },
 
-  // ── Text ────────────────────────────────────────────────────────────────────
+  // ── Text (secondary/tertiary raised for WCAG AA compliance) ────────────
   text: {
     primary:   '#F0F0F5',  // headings, hero numbers
-    secondary: '#8A8A9A',  // body text, descripciones
-    tertiary:  '#5A5A6A',  // labels, captions, metadata
-    inverse:   '#0A0A0F',  // texto sobre fondos claros/accent
+    secondary: '#9A9AAA',  // body text, descripciones — WCAG AA on bg-card
+    tertiary:  '#6A6A7A',  // labels, captions, metadata — improved readability
+    inverse:   '#0E0E14',  // texto sobre fondos claros/accent
   },
 
   // ── Accents ─────────────────────────────────────────────────────────────────
@@ -31,10 +31,10 @@ export const T = {
     purple: '#9B5DE5',     // dev/interno, epics
   },
 
-  // ── Borders ─────────────────────────────────────────────────────────────────
+  // ── Borders (updated to match lightened bg tokens) ──────────────────────
   border: {
-    subtle: '1px solid #1A1A22',
-    card:   '1px solid #222230',
+    subtle: '1px solid #1E1E28',
+    card:   '1px solid #282838',
   },
 
   // ── Radius ──────────────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ export const SEV_LABEL: Record<string, string> = {
 export const CHART_THEME = {
   colors: [T.accent.teal, T.accent.red, T.accent.yellow, T.accent.orange, T.accent.blue],
   background: T.bg.card,
-  grid: '#1A1A2240',
+  grid: '#1E1E2840',
   text: T.text.tertiary,
   tooltip: { bg: T.bg.elevated, border: T.bg.hover, text: T.text.primary },
 }

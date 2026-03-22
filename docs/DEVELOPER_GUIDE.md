@@ -115,28 +115,63 @@ Código: core/valinor/config.py → parse_period(), api/main.py → _validate_pe
 Ya resuelto. Botones sin type="button" hacían submit. Guard if (step !== 2) return en onSubmit.
 ```
 
-## Reglas de código
+## Environment Variables
+
+### API & Auth
+| Variable | Default | Description |
+|---|---|---|
+| `VALINOR_API_KEY` | — | API key for authentication. Required in production. |
+| `CORS_ORIGINS` | `*` | Comma-separated allowed origins for CORS. |
+
+### Connection Pooling (`shared/db_pool.py`)
+| Variable | Default | Description |
+|---|---|---|
+| `VALINOR_DB_POOL_SIZE` | `5` | Base pool size per connection string. |
+| `VALINOR_DB_POOL_MAX` | `10` | Max overflow connections. |
+| `VALINOR_DB_POOL_TIMEOUT` | `30` | Checkout timeout in seconds. |
+| `VALINOR_DB_POOL_RECYCLE` | `1800` | Connection recycle time in seconds. |
+| `VALINOR_DB_POOL_PRE_PING` | `true` | Health check on checkout (recommended). |
+
+### Encryption & SSH
+| Variable | Default | Description |
+|---|---|---|
+| `ENCRYPTION_KEY` | — | Fernet key for encrypting credentials at rest. |
+
+Connection pooling is automatic: `db_tools.py` uses `shared.db_pool.get_pooled_engine()` when available. Engines are cached by connection string and reused across tool calls. To force cleanup, call `shared.db_pool.dispose_pool()`.
+
+---
+
+## Reglas de codigo
 
 ### Python
-- Type hints en todas las funciones públicas
+- Type hints en todas las funciones publicas
 - Pydantic models para todos los request/response bodies
 - NUNCA almacenar datos de clientes — solo metadata y resultados
 - SSH tunneling obligatorio — no conexiones directas a DBs
 
 ### Commits
 ```
-tipo(scope): descripción corta
+tipo(scope): descripcion corta
 
 Detalle opcional.
 
-Refs: VAL-XX  ← OBLIGATORIO
+Refs: VAL-XX  <- OBLIGATORIO
 ```
 
 ### Tests
 - Integration tests > unit tests triviales
 - NO mockear la DB — integration tests usan la DB real
+- LLM agents: mock `claude_agent_sdk` (see `tests/test_agent_llm_interactions.py` for patterns)
 - Consolidar con @pytest.mark.parametrize
-- Suite actual: ~2481 tests (verificar no duplicar)
+- Suite actual: ~2500+ tests (verificar no duplicar)
+
+### Test Patterns for LLM Agents
+When testing agents that use `claude_agent_sdk`:
+1. Stub `claude_agent_sdk` in `sys.modules` before importing agent modules
+2. Mock `query()` as an async generator yielding `AssistantMessage` with `TextBlock`
+3. Verify prompt construction by inspecting `mock_query.call_args`
+4. Test error handling by making the mock raise exceptions
+5. See `tests/test_agent_llm_interactions.py` and `tests/test_narrators.py` for reference
 
 ## Dependencias clave
 

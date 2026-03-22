@@ -174,6 +174,19 @@ def gate_monetary_consistency(reports: dict, baseline: dict) -> dict:
     }
 
 
+def gate_verification(verification_report) -> dict:
+    """Warn if verification rate < 80%. Never blocks — just warns."""
+    rate = verification_report.verification_rate if verification_report else 0
+    issues = verification_report.issues if verification_report else []
+    critical = [i for i in issues if i.get("severity") == "critical"]
+    return {
+        "passed": rate >= 0.80 and len(critical) == 0,
+        "verification_rate": rate,
+        "critical_issues": len(critical),
+        "total_claims": verification_report.total_claims if verification_report else 0,
+    }
+
+
 def _extract_eur_values(text: str) -> list[float]:
     """Extract EUR monetary values from text. Returns list of floats."""
     values = []

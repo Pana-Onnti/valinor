@@ -3,12 +3,30 @@ Database tools — In-process MCP server tools for database operations.
 
 These tools use the @tool decorator from claude-agent-sdk to register
 as in-process MCP tools that run within the agent process.
+
+Connection pooling: when shared.db_pool is available, engines are
+obtained from the pool (reuse + health checks). Falls back to
+create_engine() if the pool module is not importable.
 """
 
 import json
 from pathlib import Path
 
 from claude_agent_sdk import tool
+
+# Connection pooling integration — graceful fallback
+try:
+    from shared.db_pool import get_pooled_engine as _get_engine
+except ImportError:
+    _get_engine = None
+
+
+def _create_engine(connection_string: str):
+    """Get a SQLAlchemy engine — pooled if available, direct otherwise."""
+    if _get_engine is not None:
+        return _get_engine(connection_string)
+    from sqlalchemy import create_engine
+    return create_engine(connection_string)
 
 
 @tool(
@@ -21,12 +39,12 @@ from claude_agent_sdk import tool
 )
 async def connect_database(args):
     """Validates connection, tests SELECT, returns metadata."""
-    from sqlalchemy import create_engine, inspect, text
+    from sqlalchemy import inspect, text
 
     connection_string = args["connection_string"]
     client_name = args["client_name"]
 
-    engine = create_engine(connection_string)
+    engine = _create_engine(connection_string)
     inspector = inspect(engine)
 
     # Test read-only access
@@ -73,9 +91,9 @@ async def connect_database(args):
 )
 async def introspect_schema(args):
     """Returns detailed schema information for a table."""
-    from sqlalchemy import create_engine, inspect, text
+    from sqlalchemy import inspect, text
 
-    engine = create_engine(args["connection_string"])
+    engine = _create_engine(args["connection_string"])
     inspector = inspect(engine)
     schema = args.get("schema", "public")
     table = args["table_name"]
@@ -171,9 +189,9 @@ async def introspect_schema(args):
 )
 async def sample_table(args):
     """Returns a sample of rows from the table as JSON."""
-    from sqlalchemy import create_engine, text
+    from sqlalchemy import text
 
-    engine = create_engine(args["connection_string"])
+    engine = _create_engine(args["connection_string"])
     schema = args.get("schema", "public")
     table = args["table_name"]
     limit = args.get("limit", 5)
@@ -342,9 +360,9 @@ async def probe_column_values(args):
     - Status codes (docstatus='CO'/'VO'/etc.)
     - Boolean-like strings ('Y'/'N', 'true'/'false', '1'/'0')
     """
-    from sqlalchemy import create_engine, text as sa_text
+    from sqlalchemy import text as sa_text
 
-    engine = create_engine(args["connection_string"])
+    engine = _create_engine(args["connection_string"])
     schema = args.get("schema", "public")
     table = args["table_name"]
     column = args["column_name"]
@@ -410,9 +428,9 @@ async def probe_column_values(args):
 )
 async def execute_query(args):
     """Execute SQL with safety limits. Returns results as JSON."""
-    from sqlalchemy import create_engine, text
+    from sqlalchemy import text
 
-    engine = create_engine(args["connection_string"])
+    engine = _create_engine(args["connection_string"])
     sql = args["sql"].strip()
     max_rows = args.get("max_rows", 1000)
 

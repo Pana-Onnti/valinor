@@ -19,6 +19,7 @@ async def deliver_reports(
     run_log: dict,
     output_dir: Path,
     query_results: dict | None = None,
+    verification_report: Any = None,
 ) -> dict[str, str]:
     """
     Save all output artifacts to the output directory.
@@ -79,6 +80,26 @@ async def deliver_reports(
             encoding="utf-8",
         )
         artifacts["query_results"] = str(queries_path)
+
+    # Save verification report if provided
+    if verification_report:
+        vr_path = output_dir / "verification_report.json"
+        vr_data = {
+            "total_claims": verification_report.total_claims,
+            "verified_claims": verification_report.verified_claims,
+            "failed_claims": verification_report.failed_claims,
+            "verification_rate": verification_report.verification_rate,
+            "issues": verification_report.issues,
+            "number_registry": {
+                k: {"value": v.value, "source": v.source_query, "confidence": v.confidence}
+                for k, v in verification_report.number_registry.items()
+            },
+        }
+        vr_path.write_text(
+            json.dumps(vr_data, indent=2, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+        artifacts["verification_report"] = str(vr_path)
 
     return artifacts
 

@@ -9,7 +9,7 @@
 - **2481 tests pasando** (`pytest tests/ -q`) — cobertura del 100% de los módulos públicos
 - **Pipeline completo funcionando** en Docker local
 - **Todas las fases 1–4 y 6 completadas** — queda solo Phase 5 (deployment a Cloudflare/GH Actions)
-- **Branch activo**: `master` (main branch para PRs: `main`)
+- **Branch activo**: `develop` (main branch para PRs: `main`)
 
 ---
 

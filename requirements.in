@@ -1,0 +1,84 @@
+# Core Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.5.2
+
+# Database
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.25
+alembic==1.13.0
+
+# Redis
+redis==5.0.1
+hiredis==2.3.2
+
+# Task Queue
+celery==5.3.4
+flower==2.0.1
+
+# SSH and Security
+paramiko==3.4.0
+cryptography==41.0.7
+PyJWT==2.8.0  # VAL-50: replaces python-jose
+bcrypt==4.1.2  # VAL-50: replaces passlib[bcrypt]
+python-multipart>=0.0.9
+
+# LLM Providers
+anthropic>=0.19.0
+claude-agent-sdk
+mcp>=1.8.0
+fastmcp>=2.2.0
+openai==1.10.0
+aiohttp==3.9.1
+
+# Monitoring and Logging
+structlog==24.1.0
+python-json-logger==2.0.7
+sentry-sdk[fastapi]==1.39.0
+prometheus-client>=0.19.0
+lmnr>=0.7.0
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.2
+openpyxl==3.1.2
+xlsxwriter==3.1.9
+vanna>=0.7.0
+
+# Supabase
+supabase>=2.0.0
+
+# Rate Limiting
+slowapi>=0.1.9
+
+# Utils
+python-dotenv==1.0.0
+click==8.1.7
+httpx>=0.27.0
+tenacity==8.2.3
+cachetools>=5.5.0
+
+# Development
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-json-report==1.5.0
+black==23.12.0
+flake8==7.0.0
+ruff==0.1.9
+mypy==1.8.0
+pre-commit==3.6.0
+
+# PDF Generation
+reportlab>=4.0.0
+markdown2>=2.4.0
+
+# Database Drivers (optional, based on client needs)
+pymysql==1.1.0
+pyodbc==5.0.1
+oracledb==2.3.0
+scipy>=1.11.0
+statsmodels>=0.14.0
+dlt>=1.0.0

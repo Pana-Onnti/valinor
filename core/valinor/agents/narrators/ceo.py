@@ -5,8 +5,11 @@ Produces a concise briefing: 5 numbers that matter + 3 decisions this week.
 """
 
 import json
+import logging
 
 from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """
@@ -56,6 +59,7 @@ async def narrate_ceo(
     memory: dict | None,
     client_config: dict,
     baseline: dict,
+    verification_report=None,
 ) -> str:
     """Produce the CEO briefing."""
     options = ClaudeAgentOptions(
@@ -63,6 +67,13 @@ async def narrate_ceo(
         system_prompt=SYSTEM_PROMPT,
         max_turns=10,
     )
+
+    number_registry_section = ""
+    if verification_report and hasattr(verification_report, "to_prompt_context"):
+        number_registry_section = f"""
+    NUMBER REGISTRY — USE ONLY THESE VALUES
+    {verification_report.to_prompt_context()}
+    """
 
     prompt = f"""
     CLIENT: {client_config.get('display_name', client_config.get('name', 'Unknown'))}
@@ -72,7 +83,7 @@ async def narrate_ceo(
 
     REVENUE BASELINE (measured from database — these are the real numbers):
     {json.dumps(baseline, indent=2, ensure_ascii=False, default=str)}
-
+    {number_registry_section}
     FINDINGS FROM AGENTS:
     {json.dumps(findings, indent=2, ensure_ascii=False, default=str)}
 
@@ -94,7 +105,7 @@ async def narrate_ceo(
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         output.append(block.text)
-    except Exception:
-        pass
+    except (RuntimeError, ConnectionError, TypeError, ValueError) as exc:
+        logger.warning("ceo narrator query failed", exc_info=exc)
 
     return "\n".join(output)

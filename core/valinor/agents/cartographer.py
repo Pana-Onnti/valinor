@@ -14,6 +14,7 @@ Pattern references:
 """
 
 import json
+import logging
 from pathlib import Path
 
 from claude_agent_sdk import (
@@ -32,6 +33,8 @@ from valinor.tools.db_tools import (
     probe_column_values,
 )
 from valinor.tools.memory_tools import write_artifact
+
+logger = logging.getLogger(__name__)
 
 # Path to the cartographer skill
 SKILL_PATH = Path(__file__).parent.parent.parent / ".claude" / "skills" / "cartographer.md"
@@ -96,7 +99,8 @@ async def _prescan_filter_candidates(client_config: dict) -> dict:
                 col_names = [
                     c["name"] for c in inspector.get_columns(table, schema=db_schema)
                 ]
-            except Exception:
+            except (KeyError, TypeError, OSError) as exc:
+                logger.warning("cartographer prescan: failed to get columns for table %s", table, exc_info=exc)
                 continue
 
             # Find columns matching discriminator patterns (case-insensitive)
@@ -125,8 +129,8 @@ async def _prescan_filter_candidates(client_config: dict) -> dict:
                         ]
                         if values:
                             table_hints[col] = values
-                    except Exception:
-                        pass
+                    except (OSError, TypeError, ValueError) as exc:
+                        logger.warning("cartographer prescan: failed to probe column %s.%s", table, col, exc_info=exc)
 
             if table_hints:
                 candidate_hints[table] = table_hints
@@ -302,8 +306,8 @@ async def run_cartographer(
                 "retry_attempt": bool(calibration_feedback),
             }
             return entity_map
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as exc:
+            logger.warning("cartographer: failed to parse entity_map artifact", exc_info=exc)
 
     print(f"\n[DEBUG] Agent Last Text Payload POST-LOOP: {last_text}")
     return {

@@ -6,15 +6,19 @@ orphans, outliers, and inconsistencies.
 """
 
 import json
+import logging
 from pathlib import Path
 
 from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+
+logger = logging.getLogger(__name__)
 
 SKILL_PATH = Path(__file__).parent.parent.parent / ".claude" / "skills" / "data_quality.md"
 
 
 async def run_sentinel(
-    query_results: dict, entity_map: dict, memory: dict | None, baseline: dict
+    query_results: dict, entity_map: dict, memory: dict | None, baseline: dict,
+    kg=None,
 ) -> dict:
     """
     Run the Sentinel agent for data quality analysis.
@@ -24,6 +28,7 @@ async def run_sentinel(
         entity_map: Entity map from Stage 1.
         memory: Previous swarm memory (or None for first run).
         baseline: Shared revenue baseline for context.
+        kg: Optional SchemaKnowledgeGraph for enriched schema context.
 
     Returns:
         Dict with agent name and findings.
@@ -45,6 +50,8 @@ async def run_sentinel(
 
     baseline_summary = json.dumps(baseline, indent=2, ensure_ascii=False, default=str)
 
+    kg_context = kg.to_prompt_context() if kg else ""
+
     options = ClaudeAgentOptions(
         model="sonnet",
         system_prompt=skill_content,
@@ -54,6 +61,8 @@ async def run_sentinel(
     prompt = f"""
     REVENUE BASELINE (measured — use for impact calculations):
     {baseline_summary}
+
+    {f"SCHEMA KNOWLEDGE GRAPH (tables, filters, JOIN paths, business concepts):{chr(10)}    {kg_context}" if kg_context else ""}
 
     CONTEXT:
     {shared_context}
@@ -92,7 +101,7 @@ async def run_sentinel(
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         results.append(block.text)
-    except Exception:
-        pass
+    except (RuntimeError, ConnectionError, TypeError, ValueError) as exc:
+        logger.warning("sentinel agent query failed", exc_info=exc)
 
     return {"agent": "sentinel", "output": "\n".join(results)}

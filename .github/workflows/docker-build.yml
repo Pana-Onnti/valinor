@@ -1,9 +1,10 @@
 name: Docker Build
 
-on:
+on:  # VAL-51: build on master + develop
   push:
     branches:
       - master
+      - develop
 
 jobs:
   build:

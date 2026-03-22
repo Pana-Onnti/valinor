@@ -25,8 +25,10 @@ interface SSHForm {
   ssh_host: string
   ssh_port: string
   ssh_user: string
-  /** Path to private key file on the server (never stored) */
+  /** Path to private key file on the server, or raw PEM key content (never stored) */
   ssh_private_key_path: string
+  /** Input mode: 'path' for file path, 'paste' for pasted PEM content */
+  ssh_key_mode: 'path' | 'paste'
 }
 
 interface DBForm {
@@ -256,16 +258,95 @@ function StepSSH({
         />
       </Field>
 
-      <Field
-        label="Ruta de la clave privada *"
-        hint="Ruta absoluta al archivo de clave privada en el servidor (ej. /home/ubuntu/.ssh/id_rsa). No se almacena."
-      >
-        <Input
-          value={form.ssh_private_key_path}
-          onChange={(v) => onChange({ ssh_private_key_path: v })}
-          placeholder="/home/ubuntu/.ssh/id_rsa"
-        />
-      </Field>
+      {/* Key input mode toggle */}
+      <div>
+        <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: T.text.secondary, marginBottom: '8px' }}>
+          Clave privada SSH *
+        </label>
+        <div style={{ display: 'flex', gap: T.space.sm, marginBottom: T.space.sm }}>
+          <button
+            type="button"
+            onClick={() => onChange({ ssh_key_mode: 'path' as const, ssh_private_key_path: '' })}
+            style={{
+              flex: 1,
+              padding: `${T.space.sm} ${T.space.md}`,
+              borderRadius: T.radius.sm,
+              fontSize: '13px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+              border: form.ssh_key_mode === 'path'
+                ? `2px solid ${T.accent.teal}`
+                : `1px solid ${T.bg.elevated}`,
+              backgroundColor: form.ssh_key_mode === 'path'
+                ? T.accent.teal + '10'
+                : T.bg.card,
+              color: form.ssh_key_mode === 'path'
+                ? T.accent.teal
+                : T.text.secondary,
+            }}
+          >
+            Ruta de archivo
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange({ ssh_key_mode: 'paste' as const, ssh_private_key_path: '' })}
+            style={{
+              flex: 1,
+              padding: `${T.space.sm} ${T.space.md}`,
+              borderRadius: T.radius.sm,
+              fontSize: '13px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+              border: form.ssh_key_mode === 'paste'
+                ? `2px solid ${T.accent.teal}`
+                : `1px solid ${T.bg.elevated}`,
+              backgroundColor: form.ssh_key_mode === 'paste'
+                ? T.accent.teal + '10'
+                : T.bg.card,
+              color: form.ssh_key_mode === 'paste'
+                ? T.accent.teal
+                : T.text.secondary,
+            }}
+          >
+            Pegar contenido
+          </button>
+        </div>
+
+        {form.ssh_key_mode === 'path' ? (
+          <Field
+            label=""
+            hint="Ruta absoluta al archivo de clave privada en el servidor (ej. /home/ubuntu/.ssh/id_rsa). No se almacena."
+          >
+            <Input
+              value={form.ssh_private_key_path}
+              onChange={(v) => onChange({ ssh_private_key_path: v })}
+              placeholder="/home/ubuntu/.ssh/id_rsa"
+            />
+          </Field>
+        ) : (
+          <Field
+            label=""
+            hint="Pega el contenido completo de tu clave privada (-----BEGIN ... -----END ...). Se usa de forma efimera y nunca se almacena."
+          >
+            <textarea
+              value={form.ssh_private_key_path}
+              onChange={(e) => onChange({ ssh_private_key_path: e.target.value })}
+              placeholder={"-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----"}
+              className="d4c-input"
+              rows={6}
+              style={{
+                width: '100%',
+                fontFamily: T.font.mono,
+                fontSize: '12px',
+                resize: 'vertical',
+                minHeight: '120px',
+              }}
+            />
+          </Field>
+        )}
+      </div>
     </div>
   )
 }
@@ -793,6 +874,7 @@ export default function OnboardingPage() {
     ssh_port: '22',
     ssh_user: '',
     ssh_private_key_path: '',
+    ssh_key_mode: 'path',
   })
 
   const [dbForm, setDBForm] = useState<DBForm>({
@@ -842,6 +924,7 @@ export default function OnboardingPage() {
     sshForm.ssh_port,
     sshForm.ssh_user,
     sshForm.ssh_private_key_path,
+    sshForm.ssh_key_mode,
     dbForm.db_type,
     dbForm.db_host,
     dbForm.db_port,
@@ -920,6 +1003,11 @@ export default function OnboardingPage() {
     setErrorBanner(null)
 
     try {
+      // Build SSH key payload: send as ssh_key (content) or ssh_private_key_path (file path)
+      const sshKeyPayload = sshForm.ssh_key_mode === 'paste'
+        ? { ssh_key: sshForm.ssh_private_key_path }
+        : { ssh_private_key_path: sshForm.ssh_private_key_path }
+
       const resp = await fetch(`${API_URL}/api/onboarding/test-connection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -927,7 +1015,7 @@ export default function OnboardingPage() {
           ssh_host: sshForm.ssh_host,
           ssh_port: parseInt(sshForm.ssh_port, 10) || 22,
           ssh_user: sshForm.ssh_user,
-          ssh_private_key_path: sshForm.ssh_private_key_path,
+          ...sshKeyPayload,
           db_host: dbForm.db_host,
           db_port: parseInt(dbForm.db_port, 10) || 5432,
           db_type: dbForm.db_type,
@@ -967,6 +1055,11 @@ export default function OnboardingPage() {
     setSubmitError(null)
 
     try {
+      // Build SSH key payload: send as ssh_key (content) or ssh_private_key_path (file path)
+      const sshKeyPayloadSubmit = sshForm.ssh_key_mode === 'paste'
+        ? { ssh_key: sshForm.ssh_private_key_path }
+        : { ssh_private_key_path: sshForm.ssh_private_key_path }
+
       const resp = await fetch(`${API_URL}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -982,7 +1075,7 @@ export default function OnboardingPage() {
           ssh_host: sshForm.ssh_host,
           ssh_port: parseInt(sshForm.ssh_port, 10) || 22,
           ssh_user: sshForm.ssh_user,
-          ssh_private_key_path: sshForm.ssh_private_key_path,
+          ...sshKeyPayloadSubmit,
         }),
       })
 

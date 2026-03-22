@@ -1,12 +1,13 @@
 name: Tests
 
-on:
+on:  # VAL-51: CI triggers on master + develop
   push:
     branches:
       - master
+      - develop
   pull_request:
     branches:
-      - main
+      - master
 
 jobs:
   lint:
@@ -87,7 +88,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Generate coverage badge
-        if: matrix.python-version == '3.11' && github.ref == 'refs/heads/master'
+        if: matrix.python-version == '3.11' && github.ref == 'refs/heads/master'  # VAL-51
         uses: cicirello/jacoco-badge-generator@v2
         with:
           jacoco-csv-file: coverage.xml

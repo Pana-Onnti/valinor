@@ -1,6 +1,6 @@
 name: Deploy — Valinor SaaS
 
-on:
+on:  # VAL-51: deploy only on master (production)
   push:
     branches:
       - master

@@ -16,6 +16,8 @@ from typing import Any
 
 import structlog
 
+from shared.utils.sql_sanitizer import sanitize_base_filter  # VAL-49
+
 logger = structlog.get_logger()
 
 ROW_COUNT_CAP = 100_000
@@ -54,19 +56,22 @@ QUERY_TEMPLATES = {
 
     "ar_outstanding_actual": {
         "domain": "credit",
-        "requires": ["payments"],
-        "description": "Actual sum of outstanding AR — real number not estimate",
+        "requires": ["payments", "invoices"],
+        "description": "Actual sum of outstanding AR — joins to invoice for sales direction filter, excludes order-only schedules",
         "template": """
             SELECT
                 COUNT(*) as total_schedules,
-                COUNT(CASE WHEN {outstanding_amount} > 0 THEN 1 END) as unpaid_count,
-                SUM({outstanding_amount}) as total_outstanding,
-                AVG({outstanding_amount}) as avg_outstanding,
-                COUNT(CASE WHEN {due_date} < CURRENT_DATE AND {outstanding_amount} > 0 THEN 1 END) as overdue_count,
-                SUM(CASE WHEN {due_date} < CURRENT_DATE AND {outstanding_amount} > 0 THEN {outstanding_amount} ELSE 0 END) as overdue_amount,
-                COUNT(DISTINCT {customer_id}) as customers_with_debt
-            FROM {payment_table}
-            WHERE {outstanding_amount} > 0
+                COUNT(CASE WHEN pay.{outstanding_amount} > 0 THEN 1 END) as unpaid_count,
+                SUM(pay.{outstanding_amount}) as total_outstanding,
+                AVG(pay.{outstanding_amount}) as avg_outstanding,
+                COUNT(CASE WHEN pay.{due_date}::date < CURRENT_DATE AND pay.{outstanding_amount} > 0 THEN 1 END) as overdue_count,
+                SUM(CASE WHEN pay.{due_date}::date < CURRENT_DATE AND pay.{outstanding_amount} > 0 THEN pay.{outstanding_amount} ELSE 0 END) as overdue_amount,
+                COUNT(DISTINCT inv.{customer_fk}) as customers_with_debt
+            FROM {payment_table} pay
+            JOIN {invoice_table} inv ON pay.c_invoice_id = inv.{invoice_pk}
+            WHERE pay.{outstanding_amount} > 0
+            AND pay.c_invoice_id IS NOT NULL
+            {invoices_filter}
             {payments_filter}
         """,
     },
@@ -74,19 +79,19 @@ QUERY_TEMPLATES = {
     "dormant_customer_list": {
         "domain": "sales",
         "requires": ["invoices", "customers"],
-        "description": "Real customer names and IDs for dormant accounts — no guessing needed",
+        "description": "Real customer names and IDs for dormant accounts — all columns table-qualified to prevent AmbiguousColumn",
         "template": """
             SELECT
                 cust.{customer_pk} as customer_id,
                 cust.{customer_name} as customer_name,
                 MAX(inv.{invoice_date}) as last_purchase,
-                CURRENT_DATE - MAX(inv.{invoice_date}) as days_inactive,
+                CURRENT_DATE - MAX(inv.{invoice_date})::date as days_inactive,
                 COUNT(inv.{invoice_pk}) as total_invoices,
                 SUM(inv.{amount_col}) as lifetime_revenue,
                 AVG(inv.{amount_col}) as avg_invoice_value
             FROM {customer_table} cust
             JOIN {invoice_table} inv ON cust.{customer_pk} = inv.{customer_fk}
-            WHERE 1=1
+            WHERE inv.isactive = 'Y' AND cust.isactive = 'Y'
             {invoices_filter}
             {customers_filter}
             GROUP BY cust.{customer_pk}, cust.{customer_name}
@@ -106,9 +111,9 @@ QUERY_TEMPLATES = {
                 cust.{customer_name} as customer_name
             FROM {customer_table} cust
             WHERE cust.{customer_pk} NOT IN (
-                SELECT DISTINCT {customer_fk}
-                FROM {invoice_table}
-                WHERE {customer_fk} IS NOT NULL
+                SELECT DISTINCT inv.{customer_fk}
+                FROM {invoice_table} inv
+                WHERE inv.{customer_fk} IS NOT NULL
                 {invoices_filter}
             )
             {customers_filter}
@@ -172,9 +177,9 @@ QUERY_TEMPLATES = {
                 COUNT(*) as num_invoices,
                 SUM(inv.{amount_col}) as total_revenue,
                 SUM(inv.{amount_col}) * 100.0 / NULLIF(
-                    (SELECT SUM({amount_col}) FROM {invoice_table}
-                     WHERE {invoice_date} >= '{start_date}'
-                     AND {invoice_date} <= '{end_date}'
+                    (SELECT SUM(inv.{amount_col}) FROM {invoice_table} inv
+                     WHERE inv.{invoice_date} >= '{start_date}'
+                     AND inv.{invoice_date} <= '{end_date}'
                      {invoices_filter}), 0
                 ) as pct_revenue
             FROM {invoice_table} inv
@@ -211,45 +216,51 @@ QUERY_TEMPLATES = {
 
     "aging_analysis": {
         "domain": "credit",
-        "requires": ["payments"],
-        "description": "Aging buckets for unpaid invoices",
+        "requires": ["payments", "invoices"],
+        "description": "Aging buckets for unpaid invoices — joins to invoice for sales direction filter",
         "template": """
             SELECT
                 CASE
-                    WHEN CURRENT_DATE - {due_date} <= 0 THEN 'not_due'
-                    WHEN CURRENT_DATE - {due_date} <= 30 THEN '0-30d'
-                    WHEN CURRENT_DATE - {due_date} <= 60 THEN '31-60d'
-                    WHEN CURRENT_DATE - {due_date} <= 90 THEN '61-90d'
-                    WHEN CURRENT_DATE - {due_date} <= 180 THEN '91-180d'
-                    WHEN CURRENT_DATE - {due_date} <= 365 THEN '181-365d'
+                    WHEN pay.{due_date}::date >= CURRENT_DATE THEN 'not_due'
+                    WHEN CURRENT_DATE - pay.{due_date}::date <= 30 THEN '0-30d'
+                    WHEN CURRENT_DATE - pay.{due_date}::date <= 60 THEN '31-60d'
+                    WHEN CURRENT_DATE - pay.{due_date}::date <= 90 THEN '61-90d'
+                    WHEN CURRENT_DATE - pay.{due_date}::date <= 180 THEN '91-180d'
+                    WHEN CURRENT_DATE - pay.{due_date}::date <= 365 THEN '181-365d'
                     ELSE '>365d'
                 END as tramo,
                 COUNT(*) as num_payments,
-                COUNT(DISTINCT {customer_id}) as num_customers,
-                SUM({outstanding_amount}) as total_amount
-            FROM {payment_table}
-            WHERE {outstanding_amount} > 0
+                COUNT(DISTINCT inv.{customer_fk}) as num_customers,
+                SUM(pay.{outstanding_amount}) as total_amount
+            FROM {payment_table} pay
+            JOIN {invoice_table} inv ON pay.c_invoice_id = inv.{invoice_pk}
+            WHERE pay.{outstanding_amount} > 0
+            AND pay.c_invoice_id IS NOT NULL
+            {invoices_filter}
             {payments_filter}
             GROUP BY 1
-            ORDER BY 2
+            ORDER BY total_amount DESC
         """,
     },
 
     "top_debtors": {
         "domain": "credit",
-        "requires": ["payments", "customers"],
-        "description": "Largest outstanding debts by customer",
+        "requires": ["payments", "invoices", "customers"],
+        "description": "Largest outstanding debts by customer — joins through invoice for correct FK path and sales direction filter",
         "template": """
             SELECT
                 cust.{customer_pk} as customer_id,
                 cust.{customer_name} as customer_name,
-                SUM({outstanding_amount}) as total_outstanding,
+                SUM(pay.{outstanding_amount}) as total_outstanding,
                 COUNT(*) as num_unpaid,
-                MIN({due_date}) as oldest_due_date,
-                CURRENT_DATE - MIN({due_date}) as max_days_overdue
+                MIN(pay.{due_date})::date as oldest_due_date,
+                CURRENT_DATE - MIN(pay.{due_date})::date as max_days_overdue
             FROM {payment_table} pay
-            JOIN {customer_table} cust ON pay.{customer_id} = cust.{customer_pk}
+            JOIN {invoice_table} inv ON pay.c_invoice_id = inv.{invoice_pk}
+            JOIN {customer_table} cust ON inv.{customer_fk} = cust.{customer_pk}
             WHERE pay.{outstanding_amount} > 0
+            AND pay.c_invoice_id IS NOT NULL
+            {invoices_filter}
             {payments_filter}
             {customers_filter}
             GROUP BY 1, 2
@@ -263,20 +274,20 @@ QUERY_TEMPLATES = {
     "customer_retention": {
         "domain": "sales",
         "requires": ["invoices", "customers"],
-        "description": "Customer retention / churn analysis",
+        "description": "Customer retention / churn analysis — CTEs use inv alias for consistency",
         "template": """
             WITH period_current AS (
-                SELECT DISTINCT {customer_fk} as customer_id
-                FROM {invoice_table}
-                WHERE {invoice_date} >= '{start_date}'
-                AND {invoice_date} <= '{end_date}'
+                SELECT DISTINCT inv.{customer_fk} as customer_id
+                FROM {invoice_table} inv
+                WHERE inv.{invoice_date} >= '{start_date}'
+                AND inv.{invoice_date} <= '{end_date}'
                 {invoices_filter}
             ),
             period_previous AS (
-                SELECT DISTINCT {customer_fk} as customer_id
-                FROM {invoice_table}
-                WHERE {invoice_date} >= '{start_date}'::date - INTERVAL '1 year'
-                AND {invoice_date} < '{start_date}'
+                SELECT DISTINCT inv.{customer_fk} as customer_id
+                FROM {invoice_table} inv
+                WHERE inv.{invoice_date} >= '{start_date}'::date - INTERVAL '1 year'
+                AND inv.{invoice_date} < '{start_date}'
                 {invoices_filter}
             )
             SELECT
@@ -355,7 +366,7 @@ QUERY_TEMPLATES = {
         "description": "Monthly revenue pattern to detect seasonality",
         "template": """
             SELECT
-                EXTRACT(MONTH FROM {invoice_date}) as month,
+                month_num as month,
                 COUNT(*) as num_years_data,
                 AVG(monthly_revenue) as avg_monthly_revenue,
                 MIN(monthly_revenue) as min_monthly_revenue,
@@ -363,7 +374,7 @@ QUERY_TEMPLATES = {
             FROM (
                 SELECT
                     DATE_TRUNC('month', {invoice_date}) as month_date,
-                    EXTRACT(MONTH FROM {invoice_date}) as month_num,
+                    EXTRACT(MONTH FROM {invoice_date})::int as month_num,
                     SUM({amount_col}) as monthly_revenue
                 FROM {invoice_table}
                 WHERE {invoice_date} >= '{start_date}'::date - INTERVAL '2 years'
@@ -371,7 +382,7 @@ QUERY_TEMPLATES = {
                 {invoices_filter}
                 GROUP BY 1, 2
             ) monthly
-            GROUP BY EXTRACT(MONTH FROM month_date)
+            GROUP BY month_num
             ORDER BY 1
         """,
     },
@@ -451,16 +462,40 @@ def prioritize_entities(entity_map: dict, profile: dict) -> dict:
     return {**entity_map, "entities": new_entities}
 
 
-def _get_entity_filter(entity: dict, prefix: str = "AND") -> str:
+def _get_entity_filter(entity: dict, prefix: str = "AND", table_alias: str = "") -> str:
     """
     Extract the base_filter from an entity definition.
 
-    Returns: SQL fragment with prefix (e.g., "AND issotrx = 'Y'")
+    If table_alias is provided, qualifies bare column references with it
+    to prevent AmbiguousColumn errors in multi-table JOINs.
+
+    Returns: SQL fragment with prefix (e.g., "AND inv.issotrx = 'Y'")
     or empty string if no filter defined.
     """
+    import re as _re
     base_filter = entity.get("base_filter", "").strip()
     if not base_filter:
         return ""
+
+    # VAL-49: sanitize base_filter before SQL interpolation
+    base_filter = sanitize_base_filter(base_filter, context="query_builder")
+
+    # Table-qualify bare column references if alias is provided
+    if table_alias:
+        # Split on AND, qualify each fragment
+        parts = _re.split(r'\bAND\b', base_filter, flags=_re.IGNORECASE)
+        qualified_parts = []
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            # If not already qualified (no "." before the operator)
+            col_part = part.split("=")[0].split("<")[0].split(">")[0].split("!")[0].strip()
+            if "." not in col_part:
+                part = f"{table_alias}.{part}"
+            qualified_parts.append(part)
+        base_filter = " AND ".join(qualified_parts)
+
     # Avoid double-prefixing
     if base_filter.upper().startswith("AND "):
         return base_filter
@@ -541,13 +576,36 @@ def build_queries(entity_map: dict, period: dict, profile: dict | None = None) -
             # "WHERE-style" variant for queries that have no existing WHERE clause
             params[f"{entity_name}_filter_where"] = ""
 
-        # Populate from entity base_filter if defined
+        # ── Map entity names to standard aliases used in JOIN templates ──
+        _ENTITY_ALIASES = {
+            "invoices": "inv",
+            "customers": "cust",
+            "payments": "pay",
+            "orders": "ord",
+            "products": "prod",
+            "invoice_lines": "il",
+        }
+
+        # Populate from entity base_filter if defined.
+        # For multi-table queries, qualify with the alias used in JOIN templates.
+        # Also provide an unqualified version for subqueries/CTEs.
+        is_multi_table = len(required) > 1
         for entity_name in required:
             entity = entities[entity_name]
-            frag = _get_entity_filter(entity)
-            if frag:
-                params[f"{entity_name}_filter"] = frag
-                params[f"{entity_name}_filter_where"] = f"WHERE {frag.lstrip('AND ').lstrip('and ')}"
+
+            # Unqualified filter (for single-table queries and subqueries)
+            bare_frag = _get_entity_filter(entity)
+
+            if is_multi_table:
+                alias = _ENTITY_ALIASES.get(entity_name, "")
+                qualified_frag = _get_entity_filter(entity, table_alias=alias)
+            else:
+                qualified_frag = bare_frag
+
+            if qualified_frag:
+                params[f"{entity_name}_filter"] = qualified_frag
+                stripped = qualified_frag.lstrip("AND ").lstrip("and ").strip()
+                params[f"{entity_name}_filter_where"] = f"WHERE {stripped}"
 
         # ── Special: inject relationship FK for orders_without_invoices ──
         if query_id == "orders_without_invoices":
@@ -614,3 +672,47 @@ def build_queries(entity_map: dict, period: dict, profile: dict | None = None) -
             })
 
     return query_pack
+
+
+def build_queries_adaptive(
+    entity_map: dict,
+    period: dict,
+    kg=None,
+    profile: dict | None = None,
+) -> dict:
+    """
+    Try KG-guided generation first, fall back to static templates.
+
+    When a SchemaKnowledgeGraph is available, uses QueryGenerator to build
+    SQL programmatically (no static templates, no hardcoded column names).
+    Falls back to build_queries() when KG is unavailable or generation fails.
+
+    Args:
+        entity_map: Dict with 'entities' key mapping entity names to config.
+        period:     Dict with 'start', 'end', 'label' keys.
+        kg:         Optional SchemaKnowledgeGraph instance.
+        profile:    Optional dict for entity prioritisation.
+
+    Returns:
+        Dict with 'queries' and 'skipped' keys, same format as build_queries().
+    """
+    if kg is not None:
+        try:
+            from valinor.agents.query_generator import QueryGenerator
+
+            gen = QueryGenerator(kg, entity_map, period)
+            result = gen.generate_all()
+            if result.get("queries"):
+                logger.info(
+                    "KG-guided query generation succeeded",
+                    num_queries=len(result["queries"]),
+                    num_skipped=len(result.get("skipped", [])),
+                )
+                return result
+        except Exception as e:
+            logger.warning(
+                "Dynamic generation failed, falling back to templates",
+                error=str(e),
+            )
+
+    return build_queries(entity_map, period, profile)
