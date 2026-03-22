@@ -79,8 +79,8 @@ class _FakeRateLimitExceeded(Exception):
 
 sys.modules["slowapi.errors"].RateLimitExceeded = _FakeRateLimitExceeded
 
-_stub_missing("structlog")
-sys.modules["structlog"].get_logger = lambda *a, **kw: MagicMock()
+import structlog  # real module — stub breaks structlog.contextvars
+structlog.get_logger = lambda *a, **kw: MagicMock()
 
 _stub_missing("adapters", "adapters.valinor_adapter")
 sys.modules["adapters.valinor_adapter"].ValinorAdapter = MagicMock
@@ -155,16 +155,20 @@ async def client():
     redis_mock = _make_redis_mock()
     storage_mock = MagicMock()
     storage_mock.health_check = AsyncMock(return_value=True)
+    from api.deps import set_redis_client
+
     with (
         patch("redis.asyncio.from_url", return_value=redis_mock),
         patch("api.main.metadata_storage", storage_mock),
         patch("api.main.redis_client", redis_mock),
     ):
+        set_redis_client(redis_mock)
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://test",
         ) as c:
             yield c
+        set_redis_client(None)
 
 
 # ---------------------------------------------------------------------------

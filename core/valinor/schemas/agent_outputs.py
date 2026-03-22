@@ -14,7 +14,7 @@ import logging
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +73,26 @@ class EntityDefinition(BaseModel):
         le=1.0,
         description="Confidence that this entity was correctly identified (0–1)",
     )
+    probed_values: Dict[str, Dict[str, int]] = Field(
+        default_factory=dict,
+        description="Discriminator column value distribution from Phase 1 prescan, e.g. {'issotrx': {'Y': 2366, 'N': 1751}}",
+    )
 
     @field_validator("base_filter")
     @classmethod
     def strip_base_filter(cls, v: str) -> str:
         return v.strip()
+
+
+class Relationship(BaseModel):
+    """A foreign key relationship between two entities."""
+
+    source: str = Field(alias="from", description="Source entity semantic name")
+    target: str = Field(alias="to", description="Target entity semantic name")
+    via: str = Field(description="Join column (physical column name)")
+    cardinality: str = Field(default="N:1", description="N:1 | 1:N | M:N")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class CartographerOutput(BaseModel):
@@ -97,9 +112,9 @@ class CartographerOutput(BaseModel):
         default_factory=dict,
         description="Discovered entities keyed by semantic name (e.g. 'invoices', 'customers')",
     )
-    relationships: List[Dict[str, str]] = Field(
+    relationships: List[Relationship] = Field(
         default_factory=list,
-        description="List of {from, to, via} relationship dicts",
+        description="List of typed Relationship objects (from/to/via/cardinality)",
     )
     phase1_tables_probed: int = Field(
         default=0,
@@ -120,24 +135,44 @@ class CartographerOutput(BaseModel):
         """
         Build a CartographerOutput from the legacy entity_map dict format.
         Backward-compatible factory method.
+
+        Handles legacy quirks:
+          - "type" key → entity_type  (legacy dicts use "type")
+          - "from"/"to" keys in relationship dicts → source/target aliases
+          - probed_values passthrough
         """
         entities = {}
         for name, cfg in d.get("entities", {}).items():
+            # Legacy dicts use "type" instead of "entity_type"
+            raw_type = cfg.get("entity_type", cfg.get("type", EntityType.UNKNOWN))
             entities[name] = EntityDefinition(
                 table=cfg.get("table", name),
-                entity_type=EntityType(cfg.get("entity_type", EntityType.UNKNOWN)),
+                entity_type=EntityType(raw_type),
                 row_count=int(cfg.get("row_count", 0)),
                 key_columns=cfg.get("key_columns", {}),
                 base_filter=cfg.get("base_filter", ""),
                 confidence=float(cfg.get("confidence", 0.0)),
+                probed_values=cfg.get("probed_values", {}),
             )
+
+        # Parse relationship dicts into typed Relationship objects.
+        # Legacy dicts use "from"/"to" keys which map to source/target via aliases.
+        raw_rels = d.get("relationships", [])
+        relationships = []
+        for r in raw_rels:
+            if isinstance(r, dict):
+                relationships.append(Relationship(
+                    **{k: v for k, v in r.items()},
+                ))
+            else:
+                relationships.append(r)  # already a Relationship
 
         prescan = d.get("_phase1_prescan", {})
         return cls(
             client=d.get("client", "unknown"),
             status=d.get("status", "complete"),
             entities=entities,
-            relationships=d.get("relationships", []),
+            relationships=relationships,
             phase1_tables_probed=int(prescan.get("tables_probed", 0)),
             is_retry=bool(prescan.get("retry_attempt", False)),
         )
@@ -155,10 +190,19 @@ class CartographerOutput(BaseModel):
                     "key_columns": e.key_columns,
                     "base_filter": e.base_filter,
                     "confidence": e.confidence,
+                    "probed_values": e.probed_values,
                 }
                 for name, e in self.entities.items()
             },
-            "relationships": self.relationships,
+            "relationships": [
+                {
+                    "from": r.source,
+                    "to": r.target,
+                    "via": r.via,
+                    "cardinality": r.cardinality,
+                }
+                for r in self.relationships
+            ],
             "_phase1_prescan": {
                 "tables_probed": self.phase1_tables_probed,
                 "retry_attempt": self.is_retry,

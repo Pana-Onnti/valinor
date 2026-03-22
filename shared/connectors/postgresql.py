@@ -103,8 +103,13 @@ class PostgreSQLConnector(DeltaConnector):
         target_schema = schema_name or self._default_schema
         inspector = sa_inspect(self._engine)
 
+        table_names = inspector.get_table_names(schema=target_schema)
+
+        # Batch-fetch all row counts in a single query
+        row_counts = self._estimate_all_row_counts(table_names, target_schema)
+
         tables = {}
-        for table_name in inspector.get_table_names(schema=target_schema):
+        for table_name in table_names:
             try:
                 cols = inspector.get_columns(table_name, schema=target_schema)
                 column_info = [
@@ -112,12 +117,9 @@ class PostgreSQLConnector(DeltaConnector):
                     for c in cols
                 ]
 
-                # Approximate row count
-                row_count = self._estimate_row_count(table_name, target_schema)
-
                 tables[table_name] = {
                     "columns": column_info,
-                    "row_count": row_count,
+                    "row_count": row_counts.get(table_name, 0),
                 }
             except Exception as exc:
                 logger.warning("postgresql.get_schema.table_failed", table=table_name, error=str(exc))
@@ -128,23 +130,30 @@ class PostgreSQLConnector(DeltaConnector):
             "schema": target_schema,
         }
 
-    def _estimate_row_count(self, table_name: str, schema: str) -> int:
-        """Estimate row count using pg_class for speed (no full table scan)."""
+    def _estimate_all_row_counts(
+        self, table_names: List[str], schema: str,
+    ) -> Dict[str, int]:
+        """Estimate row counts for all tables in a single query via pg_class."""
+        if not table_names:
+            return {}
         try:
             from sqlalchemy import text as sa_text
             with self._engine.connect() as conn:
                 result = conn.execute(
                     sa_text(
-                        "SELECT reltuples::bigint FROM pg_class c "
+                        "SELECT c.relname, c.reltuples::bigint "
+                        "FROM pg_class c "
                         "JOIN pg_namespace n ON n.oid = c.relnamespace "
-                        "WHERE c.relname = :table AND n.nspname = :schema"
+                        "WHERE n.nspname = :schema "
+                        "  AND c.relname = ANY(:tables)"
                     ),
-                    {"table": table_name, "schema": schema},
+                    {"schema": schema, "tables": table_names},
                 )
-                row = result.fetchone()
-                return int(row[0]) if row and row[0] else 0
+                return {
+                    row[0]: max(int(row[1]), 0) for row in result.fetchall()
+                }
         except Exception:
-            return 0
+            return {}
 
     @staticmethod
     def _parse_host(conn_str: str) -> str:

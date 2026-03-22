@@ -8,6 +8,7 @@ All agent output models live here.  They use Pydantic v2 directly
 from .agent_outputs import (
     CartographerOutput,
     QueryBuilderOutput,
+    Relationship,
     AnalystOutput,
     SentinelOutput,
 )
@@ -15,6 +16,7 @@ from .agent_outputs import (
 __all__ = [
     "CartographerOutput",
     "QueryBuilderOutput",
+    "Relationship",
     "AnalystOutput",
     "SentinelOutput",
 ]

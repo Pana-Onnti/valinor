@@ -83,8 +83,8 @@ class _FakeRLE(Exception):
 sys.modules["slowapi.errors"].RateLimitExceeded = _FakeRLE
 
 # structlog
-_stub_missing("structlog")
-sys.modules["structlog"].get_logger = lambda *a, **kw: MagicMock()
+import structlog  # real module — stub breaks structlog.contextvars
+structlog.get_logger = lambda *a, **kw: MagicMock()
 
 # adapters
 _stub_missing("adapters", "adapters.valinor_adapter")
@@ -198,17 +198,21 @@ async def client():
     redis_mock = _make_redis_mock()
     storage_mock = MagicMock()
     storage_mock.health_check = AsyncMock(return_value=True)
+    from api.deps import set_redis_client
+
     with (
         patch("redis.asyncio.from_url", return_value=redis_mock),
         patch("api.main.metadata_storage", storage_mock),
         patch("api.main.redis_client", redis_mock),
     ):
+        set_redis_client(redis_mock)
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://test",
         ) as c:
             c._redis = redis_mock
             yield c
+        set_redis_client(None)
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +329,7 @@ class TestRetryJob:
                 "request_data": request_payload,
             }
         )
-        with patch("api.main.run_analysis_task", new_callable=AsyncMock):
+        with patch("api.routers.jobs.run_analysis_task", new_callable=AsyncMock):
             resp = await client.post("/api/jobs/failed-job/retry")
         assert resp.status_code == 200
         body = resp.json()
@@ -343,7 +347,7 @@ class TestRetryJob:
                 "request_data": request_payload,
             }
         )
-        with patch("api.main.run_analysis_task", new_callable=AsyncMock):
+        with patch("api.routers.jobs.run_analysis_task", new_callable=AsyncMock):
             resp = await client.post("/api/jobs/cancelled-job/retry")
         assert resp.status_code == 200
         body = resp.json()
@@ -361,7 +365,7 @@ class TestRetryJob:
                 "request_data": request_payload,
             }
         )
-        with patch("api.main.run_analysis_task", new_callable=AsyncMock):
+        with patch("api.routers.jobs.run_analysis_task", new_callable=AsyncMock):
             resp = await client.post("/api/jobs/original-job/retry")
         body = resp.json()
         assert body["job_id"] != "original-job"

@@ -89,20 +89,29 @@ ANTHROPIC_PRICING: Dict[str, Dict[str, float]] = {
 }
 
 
+BATCH_DISCOUNT = 0.5  # 50 % off input tokens for Batch API
+
+
 def estimate_cost(
     model: str,
     input_tokens: int,
     output_tokens: int,
     cache_read_tokens: int = 0,
     cache_creation_tokens: int = 0,
+    is_batch: bool = False,
 ) -> float:
-    """Estimate USD cost for a single LLM call."""
+    """Estimate USD cost for a single LLM call.
+
+    When *is_batch* is ``True`` the Anthropic Batch API 50 % discount is
+    applied to input and output token pricing.
+    """
     pricing = ANTHROPIC_PRICING.get(model, ANTHROPIC_PRICING["default"])
+    discount = BATCH_DISCOUNT if is_batch else 1.0
     cost = (
-        (input_tokens / 1_000_000) * pricing["input"]
-        + (output_tokens / 1_000_000) * pricing["output"]
-        + (cache_read_tokens / 1_000_000) * pricing["cache_read"]
-        + (cache_creation_tokens / 1_000_000) * pricing["cache_write"]
+        (input_tokens / 1_000_000) * pricing["input"] * discount
+        + (output_tokens / 1_000_000) * pricing["output"] * discount
+        + (cache_read_tokens / 1_000_000) * pricing["cache_read"] * discount
+        + (cache_creation_tokens / 1_000_000) * pricing["cache_write"] * discount
     )
     return round(cost, 8)
 
@@ -181,9 +190,12 @@ class TokenTracker:
         output_tokens: int,
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
+        is_batch: bool = False,
     ) -> float:
         """
         Record token usage for one LLM call.
+
+        When *is_batch* is ``True`` the 50 % Batch API discount is applied.
 
         Returns the estimated USD cost for this call.
         """
@@ -193,6 +205,7 @@ class TokenTracker:
             output_tokens=output_tokens,
             cache_read_tokens=cache_read_tokens,
             cache_creation_tokens=cache_creation_tokens,
+            is_batch=is_batch,
         )
 
         with self._global_lock:

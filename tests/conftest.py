@@ -71,22 +71,29 @@ if "claude_agent_sdk" not in sys.modules:
     sys.modules["claude_agent_sdk"] = _sdk
 
 
-# ── structlog stub ────────────────────────────────────────────────────────────
-# Some shared modules require structlog. Provide a minimal stub if missing.
+# ── structlog ─────────────────────────────────────────────────────────────────
+# Import the real module so submodules (contextvars, stdlib, processors, dev)
+# are available when api/logging_config.py calls setup_logging().
+import structlog  # noqa: E402
 
-if "structlog" not in sys.modules:
-    _sl = types.ModuleType("structlog")
 
-    class _NullLog:
-        def info(self, *a, **kw): pass
-        def warning(self, *a, **kw): pass
-        def error(self, *a, **kw): pass
-        def debug(self, *a, **kw): pass
-        def exception(self, *a, **kw): pass
-        def bind(self, **kw): return self
+# ── anthropic stub ────────────────────────────────────────────────────────────
+# The real anthropic SDK may not be installed in test environments.
+# Provide a stub with AsyncAnthropic and Message so shared.llm imports work.
 
-    _sl.get_logger = lambda *a, **kw: _NullLog()
-    sys.modules["structlog"] = _sl
+if "anthropic" not in sys.modules:
+    _anthropic = types.ModuleType("anthropic")
+    _anthropic.__spec__ = None
+    _anthropic.AsyncAnthropic = MagicMock
+    _anthropic.Anthropic = MagicMock
+
+    _types_mod = types.ModuleType("anthropic.types")
+    _types_mod.__spec__ = None
+    _types_mod.Message = MagicMock
+
+    _anthropic.types = _types_mod
+    sys.modules["anthropic"] = _anthropic
+    sys.modules["anthropic.types"] = _types_mod
 
 
 # ══════════════════════════════════════════════════════════════════════════════

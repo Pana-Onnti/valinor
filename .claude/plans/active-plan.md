@@ -1,57 +1,73 @@
-# Active Plan — Arsenal Features Sprint
+# Active Plan — Post Mega Sprint
 
-**Última actualización:** 2026-03-21
+**Última actualización:** 2026-03-22 (sesión vespertina)
 **Branch:** develop
-**Objetivo:** Implementar las 7 features críticas del arsenal D4C secuencialmente
+**PR #5:** MERGED
 
-## Issues a implementar (en orden)
+## Estado actual
 
-| # | Issue | Feature | Effort | Prioridad |
-|---|-------|---------|--------|-----------|
-| 1 | **VAL-28** | FastMCP — MCP server layer | 2 días | Urgent |
-| 2 | **VAL-29** | lmnr — observabilidad del swarm | 3 días | Urgent |
-| 3 | **VAL-30** | Pydantic-AI — type-safe agents | 3 días | High |
-| 4 | **VAL-31** | KV-cache + token tracking | 3 días | High |
-| 5 | **VAL-32** | Vanna AI — NL→SQL conversacional | 4 días | High |
-| 6 | **VAL-33** | dlt — generalización de fuentes | 5 días | High |
-| 7 | **VAL-34** | promptfoo — red-teaming seguridad | 3 días | High |
+### ✅ Completados (sprints anteriores + mega sprint)
+- VAL-1, VAL-10, VAL-11, VAL-16, VAL-17, VAL-24, VAL-26
+- VAL-28→34 (Arsenal Sprint)
+- VAL-36, VAL-44, VAL-45, VAL-46 (grounded/v7)
+- VAL-5 (audit — ya estaba hecho)
+- VAL-48, VAL-49, VAL-50, VAL-51, VAL-52 (P0 Security + Infra)
+- VAL-53, VAL-54, VAL-55, VAL-56, VAL-57 (P1 Quality)
+- VAL-37, VAL-38, VAL-39, VAL-40, VAL-41, VAL-42, VAL-43 (Swarm Features)
+- VAL-58, VAL-59, VAL-60, VAL-61 (Medium Quality)
+- VAL-3, VAL-27, VAL-35 (UI/UX)
+- VAL-2 (entity_map JSON schema formalizado con Pydantic)
+- VAL-7 (E2E pipeline tests sobre Gloria — 5 tests)
+- VAL-19 Fase 1 (Alembic migrations baseline)
+- VAL-25 (Batch API provider — 50% cost savings)
+- VAL-54 structlog + Redis mock + anthropic stub test fixes
+- VAL-56 N+1 query batching (fk_discovery, cartographer, connectors)
 
-## Protocolo por feature
+### 🔄 En progreso
+- VAL-23: Gestión de accesos — TAREA HUMANA (cuentas, tokens, DNS)
 
-Para cada issue:
-1. Mover a "In Progress" en Linear
-2. Leer issue completo + explorar código existente
-3. Implementar
-4. `pytest tests/ -v` — arreglar hasta que pase
-5. Commit atómico con `Refs: VAL-XX`
-6. Mover a "Done" en Linear
-7. Pasar al siguiente
+### ⏳ Backlog técnico pendiente
+- VAL-20: Fase 2 Staging — necesita Railway config
+- VAL-21: Fase 3 Multi-tenant RLS + observability
+- VAL-22: Fase 4 Scale — load testing, zero-downtime
+- VAL-25: Claude API Cost Optimization — prompt caching OK, falta Batch API
+- VAL-7: Tests E2E pipeline completo sobre Gloria
+- VAL-13: Client Portal shell
+- VAL-15: Operator Dashboard
 
-## Estado de implementación
+### ⏳ Backlog UI/GTM (necesitan producto + design)
+- VAL-8: Demo mode sales tool
+- VAL-12: Demo Mode UI branded
+- VAL-14: Onboarding Wizard UI
+- VAL-6: Self-serve onboarding (due: junio 30)
 
-### ✅ Completados (sesiones anteriores)
-- VAL-17, VAL-10, VAL-11, VAL-16, VAL-24, VAL-26
+### ⏳ EPICs (contenedores)
+- VAL-9: UI/UX Professionalization — sub-issues mayormente done
+- VAL-18: CI/CD Infrastructure — fases 1-4 pendientes
+- VAL-47: Hardening Post-Investigación — P0s done, P2s pendientes
 
-### ✅ Completados este sprint (rama develop)
-- [x] VAL-28 — FastMCP
-- [x] VAL-29 — lmnr / observabilidad
-- [x] VAL-30 — Pydantic-AI
-- [x] VAL-31 — KV-cache
-- [x] VAL-32 — Vanna AI
-- [x] VAL-33 — dlt
-- [x] VAL-34 — promptfoo security
-
-## Decisiones arquitecturales clave
-
-- **FastMCP**: estructura `mcp_servers/` en root, patrón `@mcp.tool()`
-- **lmnr**: instrumentar en `shared/llm/` y en cada agente, NO en api/main.py
-- **Pydantic-AI**: output models en `core/valinor/schemas/`, no inline en agents
-- **KV-cache**: modificar solo `shared/llm/providers/anthropic_provider.py`
-- **Vanna AI**: endpoint separado en `api/routers/nl_query.py` + componente Next.js
-- **dlt**: capa `shared/connectors/` — DataQualityGate y Cartographer NO se tocan
-- **promptfoo**: `security/` en root + CI check — no tocar código de agentes
+### 🚫 No ejecutables por código
+- VAL-4: Entregar diagnósticos (ops/gtm, due: abril 30)
+- VAL-23: Gestión de accesos (humano)
+- GRO-1→14: Growth team tasks (Lorenzo/equipo)
 
 ## Checkpoint
 
-Última feature completada: VAL-34 — SPRINT COMPLETO ✅
-Próxima acción: PR develop → master
+Última acción (2026-03-22 sesión completa — 7 commits):
+- PR #5 merged
+- VAL-56: N+1 query batching (fk_discovery, cartographer, connectors)
+- VAL-54: structlog test fix + Redis mock fix + anthropic stub → ~200 tests recovered
+- VAL-2: entity_map JSON schema formalizado (probed_values, Relationship model, validation)
+- VAL-19: Alembic migrations inicializado con baseline
+- VAL-7: 5 E2E pipeline tests sobre Gloria (query builder, baseline, agents, narrators, schema)
+- VAL-25: Batch API provider (50% cost savings, 15 tests)
+
+Commits: e17be26a → 40c9852a (7 commits)
+Tests: ~900 passing por archivo individual (before: 0 por collection errors)
+
+## Próximos pasos
+1. VAL-20: Staging (Railway config)
+2. VAL-21: Multi-tenant RLS + observability
+3. Fix test collection order poisoning (sys.modules stub conflicts between files)
+4. VAL-13: Client Portal shell
+5. VAL-15: Operator Dashboard

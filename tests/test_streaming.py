@@ -63,8 +63,8 @@ sys.modules["slowapi"]._rate_limit_exceeded_handler = MagicMock()
 sys.modules["slowapi.util"].get_remote_address = MagicMock(return_value="127.0.0.1")
 sys.modules["slowapi.errors"].RateLimitExceeded = _FakeRateLimitExceeded
 
-_stub_missing("structlog")
-sys.modules["structlog"].get_logger = lambda *a, **kw: MagicMock()
+import structlog  # real module — stub breaks structlog.contextvars
+structlog.get_logger = lambda *a, **kw: MagicMock()
 
 _stub_missing("adapters", "adapters.valinor_adapter")
 sys.modules["adapters.valinor_adapter"].ValinorAdapter = MagicMock
@@ -131,11 +131,14 @@ def async_client():
     async def _make():
         return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
+    from api.deps import set_redis_client
+
     with (
         patch("redis.asyncio.from_url", return_value=redis_mock),
         patch("api.main.metadata_storage", storage_mock),
         patch("api.main.redis_client", redis_mock),
     ):
+        set_redis_client(redis_mock)
         loop = asyncio.new_event_loop()
         client = loop.run_until_complete(_make())
         client._loop = loop
@@ -143,6 +146,7 @@ def async_client():
         yield client
         loop.run_until_complete(client.aclose())
         loop.close()
+        set_redis_client(None)
 
 
 # ---------------------------------------------------------------------------

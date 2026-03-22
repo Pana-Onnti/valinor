@@ -80,8 +80,8 @@ class _FakeRateLimitExceeded(Exception):
 sys.modules["slowapi.errors"].RateLimitExceeded = _FakeRateLimitExceeded
 
 # structlog
-_stub_missing("structlog")
-_structlog = sys.modules["structlog"]
+import structlog  # real module — stub breaks structlog.contextvars
+_structlog = structlog
 _structlog.get_logger = MagicMock(return_value=MagicMock(
     info=MagicMock(),
     error=MagicMock(),
@@ -200,16 +200,20 @@ async def client(redis_mock, storage_mock):
     # Import (or reuse cached) app after stubs are in place
     from api.main import app  # noqa: PLC0415
 
+    from api.deps import set_redis_client
+
     with (
         patch("redis.asyncio.from_url", return_value=redis_mock),
         patch("api.main.metadata_storage", storage_mock),
         patch("api.main.redis_client", redis_mock),
     ):
+        set_redis_client(redis_mock)
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
             transport=transport, base_url="http://testserver"
         ) as ac:
             yield ac
+        set_redis_client(None)
 
 
 # ---------------------------------------------------------------------------
@@ -437,7 +441,7 @@ class TestAnalyzeEndpoint:
 
         redis_mock.scan_iter = _empty_scan
 
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
 
         assert response.status_code == 200
@@ -871,7 +875,7 @@ class TestInputValidation:
 
         redis_mock.scan_iter = _empty_scan
 
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             payload = {**VALID_ANALYSIS_PAYLOAD, "period": "Q2-2025"}
             response = await client.post("/api/analyze", json=payload)
 
@@ -886,7 +890,7 @@ class TestInputValidation:
 
         redis_mock.scan_iter = _empty_scan
 
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             payload = {**VALID_ANALYSIS_PAYLOAD, "period": "2025"}
             response = await client.post("/api/analyze", json=payload)
 
@@ -901,7 +905,7 @@ class TestInputValidation:
 
         redis_mock.scan_iter = _empty_scan
 
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             payload = {**VALID_ANALYSIS_PAYLOAD, "period": "H1-2025"}
             response = await client.post("/api/analyze", json=payload)
 
@@ -988,16 +992,20 @@ class TestAuditEndpoints:
 
         audit_redis = _make_audit_redis_mock()
 
+        from api.deps import set_redis_client
+
         with (
             patch("redis.asyncio.from_url", return_value=audit_redis),
             patch("api.main.metadata_storage", storage_mock),
             patch("api.main.redis_client", audit_redis),
         ):
+            set_redis_client(audit_redis)
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
                 transport=transport, base_url="http://testserver"
             ) as ac:
                 yield ac
+            set_redis_client(None)
 
     @pytest.mark.asyncio
     async def test_post_audit_event(self, audit_client):

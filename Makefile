@@ -43,6 +43,12 @@ test-cov: ## Run tests with HTML + terminal coverage report
 test-fast: ## Run only non-slow tests (excludes performance/integration markers)
 	pytest tests/ -v -m "not slow and not performance and not integration"
 
+smoke: ## Pre-PR smoke test — containers + API + CORS + frontend + unit tests
+	./scripts/smoke_test.sh
+
+smoke-quick: ## Quick smoke test (skip container rebuild)
+	./scripts/smoke_test.sh --quick
+
 ##@ Code Quality
 
 lint: ## Run flake8 on api/, shared/, core/ (excludes venv)
