@@ -70,6 +70,7 @@ async def narrate_sales(
     client_config: dict,
     baseline: dict,
     query_results: dict,
+    verification_report=None,
 ) -> str:
     """Produce the sales report."""
     options = ClaudeAgentOptions(
@@ -85,6 +86,13 @@ async def narrate_sales(
                  "customer_concentration", "top_debtors")
     }
 
+    number_registry_section = ""
+    if verification_report and hasattr(verification_report, "to_prompt_context"):
+        number_registry_section = f"""
+    NUMBER REGISTRY — USE ONLY THESE VALUES
+    {verification_report.to_prompt_context()}
+    """
+
     prompt = f"""
     CLIENT: {client_config.get('display_name', client_config.get('name', 'Unknown'))}
     SECTOR: {client_config.get('sector', 'Unknown')}
@@ -93,7 +101,7 @@ async def narrate_sales(
 
     REVENUE BASELINE (measured from database):
     {json.dumps(baseline, indent=2, ensure_ascii=False, default=str)}
-
+    {number_registry_section}
     CUSTOMER-LEVEL QUERY RESULTS (real names and IDs from database):
     {json.dumps(customer_queries, indent=2, ensure_ascii=False, default=str)
      if customer_queries else "No customer-level queries returned results. Use agent findings."}

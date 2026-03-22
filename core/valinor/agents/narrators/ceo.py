@@ -56,6 +56,7 @@ async def narrate_ceo(
     memory: dict | None,
     client_config: dict,
     baseline: dict,
+    verification_report=None,
 ) -> str:
     """Produce the CEO briefing."""
     options = ClaudeAgentOptions(
@@ -63,6 +64,13 @@ async def narrate_ceo(
         system_prompt=SYSTEM_PROMPT,
         max_turns=10,
     )
+
+    number_registry_section = ""
+    if verification_report and hasattr(verification_report, "to_prompt_context"):
+        number_registry_section = f"""
+    NUMBER REGISTRY — USE ONLY THESE VALUES
+    {verification_report.to_prompt_context()}
+    """
 
     prompt = f"""
     CLIENT: {client_config.get('display_name', client_config.get('name', 'Unknown'))}
@@ -72,7 +80,7 @@ async def narrate_ceo(
 
     REVENUE BASELINE (measured from database — these are the real numbers):
     {json.dumps(baseline, indent=2, ensure_ascii=False, default=str)}
-
+    {number_registry_section}
     FINDINGS FROM AGENTS:
     {json.dumps(findings, indent=2, ensure_ascii=False, default=str)}
 

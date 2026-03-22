@@ -14,7 +14,8 @@ SKILL_PATH = Path(__file__).parent.parent.parent / ".claude" / "skills" / "sales
 
 
 async def run_hunter(
-    query_results: dict, entity_map: dict, memory: dict | None, baseline: dict
+    query_results: dict, entity_map: dict, memory: dict | None, baseline: dict,
+    kg=None,
 ) -> dict:
     """
     Run the Hunter agent for opportunity detection.
@@ -24,6 +25,7 @@ async def run_hunter(
         entity_map: Entity map from Stage 1.
         memory: Previous swarm memory (or None for first run).
         baseline: Shared revenue baseline — use for consistent EUR estimates.
+        kg: Optional SchemaKnowledgeGraph for enriched schema context.
 
     Returns:
         Dict with agent name and findings.
@@ -45,6 +47,8 @@ async def run_hunter(
 
     baseline_summary = json.dumps(baseline, indent=2, ensure_ascii=False, default=str)
 
+    kg_context = kg.to_prompt_context() if kg else ""
+
     options = ClaudeAgentOptions(
         model="sonnet",
         system_prompt=skill_content,
@@ -54,6 +58,8 @@ async def run_hunter(
     prompt = f"""
     REVENUE BASELINE (measured from actual data):
     {baseline_summary}
+
+    {f"SCHEMA KNOWLEDGE GRAPH (tables, filters, JOIN paths, business concepts):{chr(10)}    {kg_context}" if kg_context else ""}
 
     CONTEXT:
     {shared_context}

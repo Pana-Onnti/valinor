@@ -30,6 +30,8 @@ from sqlalchemy import create_engine, text
 from valinor.agents.analyst import run_analyst
 from valinor.agents.sentinel import run_sentinel
 from valinor.agents.hunter import run_hunter
+from valinor.knowledge_graph import build_knowledge_graph
+from valinor.verification import VerificationEngine
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -469,12 +471,13 @@ def _i(val: Any) -> int | None:
 # ═══════════════════════════════════════════════════════════════
 
 async def run_analysis_agents(
-    query_results: dict, entity_map: dict, memory: dict | None, baseline: dict
+    query_results: dict, entity_map: dict, memory: dict | None, baseline: dict,
+    kg: Any = None,
 ) -> dict:
-    """Run Analyst, Sentinel, Hunter in parallel. All receive the frozen brief."""
-    analyst_task  = run_analyst( query_results, entity_map, memory, baseline)
-    sentinel_task = run_sentinel(query_results, entity_map, memory, baseline)
-    hunter_task   = run_hunter(  query_results, entity_map, memory, baseline)
+    """Run Analyst, Sentinel, Hunter in parallel. All receive the frozen brief + KG context."""
+    analyst_task  = run_analyst( query_results, entity_map, memory, baseline, kg=kg)
+    sentinel_task = run_sentinel(query_results, entity_map, memory, baseline, kg=kg)
+    hunter_task   = run_hunter(  query_results, entity_map, memory, baseline, kg=kg)
 
     raw = await asyncio.gather(analyst_task, sentinel_task, hunter_task, return_exceptions=True)
 
@@ -700,6 +703,7 @@ async def run_narrators(
     client_config: dict,
     baseline: dict,
     query_results: dict,
+    verification_report: Any = None,
 ) -> dict[str, str]:
     """
     Run all four narrator agents sequentially to produce audience-specific reports.
@@ -708,6 +712,7 @@ async def run_narrators(
       - findings: swarm output including _reconciliation notes
       - baseline: frozen brief with provenance
       - query_results: raw rows for customer lists / AR tables
+      - verification_report: optional VerificationReport with Number Registry
     """
     from valinor.agents.narrators.ceo        import narrate_ceo
     from valinor.agents.narrators.controller import narrate_controller
@@ -717,10 +722,10 @@ async def run_narrators(
     reports: dict[str, str] = {}
 
     for name, fn, extra_kwargs in [
-        ("briefing_ceo",       narrate_ceo,        {}),
-        ("reporte_controller", narrate_controller, {"query_results": query_results}),
-        ("reporte_ventas",     narrate_sales,      {"query_results": query_results}),
-        ("reporte_ejecutivo",  narrate_executive,  {}),
+        ("briefing_ceo",       narrate_ceo,        {"verification_report": verification_report}),
+        ("reporte_controller", narrate_controller, {"query_results": query_results, "verification_report": verification_report}),
+        ("reporte_ventas",     narrate_sales,      {"query_results": query_results, "verification_report": verification_report}),
+        ("reporte_ejecutivo",  narrate_executive,  {"verification_report": verification_report}),
     ]:
         try:
             reports[name] = await fn(
