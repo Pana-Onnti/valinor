@@ -6,9 +6,12 @@ cross-sell potential, pricing anomalies, debt recovery opportunities.
 """
 
 import json
+import logging
 from pathlib import Path
 
 from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+
+logger = logging.getLogger(__name__)
 
 SKILL_PATH = Path(__file__).parent.parent.parent / ".claude" / "skills" / "sales_intelligence.md"
 
@@ -104,7 +107,7 @@ async def run_hunter(
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         results.append(block.text)
-    except Exception:
-        pass
+    except (RuntimeError, ConnectionError, TypeError, ValueError) as exc:
+        logger.warning("hunter agent query failed", exc_info=exc)
 
     return {"agent": "hunter", "output": "\n".join(results)}

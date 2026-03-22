@@ -3,12 +3,15 @@ Configuration system for LLM providers with feature flag support.
 Allows runtime switching between providers without code changes.
 """
 
+import logging
 import os
 from enum import Enum
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class ProviderType(str, Enum):
@@ -126,8 +129,8 @@ class LLMConfig:
                 try:
                     return ProviderType(dynamic_provider)
                 except ValueError:
-                    pass
-        
+                    logger.warning("Invalid LLM_DYNAMIC_PROVIDER value: %s", dynamic_provider)
+
         return self.provider_type
     
     def get_provider_config(self, provider_type: Optional[ProviderType] = None) -> Dict[str, Any]:

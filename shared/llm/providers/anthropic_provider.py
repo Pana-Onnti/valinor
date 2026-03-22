@@ -7,6 +7,7 @@ and token tracking via TokenTracker.
 """
 
 import asyncio
+import logging
 import os
 from typing import AsyncIterator, Dict, Any, Optional, List, Union
 import anthropic
@@ -14,6 +15,8 @@ from anthropic import AsyncAnthropic
 from anthropic.types import Message
 
 from ..base import LLMProvider, LLMResponse, LLMOptions, ModelType
+
+logger = logging.getLogger(__name__)
 
 
 class AnthropicProvider(LLMProvider):
@@ -155,8 +158,8 @@ class AnthropicProvider(LLMProvider):
                 cache_read_tokens=cache_read,
                 cache_creation_tokens=cache_creation,
             )
-        except Exception:
-            pass  # Never fail a real query due to tracking errors
+        except (ImportError, AttributeError, TypeError) as exc:
+            logger.warning("Token tracking failed (non-fatal): %s", exc)
 
     def _format_response(self, response: Message) -> LLMResponse:
         """Convert Anthropic response to unified format"""

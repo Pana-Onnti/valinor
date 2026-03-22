@@ -6,9 +6,12 @@ and produces a comprehensive executive summary with action calendar.
 """
 
 import json
+import logging
 
 from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
 from valinor.agents.narrators.system_prompts import build_executive_system_prompt
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """
@@ -137,7 +140,7 @@ async def narrate_executive(
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         output.append(block.text)
-    except Exception:
-        pass
+    except (RuntimeError, ConnectionError, TypeError, ValueError) as exc:
+        logger.warning("executive narrator query failed", exc_info=exc)
 
     return "\n".join(output)

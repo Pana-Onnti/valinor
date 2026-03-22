@@ -6,9 +6,12 @@ orphans, outliers, and inconsistencies.
 """
 
 import json
+import logging
 from pathlib import Path
 
 from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+
+logger = logging.getLogger(__name__)
 
 SKILL_PATH = Path(__file__).parent.parent.parent / ".claude" / "skills" / "data_quality.md"
 
@@ -98,7 +101,7 @@ async def run_sentinel(
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         results.append(block.text)
-    except Exception:
-        pass
+    except (RuntimeError, ConnectionError, TypeError, ValueError) as exc:
+        logger.warning("sentinel agent query failed", exc_info=exc)
 
     return {"agent": "sentinel", "output": "\n".join(results)}

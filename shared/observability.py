@@ -102,8 +102,8 @@ def get_tracer() -> Any:
         try:
             from lmnr import get_tracer as lmnr_get_tracer
             return lmnr_get_tracer("valinor-swarm")
-        except Exception:
-            pass
+        except (ImportError, RuntimeError) as exc:
+            logger.warning("observability: lmnr get_tracer failed, using no-op", error=str(exc))
     return _noop_tracer
 
 
@@ -218,8 +218,8 @@ def record_token_usage(agent_name: str, input_tokens: int, output_tokens: int) -
             span = trace.get_current_span()
             span.set_attribute(f"{agent_name}.input_tokens", input_tokens)
             span.set_attribute(f"{agent_name}.output_tokens", output_tokens)
-        except Exception:
-            pass
+        except (ImportError, RuntimeError, AttributeError) as exc:
+            logger.warning("observability: failed to record token usage span", error=str(exc))
 
 
 # ── Agent list (for documentation / dashboards) ───────────────────────────────

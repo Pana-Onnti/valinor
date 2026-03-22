@@ -65,8 +65,8 @@ class PostgreSQLConnector(DeltaConnector):
             try:
                 self._engine.dispose()
                 logger.info("postgresql.close")
-            except Exception:
-                pass
+            except OSError as exc:
+                logger.warning("postgresql.close failed", error=str(exc))
         self._engine = None
         self._connected = False
 

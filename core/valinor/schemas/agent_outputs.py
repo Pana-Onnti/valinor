@@ -10,10 +10,13 @@ Pydantic v2 models (compatible with pydantic-ai >=1.0).
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -301,9 +304,9 @@ class AnalystOutput(BaseModel):
                 for item in parsed:
                     try:
                         findings.append(AnalystFinding(**item))
-                    except Exception:
-                        pass
-        except Exception as e:
+                    except (TypeError, ValueError, KeyError) as exc:
+                        logger.warning("Failed to parse AnalystFinding item: %s", exc)
+        except (json.JSONDecodeError, ValueError) as e:
             parse_error = str(e)
 
         return cls(
@@ -382,9 +385,9 @@ class SentinelOutput(BaseModel):
                 for item in parsed:
                     try:
                         findings.append(SentinelFinding(**item))
-                    except Exception:
-                        pass
-        except Exception as e:
+                    except (TypeError, ValueError, KeyError) as exc:
+                        logger.warning("Failed to parse SentinelFinding item: %s", exc)
+        except (json.JSONDecodeError, ValueError) as e:
             parse_error = str(e)
 
         return cls(

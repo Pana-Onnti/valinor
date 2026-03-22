@@ -67,8 +67,8 @@ class MySQLConnector(DeltaConnector):
             try:
                 self._engine.dispose()
                 logger.info("mysql.close")
-            except Exception:
-                pass
+            except OSError as exc:
+                logger.warning("mysql.close failed", error=str(exc))
         self._engine = None
         self._connected = False
 

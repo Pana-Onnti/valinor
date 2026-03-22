@@ -5,8 +5,11 @@ Produces a concise briefing: 5 numbers that matter + 3 decisions this week.
 """
 
 import json
+import logging
 
 from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """
@@ -102,7 +105,7 @@ async def narrate_ceo(
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         output.append(block.text)
-    except Exception:
-        pass
+    except (RuntimeError, ConnectionError, TypeError, ValueError) as exc:
+        logger.warning("ceo narrator query failed", exc_info=exc)
 
     return "\n".join(output)

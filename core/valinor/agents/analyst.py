@@ -6,9 +6,12 @@ revenue, margins, concentration, seasonality, and customer dynamics.
 """
 
 import json
+import logging
 from pathlib import Path
 
 from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+
+logger = logging.getLogger(__name__)
 
 SKILL_PATH = Path(__file__).parent.parent.parent / ".claude" / "skills" / "financial_analysis.md"
 
@@ -100,7 +103,7 @@ async def run_analyst(
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         results.append(block.text)
-    except Exception:
-        pass
+    except (RuntimeError, ConnectionError, TypeError, ValueError) as exc:
+        logger.warning("analyst agent query failed", exc_info=exc)
 
     return {"agent": "analyst", "output": "\n".join(results)}
