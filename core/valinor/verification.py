@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 import re
+import signal
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -132,11 +134,21 @@ class VerificationEngine:
 
     TOLERANCE_PCT = 0.5  # Allow 0.5% deviation for rounding
 
+    # SQL keywords that indicate write operations — must be blocked
+    FORBIDDEN_SQL_KEYWORDS = frozenset([
+        "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE",
+        "TRUNCATE", "GRANT", "REVOKE", "EXEC", "EXECUTE",
+    ])
+
     def __init__(self, query_results: dict, baseline: dict,
-                 knowledge_graph: Any | None = None) -> None:
+                 knowledge_graph: Any | None = None,
+                 connection_string: str | None = None,
+                 entity_map: dict | None = None) -> None:
         self.query_results = query_results
         self.baseline = baseline
         self.kg = knowledge_graph
+        self.connection_string = connection_string
+        self.entity_map = entity_map
         self._registry: dict[str, NumberRegistryEntry] = {}
         self._now = datetime.utcnow().isoformat()
 
@@ -473,7 +485,13 @@ class VerificationEngine:
             result.verification_query = raw_match["query"]
             return result
 
-        # Strategy 4: Approximate match (within 5%)
+        # Strategy 4: ACTIVE RE-QUERY — generate and execute a verification SQL
+        if self.connection_string and self.entity_map:
+            active_result = self._active_requery(claim)
+            if active_result is not None:
+                return active_result
+
+        # Strategy 5: Approximate match (within 5%)
         for label, entry in self._registry.items():
             dev = self._deviation_pct(claimed, entry.value)
             if dev is not None and abs(dev) < 5.0:
@@ -575,6 +593,326 @@ class VerificationEngine:
             if qid in evidence:
                 return qid
         return None
+
+    # ── ACTIVE RE-QUERY VERIFICATION (CRITIC pattern) ────────────────
+
+    def _active_requery(self, claim: AtomicClaim) -> VerificationResult | None:
+        """
+        Attempt active re-query verification for a claim.
+
+        Generates a SQL query from the KG/entity_map, executes it,
+        and compares the result to the claimed value.
+
+        Returns a VerificationResult if the re-query succeeds (match or fail),
+        or None if we cannot generate/execute a verification query.
+        """
+        vq = self._generate_verification_query(claim, self.entity_map)
+        if vq is None:
+            return None
+
+        exec_result = self._execute_verification_query(
+            vq["sql"], self.connection_string, timeout=5,
+        )
+        if exec_result.get("error"):
+            logger.warning(
+                "Active re-query failed",
+                claim_id=claim.claim_id,
+                error=exec_result["error"],
+            )
+            return None
+
+        rows = exec_result.get("rows", [])
+        if not rows:
+            return None
+
+        # Extract the result value from the first row, first column
+        first_row = rows[0]
+        if not first_row:
+            return None
+
+        actual_value = None
+        for col_val in first_row.values():
+            try:
+                actual_value = float(col_val)
+                break
+            except (TypeError, ValueError):
+                continue
+
+        if actual_value is None:
+            return None
+
+        claimed = claim.claimed_value
+        result = VerificationResult(
+            claim_id=claim.claim_id,
+            status="UNVERIFIABLE",  # Will be overwritten below
+            verification_query=vq["sql"],
+            verified_at=self._now,
+        )
+
+        if self._values_match(claimed, actual_value):
+            result.status = "VERIFIED"
+            result.actual_value = actual_value
+            result.deviation_pct = self._deviation_pct(claimed, actual_value)
+            result.evidence = (
+                f"Active re-query confirmed: {vq['description']} → {actual_value}"
+            )
+            # Register the verified value
+            label = f"active_{claim.claim_id}"
+            self._register(label, actual_value, vq["sql"],
+                           vq["description"], confidence="measured")
+            return result
+
+        dev = self._deviation_pct(claimed, actual_value)
+        if dev is not None and abs(dev) < 5.0:
+            result.status = "APPROXIMATE"
+            result.actual_value = actual_value
+            result.deviation_pct = dev
+            result.evidence = (
+                f"Active re-query approximate: {vq['description']} → "
+                f"{actual_value} (deviation: {dev:.1f}%)"
+            )
+            return result
+
+        result.status = "FAILED"
+        result.actual_value = actual_value
+        result.deviation_pct = dev
+        result.evidence = (
+            f"Active re-query contradicts claim: {vq['description']} → "
+            f"{actual_value} (claimed: {claimed}, deviation: {dev:.1f}%)"
+        )
+        return result
+
+    def _generate_verification_query(
+        self, claim: AtomicClaim, entity_map: dict | None,
+    ) -> dict | None:
+        """
+        Generate a SQL query to verify an atomic claim using the KG/entity_map.
+
+        Strategy is data-driven — table names, column names, and filters
+        all come from the entity_map, never hardcoded.
+
+        Returns:
+            {"sql": str, "expected_type": str, "description": str} or None
+        """
+        if not entity_map:
+            return None
+
+        entities = entity_map.get("entities", {})
+        if not entities:
+            return None
+
+        claimed = claim.claimed_value
+        if claimed is None:
+            return None
+
+        # Identify the best entity to query based on claim type
+        # Look for TRANSACTIONAL entities with amount columns (revenue claims)
+        # or entities with countable PKs (count claims)
+        claim_text_lower = claim.claim_text.lower()
+
+        # Determine claim intent
+        is_count = claim.claimed_unit == "count" or "count" in claim_text_lower
+        is_revenue = (
+            claim.claimed_unit == "EUR"
+            or "revenue" in claim_text_lower
+            or "total" in claim_text_lower
+            or "amount" in claim_text_lower
+            or "value" in claim_text_lower
+        )
+
+        for entity_name, entity in entities.items():
+            table = entity.get("table", "")
+            etype = entity.get("type", "")
+            key_cols = entity.get("key_columns", {})
+            base_filter = entity.get("base_filter", "")
+
+            if not table:
+                continue
+
+            # Build WHERE clause from base_filter
+            where_parts = []
+            if base_filter:
+                # Qualify filter columns with table name
+                if self.kg:
+                    where_parts = self.kg.get_required_filters(table)
+                else:
+                    # Fallback: use base_filter directly
+                    for part in re.split(r'\bAND\b', base_filter, flags=re.IGNORECASE):
+                        part = part.strip()
+                        if part:
+                            if "." not in part.split("=")[0].split("<")[0].split(">")[0]:
+                                part = f"{table}.{part}"
+                            where_parts.append(part)
+
+            where_clause = " AND ".join(where_parts) if where_parts else "1=1"
+
+            # Strategy A: Count claims — find entity with a PK to COUNT
+            if is_count and etype == "TRANSACTIONAL":
+                pk_col = key_cols.get("pk") or key_cols.get("customer_pk")
+                if not pk_col:
+                    continue
+
+                # Check if claim is about customers specifically
+                if "customer" in claim_text_lower or "client" in claim_text_lower:
+                    customer_fk = key_cols.get("customer_fk")
+                    if customer_fk:
+                        sql = (
+                            f"SELECT COUNT(DISTINCT {table}.{customer_fk}) AS cnt "
+                            f"FROM {table} WHERE {where_clause}"
+                        )
+                        return {
+                            "sql": sql,
+                            "expected_type": "count",
+                            "description": f"Count distinct customers in {entity_name}",
+                        }
+
+                # Generic count
+                sql = (
+                    f"SELECT COUNT({table}.{pk_col}) AS cnt "
+                    f"FROM {table} WHERE {where_clause}"
+                )
+                return {
+                    "sql": sql,
+                    "expected_type": "count",
+                    "description": f"Count records in {entity_name}",
+                }
+
+            # Strategy B: Revenue/amount claims — SUM the amount column
+            if is_revenue and etype == "TRANSACTIONAL":
+                amount_col = (
+                    key_cols.get("amount_col")
+                    or key_cols.get("grand_total")
+                    or key_cols.get("amount")
+                )
+                if not amount_col:
+                    continue
+
+                # Check if claim is about a specific customer
+                customer_name_match = re.search(
+                    r'(?:customer|client|for)\s+["\']?([A-Za-z][\w\s&.\'-]+)',
+                    claim.claim_text, re.IGNORECASE,
+                )
+                if customer_name_match and key_cols.get("customer_fk"):
+                    # Need JOIN to customer table to filter by name
+                    customer_name = customer_name_match.group(1).strip()
+                    # Find customer entity via KG or entity_map
+                    customer_table, customer_pk, customer_name_col = (
+                        self._find_customer_entity(entities)
+                    )
+                    if customer_table and customer_pk and customer_name_col:
+                        customer_fk = key_cols["customer_fk"]
+                        join_clause = (
+                            f"JOIN {customer_table} ON "
+                            f"{table}.{customer_fk} = {customer_table}.{customer_pk}"
+                        )
+                        sql = (
+                            f"SELECT SUM({table}.{amount_col}) AS total "
+                            f"FROM {table} {join_clause} "
+                            f"WHERE {where_clause} AND "
+                            f"{customer_table}.{customer_name_col} ILIKE '%{customer_name}%'"
+                        )
+                        return {
+                            "sql": sql,
+                            "expected_type": "sum",
+                            "description": (
+                                f"Total {amount_col} for customer '{customer_name}' "
+                                f"in {entity_name}"
+                            ),
+                        }
+
+                # General SUM
+                sql = (
+                    f"SELECT SUM({table}.{amount_col}) AS total "
+                    f"FROM {table} WHERE {where_clause}"
+                )
+                return {
+                    "sql": sql,
+                    "expected_type": "sum",
+                    "description": f"Total {amount_col} from {entity_name}",
+                }
+
+        return None
+
+    def _find_customer_entity(
+        self, entities: dict,
+    ) -> tuple[str | None, str | None, str | None]:
+        """
+        Find the customer table, PK, and name column from the entity_map.
+
+        Returns (table, pk_column, name_column) or (None, None, None).
+        """
+        for entity_name, entity in entities.items():
+            etype = entity.get("type", "")
+            if etype in ("MASTER", "DIMENSION") or "customer" in entity_name.lower():
+                table = entity.get("table", "")
+                key_cols = entity.get("key_columns", {})
+                pk = key_cols.get("pk") or key_cols.get("customer_pk")
+                name_col = key_cols.get("name") or key_cols.get("customer_name")
+                if table and pk and name_col:
+                    return table, pk, name_col
+        return None, None, None
+
+    def _execute_verification_query(
+        self, sql: str, connection_string: str, timeout: int = 5,
+    ) -> dict:
+        """
+        Execute a read-only verification query with safety guards.
+
+        Safety:
+          - Blocks all write operations (INSERT, UPDATE, DELETE, DROP, etc.)
+          - Limits results to 100 rows
+          - Timeout after `timeout` seconds
+          - Uses a separate thread to enforce timeout
+
+        Returns:
+            {"rows": [...], "row_count": int} or {"error": str}
+        """
+        # Safety: block write operations
+        sql_upper = sql.upper().strip()
+        for keyword in self.FORBIDDEN_SQL_KEYWORDS:
+            if sql_upper.startswith(keyword):
+                return {"error": f"Write operation blocked: {keyword}"}
+            # Also check for write keywords anywhere (e.g., subquery injection)
+            if re.search(rf'\b{keyword}\b', sql_upper):
+                return {"error": f"Write operation blocked: {keyword} found in query"}
+
+        # Ensure it starts with SELECT or WITH
+        if not (sql_upper.startswith("SELECT") or sql_upper.startswith("WITH")):
+            return {"error": f"Only SELECT/WITH queries allowed, got: {sql_upper[:20]}"}
+
+        max_rows = 100
+        result_container: dict = {}
+        error_container: dict = {}
+
+        def _run_query():
+            try:
+                from sqlalchemy import create_engine, text as sa_text
+                engine = create_engine(connection_string)
+                with engine.connect() as conn:
+                    result = conn.execute(sa_text(sql))
+                    columns = list(result.keys())
+                    rows = []
+                    for i, row in enumerate(result):
+                        if i >= max_rows:
+                            break
+                        rows.append(dict(zip(columns, row)))
+                    result_container["rows"] = rows
+                    result_container["row_count"] = len(rows)
+                engine.dispose()
+            except Exception as exc:
+                error_container["error"] = str(exc)
+
+        thread = threading.Thread(target=_run_query, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout)
+
+        if thread.is_alive():
+            return {"error": f"Query timed out after {timeout}s"}
+
+        if error_container:
+            return error_container
+
+        return result_container
 
     # ── CROSS-VALIDATION ───────────────────────────────────────────────
 
