@@ -10,7 +10,7 @@ Antes de mergear un branch importante. Después de implementar un feature que to
 
 ### 1. Identificar qué revisar
 ```
-→ Bash: git diff master...HEAD --name-only
+→ Bash: git diff main...HEAD --name-only
 → Categorizar archivos:
   - core/, api/ → revisar con swarm-architect
   - docker-compose.yml, deploy/ → revisar con infra-ops
