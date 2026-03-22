@@ -495,7 +495,7 @@ def _detect_date_range(erp_name: str, tables: list, conn) -> tuple:
     Returns (data_from, data_to) as "YYYY-MM" strings, or (None, None) on failure.
     """
     from sqlalchemy import text as _text
-    from typing import Tuple
+    from typing import Tuple  # noqa: F401
 
     table_set = set(t.lower() for t in tables)
 
@@ -527,7 +527,7 @@ def _detect_date_range(erp_name: str, tables: list, conn) -> tuple:
             )).fetchone()
             if row and row[0] and row[1]:
                 d_from = str(row[0])[:7]  # "YYYY-MM"
-                d_to   = str(row[1])[:7]
+                d_to = str(row[1])[:7]
                 return d_from, d_to
         except Exception:
             continue

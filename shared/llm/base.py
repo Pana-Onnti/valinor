@@ -12,7 +12,7 @@ from enum import Enum
 class ModelType(str, Enum):
     """Standard model types across providers"""
     OPUS = "opus"
-    SONNET = "sonnet" 
+    SONNET = "sonnet"
     HAIKU = "haiku"
     GPT4 = "gpt-4"
     GPT4_TURBO = "gpt-4-turbo"
@@ -29,7 +29,7 @@ class LLMOptions:
     tools: Optional[List[Dict[str, Any]]] = None
     stop_sequences: Optional[List[str]] = None
     metadata: Dict[str, Any] = None
-    
+
     def to_anthropic(self) -> Dict[str, Any]:
         """Convert to Anthropic API format"""
         return {
@@ -42,7 +42,7 @@ class LLMOptions:
             "stop_sequences": self.stop_sequences,
             "metadata": self.metadata
         }
-    
+
     def to_console(self) -> Dict[str, Any]:
         """Convert to console/web interface format"""
         return {
@@ -55,7 +55,7 @@ class LLMOptions:
             "stopSequences": self.stop_sequences,
             "metadata": self.metadata
         }
-    
+
     def _map_model_to_anthropic(self) -> str:
         """Map generic model names to Anthropic-specific names"""
         mapping = {
@@ -82,16 +82,16 @@ class LLMProvider(ABC):
     Abstract base class for all LLM providers.
     Ensures consistent interface across different implementations.
     """
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self._initialized = False
-    
+
     @abstractmethod
     async def initialize(self) -> None:
         """Initialize the provider (auth, session setup, etc)"""
         pass
-    
+
     @abstractmethod
     async def query(self, prompt: str, options: Optional[LLMOptions] = None) -> Union[LLMResponse, AsyncIterator[str]]:
         """
@@ -99,36 +99,36 @@ class LLMProvider(ABC):
         Returns LLMResponse for non-streaming, AsyncIterator for streaming.
         """
         pass
-    
+
     @abstractmethod
     async def health_check(self) -> bool:
         """Check if the provider is healthy and can accept requests"""
         pass
-    
+
     @abstractmethod
     async def close(self) -> None:
         """Clean up resources (sessions, connections, etc)"""
         pass
-    
+
     async def __aenter__(self):
         """Async context manager support"""
         await self.initialize()
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Cleanup on context exit"""
         await self.close()
-    
+
     def validate_options(self, options: LLMOptions) -> None:
         """Validate options are compatible with this provider"""
         if options.model not in self.supported_models():
             raise ValueError(f"Model {options.model} not supported by {self.__class__.__name__}")
-    
+
     @abstractmethod
     def supported_models(self) -> List[ModelType]:
         """Return list of supported models for this provider"""
         pass
-    
+
     @abstractmethod
     def estimate_cost(self, prompt_tokens: int, completion_tokens: int, model: ModelType) -> float:
         """Estimate cost for a query (for monitoring/budgeting)"""

@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 # Condition evaluators
 # ---------------------------------------------------------------------------
 
+
 def _pct_change(prev: float, curr: float) -> Optional[float]:
     """Returns period-over-period percentage change, or None if prev is ~zero."""
     if abs(prev) < 1e-9:
@@ -43,7 +44,7 @@ def _z_score(series: List[float]) -> Optional[float]:
         return None
     arr = np.array(series, dtype=float)
     mean = float(arr[:-1].mean())
-    std  = float(arr[:-1].std(ddof=1)) if len(arr) > 2 else float(arr.std())
+    std = float(arr[:-1].std(ddof=1)) if len(arr) > 2 else float(arr.std())
     if std < 1e-9:
         return None
     return float((arr[-1] - mean) / std)
@@ -119,8 +120,8 @@ class AlertEngine:
 
         for threshold in (profile.alert_thresholds or []):
             metric_key = threshold.get("metric", "")
-            condition  = threshold.get("condition", "")
-            thr_value  = float(threshold.get("value", 0))
+            condition = threshold.get("condition", "")
+            thr_value = float(threshold.get("value", 0))
 
             # Resolve history for this metric
             history_entries = baseline_history.get(metric_key, [])
@@ -148,7 +149,7 @@ class AlertEngine:
                     "period":          latest.get("period", ""),
                 }
                 triggered.append(alert)
-                threshold["triggered"]      = True
+                threshold["triggered"] = True
                 threshold["last_triggered"] = datetime.utcnow().isoformat()
                 logger.info("Alert threshold triggered", **{
                     k: v for k, v in alert.items() if k != "message"
@@ -238,12 +239,12 @@ def create_default_thresholds(profile: "ClientProfile") -> List[Dict]:
     if industry == "distribución mayorista":
         thresholds += [
             {
-                "label":     "revenue_drop",
-                "metric":    "total_revenue",
+                "label": "revenue_drop",
+                "metric": "total_revenue",
                 "condition": "pct_change_below",
-                "value":     -15.0,
-                "severity":  "HIGH",
-                "message":   "Revenue dropped more than 15% period-over-period.",
+                "value": -15.0,
+                "severity": "HIGH",
+                "message": "Revenue dropped more than 15% period-over-period.",
             },
             {
                 "label":     "receivables_spike",

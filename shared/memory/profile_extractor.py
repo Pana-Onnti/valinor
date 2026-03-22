@@ -14,7 +14,7 @@ from datetime import datetime
 
 import structlog
 
-from .client_profile import ClientProfile, FindingRecord, KPIDataPoint
+from .client_profile import ClientProfile
 
 logger = structlog.get_logger()
 
@@ -256,6 +256,7 @@ class ProfileExtractor:
 
 # Module singleton
 _extractor: Optional[ProfileExtractor] = None
+
 
 def get_profile_extractor() -> ProfileExtractor:
     global _extractor

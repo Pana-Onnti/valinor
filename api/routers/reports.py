@@ -7,12 +7,10 @@ Extracted from main.py for better modularity.
 import os
 import sys
 import json
-from datetime import datetime
+from datetime import datetime  # noqa: F401
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import HTMLResponse
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 import structlog
 import redis.asyncio as redis
 

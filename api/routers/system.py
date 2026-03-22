@@ -11,8 +11,7 @@ import importlib
 from typing import Optional
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Depends, Body, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, Depends, Body
 import structlog
 import redis.asyncio as redis
 
@@ -40,13 +39,13 @@ async def health_check():
         redis_client = await get_redis()
         await redis_client.ping()
         redis_status = "healthy"
-    except:
+    except Exception:
         redis_status = "unhealthy"
 
     try:
         await metadata_storage.health_check()
         storage_status = "healthy"
-    except:
+    except Exception:
         storage_status = "unhealthy"
 
     overall_status = "healthy" if all([
@@ -136,7 +135,7 @@ async def system_status():
         redis_ok = True
         info = await r.info("server")
         redis_info = {"version": info.get("redis_version"), "uptime_days": info.get("uptime_in_days")}
-    except:
+    except Exception:
         pass
 
     db_ok = False
@@ -147,7 +146,7 @@ async def system_status():
             conn = await asyncpg.connect(db_url)
             await conn.close()
             db_ok = True
-    except:
+    except Exception:
         pass
 
     return {
@@ -219,7 +218,7 @@ async def system_metrics():
         try:
             async with pool.acquire() as conn:
                 client_count = await conn.fetchval("SELECT COUNT(*) FROM client_profiles")
-        except:
+        except Exception:
             pass
 
     estimated_cost_usd = round(status_counts["completed"] * 8.0, 2)

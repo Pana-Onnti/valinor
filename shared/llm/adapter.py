@@ -3,8 +3,7 @@ Adapter layer to make the new LLM abstraction compatible with existing Valinor c
 Drop-in replacement for claude_agent_sdk that uses our provider system.
 """
 
-import asyncio
-from typing import AsyncIterator, Optional, Dict, Any
+from typing import AsyncIterator, Optional
 from .factory import get_provider
 from .base import LLMOptions, ModelType
 from .config import LLMConfig
@@ -16,7 +15,7 @@ _global_provider = None
 
 class ClaudeAgentOptions:
     """Backward compatible options class mimicking claude_agent_sdk"""
-    
+
     def __init__(
         self,
         model: str = "sonnet",
@@ -36,7 +35,7 @@ class ClaudeAgentOptions:
             "claude-3-haiku": ModelType.HAIKU,
             "claude-3-opus": ModelType.OPUS
         }
-        
+
         self.options = LLMOptions(
             model=model_mapping.get(model, ModelType.SONNET),
             temperature=temperature,
@@ -45,7 +44,7 @@ class ClaudeAgentOptions:
             system_prompt=system_prompt,
             tools=tools
         )
-        
+
         # Store any extra kwargs for compatibility
         self.extra = kwargs
 
@@ -59,18 +58,18 @@ async def query(
     Maintains 100% API compatibility with existing Valinor agents.
     """
     global _global_provider
-    
+
     # Initialize provider if needed
     if not _global_provider:
         config = LLMConfig.from_env()
         _global_provider = await get_provider(config)
-    
+
     # Convert options
     llm_options = options.options if options else LLMOptions()
-    
+
     # Execute query
     result = await _global_provider.query(prompt, llm_options)
-    
+
     # Handle streaming vs non-streaming
     if isinstance(result, AsyncIterator):
         # Already an async iterator, return as-is
@@ -98,11 +97,11 @@ class Agent:
     """
     Agent class mimicking claude_agent_sdk.Agent for compatibility.
     """
-    
+
     def __init__(
         self,
         name: str,
-        description: str, 
+        description: str,
         system_prompt: str,
         tools: Optional[list] = None,
         **kwargs
@@ -113,18 +112,18 @@ class Agent:
         self.tools = tools
         self.kwargs = kwargs
         self.provider = None
-    
+
     async def __aenter__(self):
         """Async context manager entry"""
         config = LLMConfig.from_env()
         self.provider = await get_provider(config)
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit"""
         if self.provider:
             await self.provider.close()
-    
+
     async def query(
         self,
         prompt: str,
@@ -140,7 +139,7 @@ class Agent:
             tools=self.tools,
             **kwargs
         )
-        
+
         async for chunk in query(prompt, options):
             yield chunk
 

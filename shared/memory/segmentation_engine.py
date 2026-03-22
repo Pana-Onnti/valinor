@@ -10,9 +10,8 @@ For other industries, uses equivalent tiers.
 Segments are stored in ClientProfile and injected into agent context.
 """
 from __future__ import annotations
-import json
 from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
 
 import structlog
@@ -272,6 +271,7 @@ class SegmentationEngine:
 
 # Module singleton
 _engine: Optional[SegmentationEngine] = None
+
 
 def get_segmentation_engine() -> SegmentationEngine:
     global _engine

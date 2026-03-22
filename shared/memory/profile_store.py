@@ -5,7 +5,6 @@ Uses the same backend as MetadataStorage (Docker PostgreSQL on port 5450).
 from __future__ import annotations
 import os
 import json
-import asyncio
 import contextlib
 from typing import Optional
 from datetime import datetime
@@ -181,6 +180,7 @@ def detect_schema_drift(cached_entity_map: dict, new_entity_map: dict) -> bool:
 
 # Module-level singleton
 _store: Optional[ProfileStore] = None
+
 
 def get_profile_store() -> ProfileStore:
     global _store

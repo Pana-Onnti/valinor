@@ -7,7 +7,7 @@ deltas, text truncation, and slug generation.
 
 import re
 import unicodedata
-from typing import Optional
+from typing import Optional  # noqa: F401
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ Uses ClientProfile data to make LLM calls client-specific from run #2 onwards.
 """
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from datetime import datetime
+from datetime import datetime  # noqa: F401
 
 if TYPE_CHECKING:
     from shared.memory.client_profile import ClientProfile

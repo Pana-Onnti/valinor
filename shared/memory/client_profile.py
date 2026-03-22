@@ -3,7 +3,6 @@ ClientProfile — persistent per-client state that accumulates across runs.
 Stored in PostgreSQL (client_profiles table) or local file fallback.
 """
 from __future__ import annotations
-import json
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any
 from datetime import datetime

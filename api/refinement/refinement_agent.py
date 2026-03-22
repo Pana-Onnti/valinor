@@ -5,14 +5,13 @@ Generates ClientRefinement: table_weights, query_hints, focus_areas, suppress_id
 """
 from __future__ import annotations
 import json
-import asyncio
 from typing import Dict, Any, Optional, TYPE_CHECKING
 from datetime import datetime
 
 import structlog
 
 if TYPE_CHECKING:
-    from shared.memory.client_profile import ClientProfile, ClientRefinement
+    from shared.memory.client_profile import ClientProfile, ClientRefinement  # noqa: F401
 
 logger = structlog.get_logger()
 
@@ -36,7 +35,7 @@ class RefinementAgent:
         Analyze a completed run and produce a ClientRefinement.
         Falls back to heuristic analysis if LLM is unavailable.
         """
-        from shared.memory.client_profile import ClientRefinement
+        from shared.memory.client_profile import ClientRefinement  # noqa: F811, F401
 
         try:
             refinement = await self._llm_analyze(profile, findings, reports, period, run_delta)

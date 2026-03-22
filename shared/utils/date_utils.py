@@ -28,9 +28,9 @@ _HALF_BOUNDS: dict[int, tuple[tuple[int, int], tuple[int, int]]] = {
 
 # Pre-compiled patterns for recognised period formats.
 _RE_QUARTER = re.compile(r"^Q([1-4])-(\d{4})$", re.IGNORECASE)
-_RE_HALF    = re.compile(r"^H([12])-(\d{4})$", re.IGNORECASE)
-_RE_YEAR    = re.compile(r"^(\d{4})$")
-_RE_MONTH   = re.compile(r"^(\d{4})-(\d{2})$")
+_RE_HALF = re.compile(r"^H([12])-(\d{4})$", re.IGNORECASE)
+_RE_YEAR = re.compile(r"^(\d{4})$")
+_RE_MONTH = re.compile(r"^(\d{4})-(\d{2})$")
 
 
 def parse_period(period: str) -> tuple[str, str]:
@@ -76,7 +76,7 @@ def parse_period(period: str) -> tuple[str, str]:
         year = int(m.group(2))
         (sm, sd), (em, ed) = _QUARTER_BOUNDS[q]
         start = date(year, sm, sd).isoformat()
-        end   = date(year, em, ed).isoformat()
+        end = date(year, em, ed).isoformat()
         return start, end
 
     # --- Half-year ---
@@ -86,7 +86,7 @@ def parse_period(period: str) -> tuple[str, str]:
         year = int(m.group(2))
         (sm, sd), (em, ed) = _HALF_BOUNDS[h]
         start = date(year, sm, sd).isoformat()
-        end   = date(year, em, ed).isoformat()
+        end = date(year, em, ed).isoformat()
         return start, end
 
     # --- Full year ---
@@ -94,18 +94,18 @@ def parse_period(period: str) -> tuple[str, str]:
     if m:
         year = int(m.group(1))
         start = date(year, 1, 1).isoformat()
-        end   = date(year, 12, 31).isoformat()
+        end = date(year, 12, 31).isoformat()
         return start, end
 
     # --- Monthly: YYYY-MM ---
     m = _RE_MONTH.match(period)
     if m:
         import calendar
-        year  = int(m.group(1))
+        year = int(m.group(1))
         month = int(m.group(2))
         last_day = calendar.monthrange(year, month)[1]
         start = date(year, month, 1).isoformat()
-        end   = date(year, month, last_day).isoformat()
+        end = date(year, month, last_day).isoformat()
         return start, end
 
     raise ValueError(
@@ -146,9 +146,9 @@ def format_duration(seconds: float) -> str:
     """
     total_seconds = int(seconds)
 
-    hours   = total_seconds // 3600
+    hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
-    secs    = total_seconds % 60
+    secs = total_seconds % 60
 
     if hours > 0:
         if minutes > 0:

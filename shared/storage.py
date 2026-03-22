@@ -5,9 +5,8 @@ Stores only metadata and aggregated results, NO client data.
 
 import os
 import json
-import hashlib
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 import structlog
 
 try:
@@ -18,6 +17,7 @@ except ImportError:
     SupabaseClient = None  # type: ignore
 
 logger = structlog.get_logger()
+
 
 class MetadataStorage:
     """
@@ -46,15 +46,15 @@ class MetadataStorage:
             logger.info("Using local file storage for metadata")
             self.supabase = None
             self.use_supabase = False
-            
+
         # Local storage fallback directory
         self.local_storage_dir = "/tmp/valinor_metadata"
         os.makedirs(self.local_storage_dir, exist_ok=True)
-    
+
     async def store_job_metadata(self, job_id: str, metadata: Dict[str, Any]) -> bool:
         """
         Store job execution metadata.
-        
+
         Args:
             job_id: Unique job identifier
             metadata: Job metadata (no sensitive data)
@@ -62,7 +62,7 @@ class MetadataStorage:
                 - period: Analysis period
                 - config_hash: Hash of configuration
                 - started_at: Start timestamp
-        
+
         Returns:
             Success status
         """
@@ -76,7 +76,7 @@ class MetadataStorage:
                 "started_at": datetime.utcnow().isoformat(),
                 "status": "started"
             }
-            
+
             if self.use_supabase and self.supabase:
                 # Store in Supabase
                 self.supabase.table('analysis_jobs').insert(safe_metadata).execute()
@@ -85,18 +85,18 @@ class MetadataStorage:
                 file_path = os.path.join(self.local_storage_dir, f"job_{job_id}.json")
                 with open(file_path, 'w') as f:
                     json.dump(safe_metadata, f, indent=2)
-            
+
             logger.info(
                 "Stored job metadata",
                 job_id=job_id,
                 client=safe_metadata["client_name"]
             )
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to store job metadata: {e}")
             return False
-    
+
     async def update_job_status(
         self,
         job_id: str,
@@ -105,12 +105,12 @@ class MetadataStorage:
     ) -> bool:
         """
         Update job status and progress.
-        
+
         Args:
             job_id: Job identifier
             status: New status (processing, completed, failed)
             additional_data: Additional metadata to store
-        
+
         Returns:
             Success status
         """
@@ -119,7 +119,7 @@ class MetadataStorage:
                 "status": status,
                 "updated_at": datetime.utcnow().isoformat()
             }
-            
+
             if additional_data:
                 # Filter out sensitive data
                 safe_data = {
@@ -127,7 +127,7 @@ class MetadataStorage:
                     if k not in ["password", "secret", "key", "token"]
                 }
                 update_data.update(safe_data)
-            
+
             if self.use_supabase and self.supabase:
                 self.supabase.table('analysis_jobs').update(update_data).eq(
                     'job_id', job_id
@@ -141,17 +141,17 @@ class MetadataStorage:
                     data.update(update_data)
                     with open(file_path, 'w') as f:
                         json.dump(data, f, indent=2)
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to update job status: {e}")
             return False
-    
+
     async def store_job_results(self, job_id: str, results: Dict[str, Any]) -> bool:
         """
         Store aggregated job results (no client data).
-        
+
         Args:
             job_id: Job identifier
             results: Aggregated results
@@ -159,7 +159,7 @@ class MetadataStorage:
                 - critical_issues: Count of critical issues
                 - execution_time: Total execution time
                 - success: Success status
-        
+
         Returns:
             Success status
         """
@@ -175,11 +175,11 @@ class MetadataStorage:
                 "success": results.get("success", False),
                 "completed_at": datetime.utcnow().isoformat()
             }
-            
+
             if results.get("error"):
                 safe_results["error_type"] = type(results["error"]).__name__
                 # Don't store error message as it might contain sensitive info
-            
+
             if self.use_supabase and self.supabase:
                 self.supabase.table('analysis_results').insert(safe_results).execute()
             else:
@@ -189,25 +189,25 @@ class MetadataStorage:
                 )
                 with open(file_path, 'w') as f:
                     json.dump(safe_results, f, indent=2)
-            
+
             logger.info(
                 "Stored job results",
                 job_id=job_id,
                 findings=safe_results["findings_count"]
             )
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to store job results: {e}")
             return False
-    
+
     async def get_job_metadata(self, job_id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve job metadata.
-        
+
         Args:
             job_id: Job identifier
-        
+
         Returns:
             Job metadata or None
         """
@@ -223,13 +223,13 @@ class MetadataStorage:
                 if os.path.exists(file_path):
                     with open(file_path, 'r') as f:
                         return json.load(f)
-            
+
             return None
-            
+
         except Exception as e:
             logger.error(f"Failed to retrieve job metadata: {e}")
             return None
-    
+
     async def get_client_memory(
         self,
         client_name: str,
@@ -237,11 +237,11 @@ class MetadataStorage:
     ) -> Optional[Dict[str, Any]]:
         """
         Retrieve client memory from previous analyses.
-        
+
         Args:
             client_name: Client identifier
             period: Optional period to retrieve specific memory
-        
+
         Returns:
             Memory dictionary or None
         """
@@ -252,9 +252,9 @@ class MetadataStorage:
                 )
                 if period:
                     query = query.eq('period', period)
-                
+
                 response = query.order('created_at', desc=True).limit(1).execute()
-                
+
                 if response.data:
                     return json.loads(response.data[0].get('memory', '{}'))
             else:
@@ -267,13 +267,13 @@ class MetadataStorage:
                     latest_file = max(files, key=os.path.getctime)
                     with open(latest_file, 'r') as f:
                         return json.load(f)
-            
+
             return None
-            
+
         except Exception as e:
             logger.error(f"Failed to retrieve client memory: {e}")
             return None
-    
+
     async def store_client_memory(
         self,
         client_name: str,
@@ -282,12 +282,12 @@ class MetadataStorage:
     ) -> bool:
         """
         Store client memory for future analyses.
-        
+
         Args:
             client_name: Client identifier
             period: Analysis period
             memory: Memory data (aggregated, no sensitive info)
-        
+
         Returns:
             Success status
         """
@@ -301,7 +301,7 @@ class MetadataStorage:
                 },
                 "history": memory.get("history", [])[-10:]  # Keep last 10 runs
             }
-            
+
             if self.use_supabase and self.supabase:
                 self.supabase.table('client_memory').insert({
                     "client_name": client_name,
@@ -316,39 +316,39 @@ class MetadataStorage:
                 )
                 with open(file_path, 'w') as f:
                     json.dump(safe_memory, f, indent=2)
-            
+
             logger.info(
                 "Stored client memory",
                 client=client_name,
                 period=period
             )
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to store client memory: {e}")
             return False
-    
+
     async def cleanup_old_metadata(self, days: int = 90) -> int:
         """
         Clean up old metadata older than specified days.
-        
+
         Args:
             days: Number of days to keep metadata
-        
+
         Returns:
             Number of records cleaned up
         """
         try:
             cutoff_date = datetime.utcnow() - timedelta(days=days)
             cleaned = 0
-            
+
             if self.use_supabase and self.supabase:
                 # Clean old jobs
                 response = self.supabase.table('analysis_jobs').delete().lt(
                     'created_at', cutoff_date.isoformat()
                 ).execute()
                 cleaned += len(response.data) if response.data else 0
-                
+
                 # Clean old results
                 response = self.supabase.table('analysis_results').delete().lt(
                     'completed_at', cutoff_date.isoformat()
@@ -357,31 +357,31 @@ class MetadataStorage:
             else:
                 # Clean local files
                 import glob
-                import time
-                
+                import time  # noqa: F401
+
                 cutoff_timestamp = cutoff_date.timestamp()
-                
+
                 for pattern in ['job_*.json', 'results_*.json', 'memory_*.json']:
                     files = glob.glob(os.path.join(self.local_storage_dir, pattern))
                     for file_path in files:
                         if os.path.getctime(file_path) < cutoff_timestamp:
                             os.remove(file_path)
                             cleaned += 1
-            
+
             logger.info(f"Cleaned up {cleaned} old metadata records")
             return cleaned
-            
+
         except Exception as e:
             logger.error(f"Failed to cleanup old metadata: {e}")
             return 0
-    
+
     async def get_client_statistics(self, client_name: str) -> Dict[str, Any]:
         """
         Get aggregated statistics for a client.
-        
+
         Args:
             client_name: Client identifier
-        
+
         Returns:
             Statistics dictionary
         """
@@ -395,13 +395,13 @@ class MetadataStorage:
                 "total_findings": 0,
                 "last_analysis": None
             }
-            
+
             if self.use_supabase and self.supabase:
                 # Get job statistics
                 response = self.supabase.table('analysis_jobs').select("*").eq(
                     'client_name', client_name
                 ).execute()
-                
+
                 if response.data:
                     jobs = response.data
                     stats["total_analyses"] = len(jobs)
@@ -411,44 +411,44 @@ class MetadataStorage:
                     stats["failed_analyses"] = sum(
                         1 for j in jobs if j.get("status") == "failed"
                     )
-                    
+
                     # Get results statistics
                     job_ids = [j["job_id"] for j in jobs]
                     results_response = self.supabase.table('analysis_results').select("*").in_(
                         'job_id', job_ids
                     ).execute()
-                    
+
                     if results_response.data:
                         results = results_response.data
                         exec_times = [r["execution_time_seconds"] for r in results if "execution_time_seconds" in r]
                         if exec_times:
                             stats["average_execution_time"] = sum(exec_times) / len(exec_times)
-                        
+
                         stats["total_findings"] = sum(
                             r.get("findings_count", 0) for r in results
                         )
-                    
+
                     # Get last analysis date
                     latest_job = max(jobs, key=lambda j: j.get("started_at", ""))
                     stats["last_analysis"] = latest_job.get("started_at")
-            
+
             return stats
-            
+
         except Exception as e:
             logger.error(f"Failed to get client statistics: {e}")
             return stats
-    
+
     async def health_check(self) -> Dict[str, Any]:
         """
         Check health of storage systems.
-        
+
         Returns:
             Health status dictionary
         """
         try:
             if self.use_supabase and self.supabase:
                 # Test Supabase connection with a simple query
-                response = self.supabase.table('analysis_jobs').select("count").limit(1).execute()
+                self.supabase.table('analysis_jobs').select("count").limit(1).execute()
                 storage_status = "healthy"
                 storage_type = "supabase"
             else:
@@ -459,13 +459,13 @@ class MetadataStorage:
                 os.remove(test_file)
                 storage_status = "healthy"
                 storage_type = "local"
-            
+
             return {
                 "status": storage_status,
                 "type": storage_type,
                 "timestamp": datetime.utcnow().isoformat()
             }
-            
+
         except Exception as e:
             logger.error(f"Storage health check failed: {e}")
             return {
@@ -488,7 +488,7 @@ CREATE TABLE analysis_jobs (
     started_at TIMESTAMP WITH TIME ZONE,
     updated_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
+
     INDEX idx_job_id (job_id),
     INDEX idx_client_name (client_name),
     INDEX idx_status (status)
@@ -507,7 +507,7 @@ CREATE TABLE analysis_results (
     error_type TEXT,
     completed_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
+
     INDEX idx_job_id (job_id)
 );
 
@@ -518,7 +518,7 @@ CREATE TABLE client_memory (
     period TEXT NOT NULL,
     memory JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
+
     INDEX idx_client_period (client_name, period)
 );
 
@@ -531,7 +531,7 @@ CREATE TABLE audit_log (
     client_name TEXT,
     user_id TEXT,
     metadata JSONB,
-    
+
     INDEX idx_timestamp (timestamp),
     INDEX idx_event (event),
     INDEX idx_job_id (job_id)
