@@ -32,7 +32,10 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import structlog
 import redis.asyncio as redis
-import sentry_sdk
+try:
+    import sentry_sdk
+except ImportError:
+    sentry_sdk = None
 
 # Add shared modules to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -84,6 +87,9 @@ def _sentry_before_send(event, hint):
 
 
 def _init_sentry() -> None:
+    if sentry_sdk is None:
+        logger.info("Sentry disabled — sentry_sdk not installed")
+        return
     dsn = os.getenv("SENTRY_DSN", "")
     if not dsn:
         logger.info("Sentry disabled — SENTRY_DSN not set")
