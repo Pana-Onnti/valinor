@@ -54,4 +54,4 @@ Para cada issue:
 ## Checkpoint
 
 Última feature completada: VAL-34 — SPRINT COMPLETO ✅
-Próxima acción: PR develop → main
+Próxima acción: PR develop → master

@@ -1,9 +1,9 @@
 name: Deploy — Valinor SaaS
 
-on:  # VAL-51: deploy only on main (production)
+on:  # VAL-51: deploy only on master (production)
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 jobs:

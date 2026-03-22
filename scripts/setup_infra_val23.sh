@@ -169,7 +169,7 @@ gh api \
     2>/dev/null && log "GitHub Actions habilitado" || warn "No se pudo habilitar Actions — verificá permisos"
 
 # Branch protection
-DEFAULT_BRANCH=$(gh api "/repos/$GITHUB_REPO" --jq '.default_branch' 2>/dev/null || echo "main")  # VAL-51
+DEFAULT_BRANCH=$(gh api "/repos/$GITHUB_REPO" --jq '.default_branch' 2>/dev/null || echo "master")  # VAL-51
 read -p "¿Configurar branch protection en $DEFAULT_BRANCH? (y/n): " ADD_PROTECTION
 if [[ "$ADD_PROTECTION" == "y" ]]; then
     cat <<JSON | gh api \

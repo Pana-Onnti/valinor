@@ -22,7 +22,7 @@ Extraer:
 ```
 → Bash: git branch --show-current
 → Si no estamos en el branch correcto:
-   git checkout main && git pull
+   git checkout master && git pull
    git checkout -b [gitBranchName del issue]
 ```
 
