@@ -307,6 +307,18 @@ async def run_cartographer(
                 "tables_probed": len(prescan.get("candidate_hints", {})),
                 "retry_attempt": bool(calibration_feedback),
             }
+
+            # VAL-2: Validate entity_map against Pydantic schema
+            try:
+                from valinor.schemas.agent_outputs import CartographerOutput
+                CartographerOutput.from_entity_map_dict(entity_map)
+                logger.info("cartographer: entity_map validated against schema OK")
+            except Exception as val_exc:
+                logger.warning(
+                    "cartographer: entity_map schema validation failed: %s",
+                    val_exc,
+                )
+
             return entity_map
         except json.JSONDecodeError as exc:
             logger.warning("cartographer: failed to parse entity_map artifact", exc_info=exc)

@@ -21,6 +21,7 @@ from core.valinor.schemas.agent_outputs import (
     EntityDefinition,
     EntityType,
     QueryBuilderOutput,
+    Relationship,
     Severity,
     SentinelFinding,
     SentinelOutput,
@@ -107,6 +108,86 @@ class TestCartographerOutput:
         restored = CartographerOutput.from_entity_map_dict(d)
         assert restored.client == original.client
         assert "invoices" in restored.entities
+
+    def test_probed_values_field(self):
+        """EntityDefinition accepts probed_values dict."""
+        entity = EntityDefinition(
+            table="c_invoice",
+            probed_values={"issotrx": {"Y": 2366, "N": 1751}},
+        )
+        assert entity.probed_values["issotrx"]["Y"] == 2366
+
+    def test_relationship_model(self):
+        """Relationship model accepts from/to aliases and populate_by_name."""
+        rel = Relationship(**{"from": "invoices", "to": "customers", "via": "c_bpartner_id"})
+        assert rel.source == "invoices"
+        assert rel.target == "customers"
+        assert rel.via == "c_bpartner_id"
+        assert rel.cardinality == "N:1"
+
+        # Also works with source/target directly
+        rel2 = Relationship(source="a", target="b", via="col")
+        assert rel2.source == "a"
+
+    def test_from_entity_map_dict_legacy_type_key(self):
+        """from_entity_map_dict handles legacy 'type' key instead of 'entity_type'."""
+        legacy = {
+            "entities": {
+                "invoices": {
+                    "table": "c_invoice",
+                    "type": "TRANSACTIONAL",
+                    "row_count": 5000,
+                    "key_columns": {},
+                    "base_filter": "",
+                    "confidence": 0.95,
+                    "probed_values": {"issotrx": {"Y": 3000, "N": 2000}},
+                }
+            },
+            "relationships": [
+                {"from": "invoices", "to": "customers", "via": "bp_id", "cardinality": "N:1"},
+            ],
+        }
+        out = CartographerOutput.from_entity_map_dict(legacy)
+        assert out.entities["invoices"].entity_type == EntityType.TRANSACTIONAL
+        assert out.entities["invoices"].probed_values["issotrx"]["Y"] == 3000
+        assert len(out.relationships) == 1
+        assert out.relationships[0].source == "invoices"
+        assert out.relationships[0].target == "customers"
+
+    def test_to_entity_map_dict_includes_probed_values(self):
+        """to_entity_map_dict serializes probed_values and relationships correctly."""
+        original = CartographerOutput(
+            client="test",
+            entities={
+                "invoices": EntityDefinition(
+                    table="c_invoice",
+                    probed_values={"issotrx": {"Y": 100}},
+                )
+            },
+            relationships=[
+                Relationship(source="invoices", target="customers", via="bp_id"),
+            ],
+        )
+        d = original.to_entity_map_dict()
+        assert d["entities"]["invoices"]["probed_values"] == {"issotrx": {"Y": 100}}
+        assert d["relationships"][0] == {
+            "from": "invoices", "to": "customers", "via": "bp_id", "cardinality": "N:1",
+        }
+
+    def test_gloria_fixture_parses(self, gloria_entity_map):
+        """Gloria fixture (legacy format with 'type' key) parses via from_entity_map_dict."""
+        out = CartographerOutput.from_entity_map_dict(gloria_entity_map)
+        assert out.entities["invoices"].entity_type == EntityType.TRANSACTIONAL
+        assert out.entities["invoices"].probed_values["issotrx"]["Y"] == 2366
+        assert len(out.relationships) == 3
+        assert out.relationships[0].source == "invoices"
+
+    def test_generic_fixture_parses(self, generic_entity_map):
+        """Generic fixture (legacy format) parses via from_entity_map_dict."""
+        out = CartographerOutput.from_entity_map_dict(generic_entity_map)
+        assert out.entities["invoices"].entity_type == EntityType.TRANSACTIONAL
+        assert out.entities["customers"].probed_values == {}
+        assert len(out.relationships) == 1
 
 
 # ── QueryBuilder ──────────────────────────────────────────────────────────────
