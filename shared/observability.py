@@ -188,8 +188,8 @@ def observe_agent(agent_name: str):
                     )
                     raise
 
-        import inspect
-        if inspect.iscoroutinefunction(fn):
+        import inspect as _inspect  # noqa: F811
+        if _inspect.iscoroutinefunction(fn):
             return async_wrapper
         return sync_wrapper
 

@@ -11,19 +11,17 @@ import time
 import math
 import asyncio
 import re as _re
-from typing import Dict, Any, Optional
+from typing import Dict, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, status, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+from fastapi.responses import FileResponse, StreamingResponse
 import structlog
 import redis.asyncio as redis
 
 from api.models import AnalysisRequest, JobStatus
-from api.deps import get_redis, get_limiter
+from api.deps import get_redis, get_limiter  # noqa: F401
 
 logger = structlog.get_logger()
 
@@ -39,15 +37,16 @@ def _validate_client_name(name: str) -> str:
         raise ValueError("client_name may only contain alphanumeric characters, underscore, hyphen, dot")
     return name
 
+
 def _validate_period(period: str) -> str:
     if not period:
         return period
     patterns = [
-        r'^Q[1-4]-\d{4}$',      # Q1-2025
+        r'^Q[1-4]-\d{4}$',  # Q1-2025
         r'^H[12]-\d{4}$',       # H1-2025
         r'^\d{4}$',              # 2025
         r'^\d{4}-\d{2}$',       # 2025-04 (monthly)
-        r'^[A-Z][a-z]+-\d{4}$', # Enero-2025
+        r'^[A-Z][a-z]+-\d{4}$',  # Enero-2025
     ]
     if not any(_re.match(p, period) for p in patterns):
         raise ValueError(f"Invalid period format: {period}. Expected: 2025-04, Q1-2025, H1-2025, 2025")
@@ -72,7 +71,6 @@ async def start_analysis(
 
     Returns immediately with job ID. Use /api/jobs/{job_id}/status to track progress.
     """
-    limiter = get_limiter()
     # Input validation
     if body.client_name:
         try:
@@ -513,6 +511,7 @@ async def download_file(job_id: str, filename: str):
 
 
 _VALID_SORT_FIELDS = {"created_at", "status", "client_name"}
+
 
 @router.get("/jobs", summary="List jobs")
 async def list_jobs(

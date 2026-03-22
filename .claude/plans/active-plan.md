@@ -24,10 +24,11 @@
 - VAL-56 N+1 query batching (fk_discovery, cartographer, connectors)
 
 ### 🔄 En progreso
-- VAL-23: Gestión de accesos — TAREA HUMANA (cuentas, tokens, DNS)
+- VAL-23: Gestión de accesos — PARCIALMENTE RESUELTO. CI/CD workflows ya existen (tests, deploy, docker-build). Pendiente humano: verificar secrets en GitHub, Railway project/environments, Sentry, Slack webhooks, DNS, INFRASTRUCTURE.md
+- VAL-20: Staging + CD — CD pipeline ya existe (deploy.yml → Railway + Vercel). Pendiente: approval gate para prod, Sentry SDK, health checks, smoke tests post-deploy
 
 ### ⏳ Backlog técnico pendiente
-- VAL-20: Fase 2 Staging — necesita Railway config
+- VAL-20: Fase 2 Staging — CD pipeline existe, falta approval gate + Sentry + health checks (movido a En progreso)
 - VAL-21: Fase 3 Multi-tenant RLS + observability
 - VAL-22: Fase 4 Scale — load testing, zero-downtime
 - VAL-25: Claude API Cost Optimization — prompt caching OK, falta Batch API

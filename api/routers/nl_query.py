@@ -12,7 +12,6 @@ Use this for ad-hoc questions. Use the analysis pipeline for scheduled reports.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional

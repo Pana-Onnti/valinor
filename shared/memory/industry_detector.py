@@ -4,8 +4,7 @@ Runs once after the first Cartographer call, updates profile.
 Uses a fast Haiku call with a tiny prompt.
 """
 from __future__ import annotations
-import re
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, TYPE_CHECKING
 
 import structlog
 

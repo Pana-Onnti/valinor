@@ -45,41 +45,41 @@ class AnthropicProvider(LLMProvider):
             os.getenv("ENABLE_TOKEN_TRACKING", "true").lower() in ("true", "1", "yes"),
         )
         self.agent_name: str = config.get("agent_name", "unknown")
-    
+
     async def initialize(self) -> None:
         """Initialize Anthropic client with config"""
         if self._initialized:
             return
-        
+
         if not self.api_key:
             raise ValueError("Anthropic API key is required")
-        
+
         self.client = AsyncAnthropic(
             api_key=self.api_key,
             base_url=self.base_url,
             timeout=self.timeout,
             max_retries=self.max_retries
         )
-        
+
         # Verify connection with a minimal request
         await self.health_check()
         self._initialized = True
-    
+
     async def query(
-        self, 
-        prompt: str, 
+        self,
+        prompt: str,
         options: Optional[LLMOptions] = None
     ) -> Union[LLMResponse, AsyncIterator[str]]:
         """Execute query using Anthropic API"""
         if not self._initialized:
             await self.initialize()
-        
+
         options = options or LLMOptions()
         self.validate_options(options)
-        
+
         # Build message format for Anthropic
         messages = [{"role": "user", "content": prompt}]
-        
+
         # Prepare API parameters
         params = {
             "model": options._map_model_to_anthropic(),
@@ -88,7 +88,7 @@ class AnthropicProvider(LLMProvider):
             "temperature": options.temperature,
             "stream": options.stream
         }
-        
+
         if options.system_prompt:
             if self.use_kv_cache:
                 # Wrap static system prompt with cache_control for KV-cache
@@ -120,24 +120,24 @@ class AnthropicProvider(LLMProvider):
                 response = await self.client.messages.create(**params)
                 self._track_tokens(response)
                 return self._format_response(response)
-        
+
         except anthropic.RateLimitError as e:
             # Handle rate limiting with exponential backoff
             retry_after = int(e.response.headers.get("retry-after", 60))
             await asyncio.sleep(retry_after)
             return await self.query(prompt, options)  # Retry
-        
+
         except anthropic.APIError as e:
             # Log and potentially fallback
             raise Exception(f"Anthropic API error: {str(e)}")
-    
+
     async def _stream_response(self, params: Dict[str, Any]) -> AsyncIterator[str]:
         """Handle streaming responses"""
         async with self.client.messages.stream(**params) as stream:
             async for chunk in stream:
                 if chunk.type == "content_block_delta":
                     yield chunk.delta.text
-    
+
     def _track_tokens(self, response: Message) -> None:
         """
         Capture token usage (including cache metrics) and forward to TokenTracker.
@@ -186,7 +186,7 @@ class AnthropicProvider(LLMProvider):
             },
             raw_response=response,
         )
-    
+
     def _convert_tools(self, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Convert generic tool format to Anthropic format"""
         anthropic_tools = []
@@ -197,12 +197,12 @@ class AnthropicProvider(LLMProvider):
                 "input_schema": tool.get("parameters", {})
             })
         return anthropic_tools
-    
+
     async def health_check(self) -> bool:
         """Verify API connectivity"""
         try:
             # Use a minimal request to check connectivity
-            response = await self.client.messages.create(
+            await self.client.messages.create(
                 model="claude-3-haiku-20240307",
                 messages=[{"role": "user", "content": "test"}],
                 max_tokens=1
@@ -210,17 +210,17 @@ class AnthropicProvider(LLMProvider):
             return True
         except Exception:
             return False
-    
+
     async def close(self) -> None:
         """Clean up client resources"""
         if self.client:
             await self.client.close()
         self._initialized = False
-    
+
     def supported_models(self) -> List[ModelType]:
         """Return Anthropic-supported models"""
         return [ModelType.OPUS, ModelType.SONNET, ModelType.HAIKU]
-    
+
     def estimate_cost(self, prompt_tokens: int, completion_tokens: int, model: ModelType) -> float:
         """Estimate cost based on Anthropic pricing"""
         # Pricing as of 2025 (per 1M tokens)
@@ -229,9 +229,9 @@ class AnthropicProvider(LLMProvider):
             ModelType.SONNET: {"input": 3.00, "output": 15.00},
             ModelType.HAIKU: {"input": 0.25, "output": 1.25}
         }
-        
+
         model_pricing = pricing.get(model, pricing[ModelType.SONNET])
         input_cost = (prompt_tokens / 1_000_000) * model_pricing["input"]
         output_cost = (completion_tokens / 1_000_000) * model_pricing["output"]
-        
+
         return input_cost + output_cost

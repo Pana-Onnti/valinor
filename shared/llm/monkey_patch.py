@@ -5,8 +5,7 @@ a nuestro sistema LLM provider. Esto permite switching sin tocar el código core
 
 import os
 import sys
-import asyncio
-from typing import AsyncIterator, Optional, Any, Dict
+from typing import AsyncIterator, Optional, Dict
 from pathlib import Path
 
 # Add shared to path if needed
@@ -14,9 +13,9 @@ current_dir = Path(__file__).parent.parent.parent
 if str(current_dir) not in sys.path:
     sys.path.insert(0, str(current_dir))
 
-from shared.llm.base import LLMOptions, ModelType
-from shared.llm.config import LLMConfig, ProviderType
-from shared.llm.factory import get_provider
+from shared.llm.base import LLMOptions, ModelType  # noqa: E402
+from shared.llm.config import LLMConfig, ProviderType  # noqa: E402
+from shared.llm.factory import get_provider  # noqa: E402, F401
 
 
 class ClaudeSDKInterceptor:
@@ -24,12 +23,12 @@ class ClaudeSDKInterceptor:
     Interceptor que reemplaza las funciones de claude_agent_sdk
     con nuestro sistema de providers.
     """
-    
+
     def __init__(self):
         self.provider = None
         self.config = None
         self._initialize()
-    
+
     def _initialize(self):
         """Initialize provider based on environment"""
         try:
@@ -61,27 +60,27 @@ class ClaudeSDKInterceptor:
         except Exception as e:
             print(f"❌ Failed to initialize provider: {e}")
             self.config = LLMConfig(provider_type=ProviderType.MOCK)
-    
-    async def get_provider(self):
+
+    async def get_provider(self):  # noqa: F811
         """Get provider instance, creating if needed"""
         if not self.provider:
-            from shared.llm.factory import get_provider
-            self.provider = await get_provider(self.config)
+            from shared.llm.factory import get_provider as _get_provider  # noqa: F811
+            self.provider = await _get_provider(self.config)
         return self.provider
-    
+
     async def query(self, prompt: str, options: Optional[Dict] = None) -> AsyncIterator[str]:
         """
         Drop-in replacement for claude_agent_sdk.query()
         """
         try:
             provider = await self.get_provider()
-            
+
             # Convert options to our format
             llm_options = self._convert_options(options)
-            
+
             # Execute query
             result = await provider.query(prompt, llm_options)
-            
+
             # Handle different response types
             if hasattr(result, '__aiter__'):
                 # Streaming response
@@ -90,17 +89,17 @@ class ClaudeSDKInterceptor:
             else:
                 # Non-streaming response
                 yield result.content
-                
+
         except Exception as e:
             print(f"❌ Query failed: {e}")
             # Return error message as single chunk
             yield f"Error: {str(e)}"
-    
+
     def _convert_options(self, options: Optional[Dict]) -> LLMOptions:
         """Convert claude_agent_sdk options to our format"""
         if not options:
             return LLMOptions()
-        
+
         # Handle both dict and ClaudeAgentOptions object
         if hasattr(options, 'to_dict'):
             options = options.to_dict()
@@ -114,7 +113,7 @@ class ClaudeSDKInterceptor:
                 "system_prompt": getattr(options, "system_prompt", None),
                 "tools": getattr(options, "tools", None)
             }
-        
+
         # Map model names
         model_name = options.get("model", "sonnet")
         if model_name in ["sonnet", "claude-3-sonnet"]:
@@ -125,7 +124,7 @@ class ClaudeSDKInterceptor:
             model = ModelType.OPUS
         else:
             model = ModelType.SONNET  # Default
-        
+
         return LLMOptions(
             model=model,
             temperature=options.get("temperature", 0.7),
@@ -176,7 +175,7 @@ async def query(prompt: str, options=None):
 
 # Mock ClaudeAgentOptions for compatibility
 class ClaudeAgentOptions:
-    def __init__(self, model="sonnet", temperature=0.7, max_tokens=None, 
+    def __init__(self, model="sonnet", temperature=0.7, max_tokens=None,
                  stream=True, system_prompt=None, tools=None, **kwargs):
         self.model = model
         self.temperature = temperature
@@ -187,7 +186,7 @@ class ClaudeAgentOptions:
         # Store any additional kwargs
         for k, v in kwargs.items():
             setattr(self, k, v)
-    
+
     def to_dict(self):
         return {
             "model": self.model,
@@ -204,9 +203,11 @@ class AssistantMessage:
     def __init__(self, content):
         self.content = content
 
+
 class TextBlock:
     def __init__(self, text=""):
         self.text = text
+
 
 def tool(*args, **kwargs):
     """Mock tool decorator — accepts any signature used by claude_agent_sdk"""
@@ -214,13 +215,16 @@ def tool(*args, **kwargs):
         return func
     return decorator
 
+
 def create_sdk_mcp_server(*args, **kwargs):
     """Mock MCP server creation"""
     class MockServer:
         def __init__(self):
             pass
+
         def start(self):
             pass
+
         def stop(self):
             pass
     return MockServer()
@@ -232,7 +236,7 @@ def apply_monkey_patch():
     Call this before importing any core valinor modules.
     """
     print("🐵 Applying claude_agent_sdk monkey patch...")
-    
+
     # Create mock module
     import types
     mock_module = types.ModuleType('claude_agent_sdk')
@@ -242,10 +246,10 @@ def apply_monkey_patch():
     mock_module.TextBlock = TextBlock
     mock_module.tool = tool
     mock_module.create_sdk_mcp_server = create_sdk_mcp_server
-    
+
     # Replace in sys.modules
     sys.modules['claude_agent_sdk'] = mock_module
-    
+
     print("✅ Monkey patch applied successfully")
 
 
@@ -257,7 +261,7 @@ def switch_provider(provider_type: str, **config_kwargs):
         provider_type: "console_cli" | "anthropic_api" | "mock"
         **config_kwargs: Additional config (e.g., api_key, cli_path)
     """
-    global _interceptor
+    global _interceptor  # noqa: F824
 
     print(f"🔄 Switching to provider: {provider_type}")
     os.environ["LLM_PROVIDER"] = provider_type
@@ -283,10 +287,10 @@ def switch_provider(provider_type: str, **config_kwargs):
                 "max_retries": config_kwargs.get("max_retries", 3)
             }
         )
-    
+
     # Reset provider to force recreation
     _interceptor.provider = None
-    
+
     print(f"✅ Switched to {provider_type}")
 
 

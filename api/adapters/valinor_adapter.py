@@ -8,7 +8,7 @@ import sys
 import json
 import re
 import asyncio
-import tempfile
+import tempfile  # noqa: F401
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable
 from datetime import datetime
@@ -27,7 +27,7 @@ from shared.llm.monkey_patch import apply_monkey_patch  # noqa: E402
 apply_monkey_patch()
 # ──────────────────────────────────────────────────────────────────────────────
 
-from api.adapters.exceptions import (  # noqa: E402
+from api.adapters.exceptions import (  # noqa: E402, F401
     ValinorError,
     SSHConnectionError,
     DatabaseConnectionError,
@@ -36,48 +36,49 @@ from api.adapters.exceptions import (  # noqa: E402
 )
 
 # Import original Valinor components (unchanged) — NOW safe to import
-from valinor.config import load_client_config, parse_period
-from valinor.agents.cartographer import run_cartographer
-from valinor.agents.query_builder import build_queries
-from valinor.pipeline import run_analysis_agents, execute_queries, compute_baseline
-from valinor.agents.narrators.executive import narrate_executive
-from valinor.deliver import deliver_reports
-from valinor.gates import gate_cartographer, gate_analysis
+from valinor.config import load_client_config, parse_period  # noqa: E402, F401
+from valinor.agents.cartographer import run_cartographer  # noqa: E402, F401
+from valinor.agents.query_builder import build_queries  # noqa: E402
+from valinor.pipeline import run_analysis_agents, execute_queries, compute_baseline  # noqa: E402
+from valinor.agents.narrators.executive import narrate_executive  # noqa: E402
+from valinor.deliver import deliver_reports  # noqa: E402
+from valinor.gates import gate_cartographer, gate_analysis  # noqa: E402
 
-from shared.ssh_tunnel import create_ssh_tunnel, ZeroTrustValidator
-from shared.storage import MetadataStorage
-from shared.memory.profile_store import get_profile_store
-from shared.memory.profile_extractor import get_profile_extractor
-from shared.webhook_dispatcher import WebhookDispatcher, create_webhook_payload
-from api.refinement.prompt_tuner import PromptTuner
-from api.refinement.focus_ranker import FocusRanker
-from api.refinement.refinement_agent import RefinementAgent
-from api.refinement.query_evolver import QueryEvolver
-from shared.memory.industry_detector import IndustryDetector
-from shared.memory.adaptive_context_builder import build_adaptive_context
-from shared.memory.segmentation_engine import get_segmentation_engine
-from core.valinor.quality.currency_guard import get_currency_guard
-from core.valinor.quality.data_quality_gate import DataQualityGate
-from core.valinor.quality.provenance import ProvenanceRegistry
+from shared.ssh_tunnel import create_ssh_tunnel, ZeroTrustValidator  # noqa: E402
+from shared.storage import MetadataStorage  # noqa: E402
+from shared.memory.profile_store import get_profile_store  # noqa: E402
+from shared.memory.profile_extractor import get_profile_extractor  # noqa: E402
+from shared.webhook_dispatcher import WebhookDispatcher, create_webhook_payload  # noqa: E402
+from api.refinement.prompt_tuner import PromptTuner  # noqa: E402
+from api.refinement.focus_ranker import FocusRanker  # noqa: E402
+from api.refinement.refinement_agent import RefinementAgent  # noqa: E402
+from api.refinement.query_evolver import QueryEvolver  # noqa: E402
+from shared.memory.industry_detector import IndustryDetector  # noqa: E402
+from shared.memory.adaptive_context_builder import build_adaptive_context  # noqa: E402
+from shared.memory.segmentation_engine import get_segmentation_engine  # noqa: E402
+from core.valinor.quality.currency_guard import get_currency_guard  # noqa: E402
+from core.valinor.quality.data_quality_gate import DataQualityGate  # noqa: E402
+from core.valinor.quality.provenance import ProvenanceRegistry  # noqa: E402
 
 logger = structlog.get_logger()
 
 try:
-    from api.metrics import JOBS_TOTAL, ACTIVE_JOBS, ANALYSIS_COST_USD, DQ_CHECKS_TOTAL
+    from api.metrics import JOBS_TOTAL, ACTIVE_JOBS, ANALYSIS_COST_USD, DQ_CHECKS_TOTAL  # noqa: F401
     _METRICS_AVAILABLE = True
 except ImportError:
     _METRICS_AVAILABLE = False
+
 
 class ValinorAdapter:
     """
     Adapter that exposes Valinor v0 functionality for SaaS usage.
     Zero modifications to core Valinor code - pure wrapper pattern.
     """
-    
+
     def __init__(self, progress_callback: Optional[Callable] = None):
         """
         Initialize Valinor adapter.
-        
+
         Args:
             progress_callback: Async function to call with progress updates
                               Signature: async def callback(stage: str, progress: int, message: str)
@@ -103,7 +104,7 @@ class ValinorAdapter:
     ) -> Dict[str, Any]:
         """
         Run complete Valinor analysis pipeline with SaaS enhancements.
-        
+
         Args:
             job_id: Unique job identifier
             client_name: Client name for tracking
@@ -112,7 +113,7 @@ class ValinorAdapter:
                 - db_config: Database connection parameters
             period: Analysis period (Q1-2025, H1-2025, 2025)
             options: Additional options (timeout, debug mode, etc.)
-            
+
         Returns:
             Analysis results dictionary
         """
@@ -188,7 +189,7 @@ class ValinorAdapter:
             results["findings"] = pipeline_results.get("findings", {})
             results["reports"] = pipeline_results.get("reports", {})
             results["run_delta"] = pipeline_results.get("run_delta", {})
-                
+
             # Calculate execution time
             execution_time = (datetime.utcnow() - start_time).total_seconds()
             results["execution_time_seconds"] = execution_time
@@ -199,14 +200,14 @@ class ValinorAdapter:
             _findings = results.get("findings", {})
             _num_agents = len(_findings) if isinstance(_findings, dict) else 3
             results["estimated_cost_usd"] = round(0.008 + (_num_agents * 0.002), 3)
-            
+
             # Store results metadata (no client data)
             await self.metadata_storage.store_job_results(job_id, {
                 "findings_count": len(results.get("findings", {})),
                 "execution_time": execution_time,
                 "success": True
             })
-            
+
             await self._progress("completed", 100, f"Analysis completed in {execution_time:.1f} seconds")
 
             if _METRICS_AVAILABLE:
@@ -257,7 +258,7 @@ class ValinorAdapter:
             await self._progress("failed", -1, f"Analysis failed: {str(e)}")
 
             raise e
-    
+
     async def _run_direct_cartographer(self, config: Dict) -> Dict:
         """
         Direct cartographer — bypasses the agent loop.
@@ -474,7 +475,7 @@ RETURN ONLY THE JSON OBJECT."""
                 # Use cached entity_map — skip expensive LLM cartographer call
                 entity_map = profile.entity_map_cache
                 await self._progress("cartographer", 25,
-                    f"Usando mapa de entidades en caché ({len(entity_map.get('entities', {}))} entidades)")
+                                     f"Usando mapa de entidades en caché ({len(entity_map.get('entities', {}))} entidades)")
                 results["stages"]["cartographer"] = {
                     "entities_found": len(entity_map.get("entities", {})),
                     "success": True,
@@ -566,7 +567,7 @@ RETURN ONLY THE JSON OBJECT."""
             results["_provenance"] = provenance
 
             await self._progress("data_quality", 30,
-                f"DQ Score: {dq_report.overall_score:.0f}/100 ({dq_report.confidence_label})")
+                                 f"DQ Score: {dq_report.overall_score:.0f}/100 ({dq_report.confidence_label})")
 
             # ── Factor model decomposition ────────────────────────────────────
             try:
@@ -889,7 +890,6 @@ RETURN ONLY THE JSON OBJECT."""
 
             # Inject historical context for narrator
             if profile.run_count > 0 and profile.run_history:
-                last_run = profile.run_history[-1] if profile.run_history else {}
                 memory["run_history_summary"] = {
                     "previous_run_date": profile.last_run_date,
                     "run_number": profile.run_count + 1,
@@ -1099,7 +1099,7 @@ RETURN ONLY THE JSON OBJECT."""
             logger.info("RefinementAgent completed", client=profile.client_name)
         except Exception as e:
             logger.error("RefinementAgent background task failed", error=str(e))
-    
+
     def _create_temp_config(
         self,
         client_name: str,
@@ -1123,7 +1123,7 @@ RETURN ONLY THE JSON OBJECT."""
             "fiscal_context": original_config.get("fiscal_context", "generic"),
             "overrides": original_config.get("overrides", {})
         }
-    
+
     def _hash_config(self, config: Dict) -> str:
         """Generate hash of configuration for tracking (no sensitive data)."""
         import hashlib
@@ -1135,11 +1135,11 @@ RETURN ONLY THE JSON OBJECT."""
             "db_type": db_cfg.get("type", ""),
             "has_overrides": bool(config.get("overrides"))
         }
-        
+
         return hashlib.md5(
             json.dumps(safe_config, sort_keys=True).encode()
         ).hexdigest()
-    
+
     def _build_memory(
         self,
         entity_map: Dict,
@@ -1179,7 +1179,7 @@ RETURN ONLY THE JSON OBJECT."""
                 }
             ] if previous_memory else []
         }
-    
+
     async def _progress(self, stage: str, progress: int, message: str):
         """Send progress update if callback is configured."""
         if self.progress_callback:
@@ -1197,10 +1197,10 @@ class PipelineExecutor:
     """
     Advanced pipeline executor with fallback mechanisms.
     """
-    
+
     def __init__(self, adapter: ValinorAdapter):
         self.adapter = adapter
-        
+
     async def run_with_fallback(
         self,
         job_id: str,
@@ -1212,7 +1212,7 @@ class PipelineExecutor:
         If non-critical agents fail, continue with partial results.
         """
         results = {"partial_failure": False}
-        
+
         try:
             # Run full pipeline
             results = await self.adapter.run_analysis(
@@ -1221,27 +1221,27 @@ class PipelineExecutor:
                 connection_config=config,
                 period=period
             )
-            
+
         except Exception as e:
             # Check if critical failure
             if "cartographer" in str(e).lower() or "connection" in str(e).lower():
                 # Critical failure - cannot continue
                 raise
-            
+
             # Non-critical failure - try to salvage
             logger.warning(
                 "Non-critical pipeline failure, attempting partial recovery",
                 job_id=job_id,
                 error=str(e)
             )
-            
+
             results["partial_failure"] = True
             results["partial_error"] = str(e)
-            
+
             # Return whatever we managed to collect
-            
+
         return results
-    
+
     async def run_with_retry(
         self,
         job_id: str,
@@ -1253,7 +1253,7 @@ class PipelineExecutor:
         Execute pipeline with automatic retry on transient failures.
         """
         last_error = None
-        
+
         for attempt in range(max_retries + 1):
             try:
                 if attempt > 0:
@@ -1265,17 +1265,17 @@ class PipelineExecutor:
                     )
                     # Wait before retry (exponential backoff)
                     await asyncio.sleep(2 ** attempt)
-                
+
                 return await self.adapter.run_analysis(
                     job_id=job_id,
                     client_name=config["client_name"],
                     connection_config=config,
                     period=period
                 )
-                
+
             except Exception as e:
                 last_error = e
-                
+
                 # Check if error is retryable
                 error_str = str(e).lower()
                 non_retryable = [
@@ -1284,7 +1284,7 @@ class PipelineExecutor:
                     "permission denied",
                     "insufficient privileges"
                 ]
-                
+
                 if any(term in error_str for term in non_retryable):
                     logger.error(
                         "Non-retryable error encountered",
@@ -1292,13 +1292,13 @@ class PipelineExecutor:
                         error=str(e)
                     )
                     raise
-                
+
                 logger.warning(
                     "Retryable error encountered",
                     job_id=job_id,
                     attempt=attempt + 1,
                     error=str(e)
                 )
-        
+
         # All retries exhausted
         raise last_error or Exception("All retry attempts failed")

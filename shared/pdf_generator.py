@@ -152,7 +152,7 @@ def generate_pdf_report(results: dict) -> bytes:
     for i, line in enumerate(all_text_lines):
         # Move text position: first line is already set, subsequent move -14 pt
         if i == 0:
-            stream_parts.append(f"0 0 Td")
+            stream_parts.append("0 0 Td")
         else:
             stream_parts.append("0 -14 Td")
         escaped = _escape_pdf_string(line)

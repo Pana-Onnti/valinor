@@ -13,7 +13,7 @@ import socket
 import tempfile
 import threading
 from contextlib import contextmanager
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 import paramiko
 import structlog
 from cryptography.fernet import Fernet

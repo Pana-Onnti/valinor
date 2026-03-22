@@ -4,7 +4,6 @@ Valinor SaaS API — Background tasks for analysis execution.
 Extracted from main.py for better modularity.
 """
 
-import os
 import json
 import asyncio
 from typing import Dict, Any
@@ -171,7 +170,7 @@ async def run_analysis_task(job_id: str, request_data: Dict[str, Any]):
                         "error": error_msg,
                         "failed_at": datetime.utcnow().isoformat(),
                     })
-            except:
+            except Exception:
                 pass  # Don't fail on status update error
 
         # Fire failure webhooks if registered

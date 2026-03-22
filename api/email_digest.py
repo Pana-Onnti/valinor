@@ -8,7 +8,7 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Dict, Any, Optional, List
+from typing import Dict, Optional, List
 from datetime import datetime
 
 import structlog
@@ -124,8 +124,8 @@ def build_digest_html(
     stats_row_html = _td_sep.join(
         f'<td align="center" style="background:#F9FAFB;border-radius:8px;padding:12px;">'
         f'<div style="font-size:22px;font-weight:800;color:{c};">{v}</div>'
-        f'<div style="font-size:10px;color:#9CA3AF;margin-top:2px;">{l}</div></td>'
-        for l, v, c in _stats_items
+        f'<div style="font-size:10px;color:#9CA3AF;margin-top:2px;">{label}</div></td>'
+        for label, v, c in _stats_items
     )
 
     # Pre-compute full DQ summary section (colored box)

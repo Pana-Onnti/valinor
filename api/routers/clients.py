@@ -560,8 +560,6 @@ async def get_client_stats(client_name: str):
         elif findings_trend[-1] < findings_trend[0]:
             trend_direction = "decreasing"
 
-    resolved = list(profile.resolved_findings.values())
-
     return {
         "client_name": client_name,
         "run_count": profile.run_count,

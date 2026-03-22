@@ -40,21 +40,21 @@ except ImportError:
 # Add shared modules to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from shared.storage import MetadataStorage
-from api.routes.quality import router as quality_router
-from api.routes.onboarding import router as onboarding_router
-from api.routers.nl_query import router as nl_query_router
-from api.routers.jobs import router as jobs_router
-from api.routers.clients import router as clients_router
-from api.routers.alerts import router as alerts_router
-from api.routers.reports import router as reports_router
-from api.routers.system import router as system_router
-from api.logging_config import setup_logging
-from api.metrics import PrometheusMiddleware, metrics_response
-from api.deps import set_redis_client, set_limiter
+from shared.storage import MetadataStorage  # noqa: E402
+from api.routes.quality import router as quality_router  # noqa: E402
+from api.routes.onboarding import router as onboarding_router  # noqa: E402
+from api.routers.nl_query import router as nl_query_router  # noqa: E402
+from api.routers.jobs import router as jobs_router  # noqa: E402
+from api.routers.clients import router as clients_router  # noqa: E402
+from api.routers.alerts import router as alerts_router  # noqa: E402
+from api.routers.reports import router as reports_router  # noqa: E402
+from api.routers.system import router as system_router  # noqa: E402
+from api.logging_config import setup_logging  # noqa: E402
+from api.metrics import PrometheusMiddleware, metrics_response  # noqa: E402, F401
+from api.deps import set_redis_client, set_limiter  # noqa: E402
 
 # Re-export models for backward compatibility (tests import from api.main)
-from api.models import (  # noqa: F401
+from api.models import (  # noqa: F401, E402
     SSHConfig,
     DatabaseConfig,
     AnalysisRequest,
@@ -63,7 +63,7 @@ from api.models import (  # noqa: F401
 )
 
 # Re-export helpers and state for backward compatibility (tests import from api.main)
-from api.routers.jobs import (  # noqa: F401
+from api.routers.jobs import (  # noqa: F401, E402
     _validate_client_name,
     _validate_period,
     _results_cache,
@@ -214,6 +214,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         return response
 
+
 app.add_middleware(SecurityHeadersMiddleware)
 
 
@@ -227,6 +228,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
+
 
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(PrometheusMiddleware)

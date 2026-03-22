@@ -7,7 +7,7 @@ This module is in shared/utils/ because it is used by both core/ and api/ layers
 """
 
 import re
-from typing import Optional
+from typing import Optional  # noqa: F401
 
 import structlog
 

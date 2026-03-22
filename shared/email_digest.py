@@ -40,9 +40,9 @@ _SEVERITY_COLORS: Dict[str, str] = {
     "INFO":     "#2980b9",
 }
 
-_DQ_GREEN  = "#27ae60"
+_DQ_GREEN = "#27ae60"
 _DQ_YELLOW = "#f39c12"
-_DQ_RED    = "#c0392b"
+_DQ_RED = "#c0392b"
 
 
 def _dq_color(score: float) -> str:
@@ -280,10 +280,10 @@ class EmailDigestBuilder:
             for point in last3:
                 if isinstance(point, dict):
                     period = escape(str(point.get("period", "—")))
-                    value  = escape(str(point.get("value", point.get("numeric_value", "—"))))
+                    value = escape(str(point.get("value", point.get("numeric_value", "—"))))
                 else:
                     period = "—"
-                    value  = escape(str(point))
+                    value = escape(str(point))
                 rows.append(
                     f"<tr>"
                     f'<td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">{kpi_label}</td>'
@@ -329,11 +329,11 @@ def send_digest(to_email: str, subject: str, html_body: str) -> bool:
         True if the message was accepted by the server, False on any failure.
         Never raises — all exceptions are caught and logged.
     """
-    smtp_host     = os.environ.get("SMTP_HOST", "").strip()
+    smtp_host = os.environ.get("SMTP_HOST", "").strip()
     smtp_port_str = os.environ.get("SMTP_PORT", "587").strip()
-    smtp_user     = os.environ.get("SMTP_USER", "").strip()
+    smtp_user = os.environ.get("SMTP_USER", "").strip()
     smtp_password = os.environ.get("SMTP_PASSWORD", "").strip()
-    smtp_from     = os.environ.get("SMTP_FROM", "").strip()
+    smtp_from = os.environ.get("SMTP_FROM", "").strip()
 
     missing = [
         name for name, val in [
@@ -358,8 +358,8 @@ def send_digest(to_email: str, subject: str, html_body: str) -> bool:
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"]    = smtp_from
-    msg["To"]      = to_email
+    msg["From"] = smtp_from
+    msg["To"] = to_email
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     try:
@@ -409,6 +409,6 @@ def maybe_send_digest(
     dq_score: float = float(run_results.get("dq_score", 0))
     builder = EmailDigestBuilder()
     html_body = builder.build_html(profile, run_results, delta)
-    subject   = builder.build_subject(profile.client_name, delta, dq_score)
+    subject = builder.build_subject(profile.client_name, delta, dq_score)
 
     return send_digest(to_email, subject, html_body)
