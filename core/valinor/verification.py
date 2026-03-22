@@ -26,6 +26,8 @@ from typing import Any
 
 import structlog
 
+from shared.utils.sql_sanitizer import sanitize_base_filter  # VAL-49
+
 logger = structlog.get_logger()
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -842,10 +844,16 @@ class VerificationEngine:
             table = entity.get("table", "")
             etype = entity.get("type", "")
             key_cols = entity.get("key_columns", {})
-            base_filter = entity.get("base_filter", "")
+            raw_filter = entity.get("base_filter", "")
 
             if not table or not _is_safe_identifier(table):
                 continue
+
+            # VAL-49: sanitize base_filter before SQL interpolation
+            try:
+                base_filter = sanitize_base_filter(raw_filter, context=f"verification:{entity_name}")
+            except ValueError:
+                continue  # skip entities with unsafe filters
 
             # Build WHERE clause from base_filter
             where_parts = []

@@ -38,6 +38,7 @@ from api.routes.onboarding import router as onboarding_router
 from api.routers.nl_query import router as nl_query_router
 from api.logging_config import setup_logging
 from api.metrics import PrometheusMiddleware, metrics_response
+from api.auth import verify_api_key  # VAL-48: API key authentication
 
 setup_logging()
 logger = structlog.get_logger()
@@ -166,19 +167,18 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS — dev + production origins
+# CORS — VAL-52: restrict origins (no wildcard); configurable via CORS_ORIGINS env var
 _CORS_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:8080",
-    "https://valinor-saas.vercel.app",
-    *([o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]),
+    o.strip()
+    for o in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001").split(",")
+    if o.strip()
 ]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_CORS_ORIGINS,
+    allow_origins=_CORS_ORIGINS,  # VAL-52: no wildcard
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # VAL-52: explicit methods
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Accept"],  # VAL-52
 )
 
 # Security headers middleware
@@ -194,6 +194,55 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+
+# VAL-48: API key authentication middleware for all /api/ endpoints
+# Paths that do NOT require authentication:
+_AUTH_EXEMPT_PATHS = {
+    "/health", "/docs", "/redoc", "/openapi.json", "/metrics",
+    "/sentry-debug", "/api/version",
+}
+
+
+class APIKeyAuthMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware that enforces API key auth on /api/ routes.
+    Exempt paths (health, docs, version) are allowed without auth.
+    If VALINOR_API_KEY is not set, auth is disabled (dev mode).
+    VAL-48
+    """
+    async def dispatch(self, request, call_next):
+        path = request.url.path
+
+        # Skip auth for exempt paths and non-API paths
+        if path in _AUTH_EXEMPT_PATHS or not path.startswith("/api/"):
+            return await call_next(request)
+
+        expected_key = os.getenv("VALINOR_API_KEY")
+        if not expected_key:
+            # Dev mode — no key configured
+            return await call_next(request)
+
+        auth_header = request.headers.get("authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return JSONResponse(
+                status_code=401,
+                content={"error": "unauthorized", "detail": "Missing Bearer token"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        token = auth_header[7:]  # Strip "Bearer "
+        if token != expected_key:
+            return JSONResponse(
+                status_code=401,
+                content={"error": "unauthorized", "detail": "Invalid API key"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        return await call_next(request)
+
+
+app.add_middleware(APIKeyAuthMiddleware)
 
 # Request ID tracing middleware — binds request_id into structlog context per request
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -256,10 +305,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         body["request_id"] = request_id
     return JSONResponse(status_code=422, content=body)
 
-# Register routers
-app.include_router(quality_router)
-app.include_router(onboarding_router)
-app.include_router(nl_query_router)  # VAL-32: NL→SQL conversational layer
+# Register routers — VAL-48: auth required for sensitive endpoints
+_auth_deps = [Depends(verify_api_key)]
+app.include_router(quality_router, dependencies=_auth_deps)        # VAL-48
+app.include_router(onboarding_router, dependencies=_auth_deps)     # VAL-48
+app.include_router(nl_query_router, dependencies=_auth_deps)       # VAL-48
 
 
 # ═══ SENTRY DEBUG ENDPOINT (non-production only) ═══
@@ -436,7 +486,8 @@ async def start_analysis(
     request: Request,
     body: AnalysisRequest,
     background_tasks: BackgroundTasks,
-    redis_client: redis.Redis = Depends(get_redis)
+    redis_client: redis.Redis = Depends(get_redis),
+    _auth: str = Depends(verify_api_key),  # VAL-48
 ):
     """
     Start a new Valinor analysis job.

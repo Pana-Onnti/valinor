@@ -33,6 +33,8 @@ try:
 except ImportError:
     STATSMODELS_AVAILABLE = False
 
+from shared.utils.sql_sanitizer import sanitize_base_filter  # VAL-49
+
 
 # ---------------------------------------------------------------------------
 # Result dataclasses
@@ -256,12 +258,20 @@ class DataQualityGate:
                 amount_col = key_cols.get("amount_col")
                 date_col = key_cols.get("date_col")
                 if amount_col and date_col:
+                    # VAL-49: sanitize base_filter at extraction point
+                    try:
+                        safe_filter = sanitize_base_filter(
+                            entity.get("base_filter", ""),
+                            context=f"dq_gate:{entity_name}",
+                        )
+                    except ValueError:
+                        safe_filter = ""  # reject unsafe filters silently
                     return {
                         "table": entity.get("table", ""),
                         "amount_col": amount_col,
                         "date_col": date_col,
                         "name_col": key_cols.get("name") or key_cols.get("document_no"),
-                        "base_filter": entity.get("base_filter", ""),
+                        "base_filter": safe_filter,
                     }
         return {}
 

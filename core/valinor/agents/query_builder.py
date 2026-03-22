@@ -16,6 +16,8 @@ from typing import Any
 
 import structlog
 
+from shared.utils.sql_sanitizer import sanitize_base_filter  # VAL-49
+
 logger = structlog.get_logger()
 
 ROW_COUNT_CAP = 100_000
@@ -474,6 +476,9 @@ def _get_entity_filter(entity: dict, prefix: str = "AND", table_alias: str = "")
     base_filter = entity.get("base_filter", "").strip()
     if not base_filter:
         return ""
+
+    # VAL-49: sanitize base_filter before SQL interpolation
+    base_filter = sanitize_base_filter(base_filter, context="query_builder")
 
     # Table-qualify bare column references if alias is provided
     if table_alias:
