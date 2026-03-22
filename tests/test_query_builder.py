@@ -483,13 +483,13 @@ class TestBuildQueriesSpecialCases:
         assert "orders_without_invoices" in generated_ids
 
     def test_ar_outstanding_generates_with_payments(self):
-        entity_map = _minimal_entity_map({"payments": PAYMENT_ENTITY})
+        entity_map = _minimal_entity_map({"payments": PAYMENT_ENTITY, "invoices": INVOICE_ENTITY})
         result = build_queries(entity_map, PERIOD)
         generated_ids = {q["id"] for q in result["queries"]}
         assert "ar_outstanding_actual" in generated_ids
 
     def test_aging_analysis_generates_with_payments(self):
-        entity_map = _minimal_entity_map({"payments": PAYMENT_ENTITY})
+        entity_map = _minimal_entity_map({"payments": PAYMENT_ENTITY, "invoices": INVOICE_ENTITY})
         result = build_queries(entity_map, PERIOD)
         generated_ids = {q["id"] for q in result["queries"]}
         assert "aging_analysis" in generated_ids
@@ -711,6 +711,7 @@ class TestBuildQueriesTemplateGeneration:
         entity_map = _minimal_entity_map({
             "payments": PAYMENT_ENTITY,
             "customers": CUSTOMER_ENTITY,
+            "invoices": INVOICE_ENTITY,
         })
         result = build_queries(entity_map, PERIOD)
         generated_ids = {q["id"] for q in result["queries"]}

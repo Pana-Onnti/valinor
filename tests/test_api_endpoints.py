@@ -441,7 +441,7 @@ class TestAnalyzeEndpoint:
 
         redis_mock.scan_iter = _empty_scan
 
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
 
         assert response.status_code == 200
@@ -875,7 +875,7 @@ class TestInputValidation:
 
         redis_mock.scan_iter = _empty_scan
 
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             payload = {**VALID_ANALYSIS_PAYLOAD, "period": "Q2-2025"}
             response = await client.post("/api/analyze", json=payload)
 
@@ -890,7 +890,7 @@ class TestInputValidation:
 
         redis_mock.scan_iter = _empty_scan
 
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             payload = {**VALID_ANALYSIS_PAYLOAD, "period": "2025"}
             response = await client.post("/api/analyze", json=payload)
 
@@ -905,7 +905,7 @@ class TestInputValidation:
 
         redis_mock.scan_iter = _empty_scan
 
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             payload = {**VALID_ANALYSIS_PAYLOAD, "period": "H1-2025"}
             response = await client.post("/api/analyze", json=payload)
 

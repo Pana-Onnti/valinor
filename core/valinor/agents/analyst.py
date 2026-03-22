@@ -99,9 +99,9 @@ async def run_analyst(
     results = []
     try:
         async for msg in query(prompt=prompt, options=options):
-            if isinstance(msg, AssistantMessage):
+            if hasattr(msg, "content"):
                 for block in msg.content:
-                    if isinstance(block, TextBlock):
+                    if hasattr(block, "text"):
                         results.append(block.text)
     except (RuntimeError, ConnectionError, TypeError, ValueError) as exc:
         logger.warning("analyst agent query failed", exc_info=exc)

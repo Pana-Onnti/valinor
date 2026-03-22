@@ -266,7 +266,7 @@ class TestJobLifecycle:
 
         redis_mock.scan_iter = _empty_scan
 
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             submit_resp = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
 
         assert submit_resp.status_code == 200
@@ -432,7 +432,7 @@ class TestJobLifecycle:
             }
         )
 
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             response = await client.post(f"/api/jobs/{original_job_id}/retry")
 
         assert response.status_code == 200
@@ -625,7 +625,7 @@ class TestAnalysisSubmissionValidation:
             **VALID_ANALYSIS_PAYLOAD,
             "client_name": "invalid name with spaces!",
         }
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=payload)
         assert response.status_code == 422
 
@@ -637,7 +637,7 @@ class TestAnalysisSubmissionValidation:
             "period": "Q1-2025",
             # db_config intentionally omitted
         }
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=payload)
         assert response.status_code == 422
 
@@ -656,7 +656,7 @@ class TestAnalysisSubmissionValidation:
                 "password": "secret",
             },
         }
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=payload)
         assert response.status_code == 422
 
@@ -689,7 +689,7 @@ class TestAnalysisSubmissionValidation:
 
         redis_mock.hget = AsyncMock(side_effect=_hget_side_effect)
 
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
         assert response.status_code == 429
 
@@ -743,7 +743,7 @@ class TestJobResultsEdgeCases:
 
         redis_mock.scan_iter = _empty_scan
 
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
 
         assert response.status_code == 200
@@ -811,7 +811,7 @@ class TestCancelRetryEdgeCases:
                 "request_data": json.dumps(VALID_ANALYSIS_PAYLOAD),
             }
         )
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             response = await client.post(f"/api/jobs/{job_id}/retry")
         assert response.status_code == 400
 
@@ -827,7 +827,7 @@ class TestCancelRetryEdgeCases:
                 "request_data": json.dumps(VALID_ANALYSIS_PAYLOAD),
             }
         )
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             response = await client.post(f"/api/jobs/{job_id}/retry")
         assert response.status_code == 200
         data = response.json()
@@ -1052,7 +1052,7 @@ class TestAnalysisSubmissionAdditionalValidation:
             **VALID_ANALYSIS_PAYLOAD,
             "db_config": {**VALID_ANALYSIS_PAYLOAD["db_config"], "port": 0},
         }
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=payload)
         assert response.status_code == 422
 
@@ -1072,7 +1072,7 @@ class TestAnalysisSubmissionAdditionalValidation:
                 "port": 22,
             },
         }
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=payload)
         assert response.status_code == 422
 
@@ -1084,7 +1084,7 @@ class TestAnalysisSubmissionAdditionalValidation:
             yield
 
         redis_mock.scan_iter = _empty_scan
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
         assert response.status_code == 200
         data = response.json()
@@ -1104,7 +1104,7 @@ class TestAnalysisSubmissionAdditionalValidation:
         redis_mock.scan_iter = _empty_scan
         # Simulate monthly counter already at 26 (> 25 limit)
         redis_mock.incr = AsyncMock(return_value=26)
-        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
+        with patch("api.tasks.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
         assert response.status_code == 429
         detail = response.json().get("detail", {})

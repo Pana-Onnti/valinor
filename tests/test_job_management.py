@@ -329,7 +329,7 @@ class TestRetryJob:
                 "request_data": request_payload,
             }
         )
-        with patch("api.routers.jobs.run_analysis_task", new_callable=AsyncMock):
+        with patch("api.tasks.run_analysis_task", new_callable=AsyncMock):
             resp = await client.post("/api/jobs/failed-job/retry")
         assert resp.status_code == 200
         body = resp.json()
@@ -347,7 +347,7 @@ class TestRetryJob:
                 "request_data": request_payload,
             }
         )
-        with patch("api.routers.jobs.run_analysis_task", new_callable=AsyncMock):
+        with patch("api.tasks.run_analysis_task", new_callable=AsyncMock):
             resp = await client.post("/api/jobs/cancelled-job/retry")
         assert resp.status_code == 200
         body = resp.json()
@@ -365,7 +365,7 @@ class TestRetryJob:
                 "request_data": request_payload,
             }
         )
-        with patch("api.routers.jobs.run_analysis_task", new_callable=AsyncMock):
+        with patch("api.tasks.run_analysis_task", new_callable=AsyncMock):
             resp = await client.post("/api/jobs/original-job/retry")
         body = resp.json()
         assert body["job_id"] != "original-job"
