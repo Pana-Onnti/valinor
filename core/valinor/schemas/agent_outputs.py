@@ -393,3 +393,179 @@ class SentinelOutput(BaseModel):
             raw_output=raw,
             parse_error=parse_error,
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AnomalyExplanation — VAL-40: Anomaly explanation schemas
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class HypothesisType(str, Enum):
+    TEMPORAL = "temporal"
+    ENTITY = "entity"
+    CATEGORY = "category"
+    DATA_QUALITY = "data_quality"
+
+
+class HypothesisStatus(str, Enum):
+    UNTESTED = "untested"
+    SUPPORTED = "supported"
+    REFUTED = "refuted"
+    INCONCLUSIVE = "inconclusive"
+
+
+class AnomalyInput(BaseModel):
+    """Input describing an anomaly to explain."""
+
+    metric: str = Field(description="Name of the anomalous metric")
+    expected: float = Field(description="Expected value")
+    actual: float = Field(description="Actual observed value")
+    deviation_pct: float = Field(description="Percentage deviation from expected")
+    table: Optional[str] = Field(default=None, description="Source table")
+    column: Optional[str] = Field(default=None, description="Source column")
+    period: Optional[str] = Field(default=None, description="Time period of anomaly")
+
+
+class HypothesisResult(BaseModel):
+    """A hypothesis and its evaluation result."""
+
+    hypothesis_id: str = Field(description="Unique hypothesis identifier")
+    hypothesis_type: HypothesisType
+    description: str = Field(description="Human-readable hypothesis")
+    status: HypothesisStatus = Field(default=HypothesisStatus.UNTESTED)
+    evidence: str = Field(default="", description="Evidence for/against the hypothesis")
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    drill_down_sql: Optional[str] = Field(
+        default=None, description="SQL query to test this hypothesis",
+    )
+
+
+class AnomalyExplanationOutput(BaseModel):
+    """
+    Output of anomaly explanation (VAL-40).
+
+    Contains the anomaly details, generated hypotheses, and the best
+    explanation with supporting evidence.
+    """
+
+    anomaly: AnomalyInput
+    hypotheses: List[HypothesisResult] = Field(default_factory=list)
+    best_hypothesis_id: Optional[str] = Field(
+        default=None, description="ID of the most likely hypothesis",
+    )
+    summary: str = Field(default="", description="Human-readable summary")
+    explained: bool = Field(
+        default=False,
+        description="True if at least one hypothesis is supported",
+    )
+
+    @property
+    def supported_hypotheses(self) -> List[HypothesisResult]:
+        return [h for h in self.hypotheses if h.status == HypothesisStatus.SUPPORTED]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QuorumResult — VAL-41: Quorum voting schemas
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class VoteValue(str, Enum):
+    AGREE = "agree"
+    DISAGREE = "disagree"
+    ABSTAIN = "abstain"
+
+
+class QuorumFindingResult(BaseModel):
+    """Result of quorum voting on a single finding."""
+
+    finding_id: str
+    accepted: bool
+    agreement_ratio: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0)
+    votes: str = Field(description="Vote tally, e.g. '2A/1D/0X'")
+    dissenting_reasons: List[str] = Field(default_factory=list)
+
+
+class QuorumReportOutput(BaseModel):
+    """Output of quorum-based reconciliation (VAL-41)."""
+
+    ran: bool = True
+    threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    total_findings: int = Field(default=0, ge=0)
+    accepted: int = Field(default=0, ge=0)
+    rejected: int = Field(default=0, ge=0)
+    acceptance_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    summary: str = ""
+    results: List[QuorumFindingResult] = Field(default_factory=list)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CashFlowForecast — VAL-37: Cash Flow Forecasting
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class AgingBucket(BaseModel):
+    """A single AR aging bucket with collection probability."""
+
+    bucket: str = Field(description="Aging range, e.g. '0-30d', '31-60d', '61-90d', '90+d'")
+    amount: float = Field(description="Total outstanding amount in this bucket")
+    count: int = Field(default=0, description="Number of items in this bucket")
+    collection_probability: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Estimated probability of collection (0–1)",
+    )
+
+
+class RevenueTrendPoint(BaseModel):
+    """A single month's revenue data for trend analysis."""
+
+    month: str = Field(description="Month in YYYY-MM format")
+    revenue: float = Field(description="Total revenue for this month")
+    invoice_count: int = Field(default=0, description="Number of invoices")
+    mom_growth_pct: Optional[float] = Field(
+        default=None,
+        description="Month-over-month growth percentage",
+    )
+
+
+class CashFlowForecast(BaseModel):
+    """
+    Output of the Cash Flow Forecaster (VAL-37).
+
+    Combines AR aging analysis with revenue trend projection to produce
+    a simple cash flow forecast for the next 30/60/90 days.
+    """
+
+    forecast_30d: float = Field(
+        description="Projected cash inflow for next 30 days (EUR)",
+    )
+    forecast_60d: float = Field(
+        description="Projected cash inflow for next 60 days (EUR)",
+    )
+    forecast_90d: float = Field(
+        description="Projected cash inflow for next 90 days (EUR)",
+    )
+    confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Overall confidence in the forecast (0–1)",
+    )
+    aging_buckets: List[AgingBucket] = Field(
+        default_factory=list,
+        description="AR aging buckets used for the forecast",
+    )
+    revenue_trend: List[RevenueTrendPoint] = Field(
+        default_factory=list,
+        description="Monthly revenue trend used for projection",
+    )
+    methodology: str = Field(
+        default="weighted_ar_plus_trend",
+        description="Forecasting methodology used",
+    )
+    warnings: List[str] = Field(
+        default_factory=list,
+        description="Warnings about data quality or assumptions",
+    )

@@ -26,8 +26,6 @@ from typing import Any
 
 import structlog
 
-from shared.utils.sql_sanitizer import sanitize_base_filter  # VAL-49
-
 logger = structlog.get_logger()
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -63,12 +61,17 @@ class AtomicClaim:
     claim_id: str
     finding_id: str
     claim_text: str
-    claim_type: str  # "numeric", "comparison", "existence", "attribution"
+    claim_type: str  # "numeric", "comparison", "existence", "attribution", "temporal", "negative"
     claimed_value: float | None = None
     claimed_unit: str = "EUR"
     source_query: str | None = None
     source_row: int | None = None
     source_column: str | None = None
+    # VAL-38: temporal claim fields
+    temporal_type: str | None = None  # "yoy", "qoq", "mom"
+    claimed_growth_pct: float | None = None
+    # VAL-39: negative claim fields
+    is_negative_claim: bool = False
 
 
 @dataclass
@@ -503,6 +506,126 @@ class VerificationEngine:
             except ValueError:
                 pass
 
+        # VAL-38: Detect temporal claims (YoY, QoQ, MoM growth/decline)
+        temporal_claims = self._detect_temporal_claims(finding, agent_name)
+        claims.extend(temporal_claims)
+
+        # VAL-39: Detect negative claims ("no", "none", "zero", "never")
+        negative_claims = self._detect_negative_claims(finding, agent_name)
+        claims.extend(negative_claims)
+
+        return claims
+
+    # ── VAL-38: TEMPORAL CLAIM DETECTION ──────────────────────────────
+
+    # Patterns for temporal growth/decline claims
+    _TEMPORAL_PATTERNS = [
+        (r'\b(?:YoY|year[\s-]over[\s-]year)\b', "yoy"),
+        (r'\b(?:QoQ|quarter[\s-]over[\s-]quarter)\b', "qoq"),
+        (r'\b(?:MoM|month[\s-]over[\s-]month)\b', "mom"),
+    ]
+
+    _TEMPORAL_DIRECTION_PATTERNS = [
+        (r'(?:grew|growth|increase[sd]?|up)\s+(?:(?:by|of)\s+)?(\d+(?:\.\d+)?)\s*%', "growth"),
+        (r'(?:decline[sd]?|decrease[sd]?|drop(?:ped)?|fell|down)\s+(?:(?:by|of)\s+)?(\d+(?:\.\d+)?)\s*%', "decline"),
+        (r'(\d+(?:\.\d+)?)\s*%\s+(?:growth|increase|rise)', "growth"),
+        (r'(\d+(?:\.\d+)?)\s*%\s+(?:decline|decrease|drop|fall)', "decline"),
+    ]
+
+    def _detect_temporal_claims(self, finding: dict, agent_name: str) -> list[AtomicClaim]:
+        """
+        Detect temporal comparison claims (YoY, QoQ, MoM growth/decline).
+
+        Looks for patterns like:
+          - "Revenue grew 15% YoY"
+          - "Year-over-year decline of 8.5%"
+          - "QoQ growth of 12%"
+        """
+        claims = []
+        finding_id = finding.get("id", "unknown")
+        headline = finding.get("headline", "")
+        evidence = finding.get("evidence", "")
+        combined_text = f"{headline} {evidence}"
+
+        # Detect temporal type
+        temporal_type = None
+        for pattern, ttype in self._TEMPORAL_PATTERNS:
+            if re.search(pattern, combined_text, re.IGNORECASE):
+                temporal_type = ttype
+                break
+
+        if temporal_type is None:
+            return claims
+
+        # Detect direction and percentage
+        for pattern, direction in self._TEMPORAL_DIRECTION_PATTERNS:
+            match = re.search(pattern, combined_text, re.IGNORECASE)
+            if match:
+                try:
+                    pct = float(match.group(1))
+                    if direction == "decline":
+                        pct = -pct
+
+                    claims.append(AtomicClaim(
+                        claim_id=f"{finding_id}_temporal_{temporal_type}",
+                        finding_id=finding_id,
+                        claim_text=f"{temporal_type.upper()} {direction}: {pct}%",
+                        claim_type="temporal",
+                        claimed_value=pct,
+                        claimed_unit="percent",
+                        temporal_type=temporal_type,
+                        claimed_growth_pct=pct,
+                    ))
+                    break
+                except ValueError:
+                    continue
+
+        return claims
+
+    # ── VAL-39: NEGATIVE CLAIM DETECTION ──────────────────────────────
+
+    _NEGATIVE_PATTERNS = [
+        r'\b(?:no|none|zero|never)\b',
+        r'\bno\s+hay\b',  # Spanish: "no hay" = "there are no"
+        r'\bninguna?\b',   # Spanish: "ninguno/ninguna"
+        r'\b0\s+(?:invoices?|customers?|items?|records?|overdue)',
+    ]
+
+    def _detect_negative_claims(self, finding: dict, agent_name: str) -> list[AtomicClaim]:
+        """
+        Detect negative/absence claims.
+
+        Looks for patterns like:
+          - "No invoices overdue >90d"
+          - "Zero customers with outstanding debt"
+          - "None of the invoices are past due"
+          - "No hay facturas vencidas"
+        """
+        claims = []
+        finding_id = finding.get("id", "unknown")
+        headline = finding.get("headline", "")
+        evidence = finding.get("evidence", "")
+        combined_text = f"{headline} {evidence}"
+
+        is_negative = False
+        for pattern in self._NEGATIVE_PATTERNS:
+            if re.search(pattern, combined_text, re.IGNORECASE):
+                is_negative = True
+                break
+
+        if not is_negative:
+            return claims
+
+        claims.append(AtomicClaim(
+            claim_id=f"{finding_id}_negative",
+            finding_id=finding_id,
+            claim_text=headline,
+            claim_type="negative",
+            claimed_value=0.0,
+            claimed_unit="count",
+            is_negative_claim=True,
+        ))
+
         return claims
 
     # ── CLAIM VERIFICATION ─────────────────────────────────────────────
@@ -512,11 +635,21 @@ class VerificationEngine:
         Verify a single atomic claim against the number registry.
 
         Verification strategy:
+          0a. Temporal claims → _verify_temporal_claim (VAL-38)
+          0b. Negative claims → _verify_negative_claim (VAL-39)
           1. Exact match in registry (within tolerance)
           2. Derivable from registry values (e.g., ratio of two known values)
           3. Present in raw query results
           4. Mark as UNVERIFIABLE if no source found
         """
+        # VAL-38: Dispatch temporal claims
+        if claim.claim_type == "temporal":
+            return self._verify_temporal_claim(claim)
+
+        # VAL-39: Dispatch negative claims
+        if claim.claim_type == "negative":
+            return self._verify_negative_claim(claim)
+
         if claim.claimed_value is None:
             return VerificationResult(
                 claim_id=claim.claim_id,
@@ -844,16 +977,10 @@ class VerificationEngine:
             table = entity.get("table", "")
             etype = entity.get("type", "")
             key_cols = entity.get("key_columns", {})
-            raw_filter = entity.get("base_filter", "")
+            base_filter = entity.get("base_filter", "")
 
             if not table or not _is_safe_identifier(table):
                 continue
-
-            # VAL-49: sanitize base_filter before SQL interpolation
-            try:
-                base_filter = sanitize_base_filter(raw_filter, context=f"verification:{entity_name}")
-            except ValueError:
-                continue  # skip entities with unsafe filters
 
             # Build WHERE clause from base_filter
             where_parts = []
@@ -1051,6 +1178,455 @@ class VerificationEngine:
             return error_container
 
         return result_container
+
+    # ── VAL-38: TEMPORAL CLAIM VERIFICATION ──────────────────────────
+
+    def _verify_temporal_claim(self, claim: AtomicClaim) -> VerificationResult:
+        """
+        Verify a temporal growth/decline claim (YoY, QoQ, MoM).
+
+        Strategy:
+          1. Look for YoY/QoQ data in query results (yoy_comparison, revenue_trend)
+          2. If connection_string is available, generate and execute comparison queries
+          3. Compare actual growth rate to the claimed value
+        """
+        result = VerificationResult(
+            claim_id=claim.claim_id,
+            status="UNVERIFIABLE",
+            verified_at=self._now,
+        )
+
+        claimed_growth = claim.claimed_growth_pct
+        if claimed_growth is None:
+            result.evidence = "No growth percentage claimed"
+            return result
+
+        temporal_type = claim.temporal_type or "yoy"
+
+        # Strategy 1: Check yoy_comparison query results
+        if temporal_type == "yoy":
+            actual_growth = self._extract_yoy_growth()
+            if actual_growth is not None:
+                return self._compare_growth(
+                    claim, claimed_growth, actual_growth,
+                    source="yoy_comparison query results",
+                )
+
+        # Strategy 2: Check revenue_trend for MoM data
+        if temporal_type == "mom":
+            actual_growth = self._extract_mom_growth()
+            if actual_growth is not None:
+                return self._compare_growth(
+                    claim, claimed_growth, actual_growth,
+                    source="revenue_trend query results",
+                )
+
+        # Strategy 3: Active re-query if connection available
+        if self.connection_string and self.entity_map:
+            actual_growth = self._active_temporal_requery(claim)
+            if actual_growth is not None:
+                return self._compare_growth(
+                    claim, claimed_growth, actual_growth,
+                    source="active temporal re-query",
+                )
+
+        result.evidence = (
+            f"Cannot verify {temporal_type.upper()} claim of {claimed_growth}%: "
+            "no comparable period data in query results"
+        )
+        return result
+
+    def _extract_yoy_growth(self) -> float | None:
+        """Extract the most recent YoY growth rate from yoy_comparison results."""
+        results = self.query_results.get("results", {})
+        yoy_data = results.get("yoy_comparison", {})
+        rows = yoy_data.get("rows", [])
+        if not rows:
+            return None
+
+        # Find the most recent row with a yoy_growth_pct
+        for row in reversed(rows):
+            growth = row.get("yoy_growth_pct")
+            if growth is not None:
+                try:
+                    return float(growth)
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    def _extract_mom_growth(self) -> float | None:
+        """Extract the most recent MoM growth rate from revenue_trend results."""
+        results = self.query_results.get("results", {})
+        trend_data = results.get("revenue_trend", {})
+        rows = trend_data.get("rows", [])
+        if not rows:
+            return None
+
+        for row in reversed(rows):
+            growth = row.get("mom_growth_pct")
+            if growth is not None:
+                try:
+                    return float(growth)
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    def _active_temporal_requery(self, claim: AtomicClaim) -> float | None:
+        """
+        Generate and execute a temporal comparison query.
+
+        Builds a query that compares current vs prior period using
+        entity_map date columns for time filtering.
+        """
+        if not self.entity_map:
+            return None
+
+        entities = self.entity_map.get("entities", {})
+        temporal_type = claim.temporal_type or "yoy"
+
+        # Find transactional entity with amount and date columns
+        for entity_name, entity in entities.items():
+            if entity.get("type") != "TRANSACTIONAL":
+                continue
+
+            table = entity.get("table", "")
+            key_cols = entity.get("key_columns", {})
+            base_filter = entity.get("base_filter", "")
+
+            amount_col = (
+                key_cols.get("amount_col")
+                or key_cols.get("grand_total")
+                or key_cols.get("amount")
+            )
+            date_col = (
+                key_cols.get("invoice_date")
+                or key_cols.get("date_col")
+                or key_cols.get("date")
+            )
+
+            if not table or not amount_col or not date_col:
+                continue
+
+            if not _is_safe_identifier(table) or not _is_safe_identifier(amount_col) or not _is_safe_identifier(date_col):
+                continue
+
+            where = f"WHERE {base_filter}" if base_filter else "WHERE 1=1"
+
+            if temporal_type == "yoy":
+                interval = "1 year"
+            elif temporal_type == "qoq":
+                interval = "3 months"
+            else:
+                interval = "1 month"
+
+            sql = (
+                f"WITH current_period AS ("
+                f"  SELECT SUM({amount_col}) AS total"
+                f"  FROM {table} {where}"
+                f"  AND {date_col} >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '{interval}')"
+                f"  AND {date_col} < DATE_TRUNC('month', CURRENT_DATE)"
+                f"), prior_period AS ("
+                f"  SELECT SUM({amount_col}) AS total"
+                f"  FROM {table} {where}"
+                f"  AND {date_col} >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '{interval}' - INTERVAL '{interval}')"
+                f"  AND {date_col} < DATE_TRUNC('month', CURRENT_DATE - INTERVAL '{interval}')"
+                f") SELECT"
+                f"  CASE WHEN p.total > 0"
+                f"    THEN ROUND(((c.total - p.total) * 100.0 / p.total)::numeric, 2)"
+                f"    ELSE NULL"
+                f"  END AS growth_pct"
+                f" FROM current_period c, prior_period p"
+            )
+
+            exec_result = self._execute_verification_query(
+                sql, self.connection_string, timeout=5,
+            )
+            if exec_result.get("error"):
+                logger.warning(
+                    "Temporal re-query failed",
+                    claim_id=claim.claim_id,
+                    error=exec_result["error"],
+                )
+                continue
+
+            rows = exec_result.get("rows", [])
+            if rows and rows[0].get("growth_pct") is not None:
+                try:
+                    return float(rows[0]["growth_pct"])
+                except (TypeError, ValueError):
+                    pass
+
+        return None
+
+    def _compare_growth(
+        self,
+        claim: AtomicClaim,
+        claimed_growth: float,
+        actual_growth: float,
+        source: str,
+    ) -> VerificationResult:
+        """Compare claimed vs actual growth rate and produce a VerificationResult."""
+        result = VerificationResult(
+            claim_id=claim.claim_id,
+            status="UNVERIFIABLE",
+            verified_at=self._now,
+        )
+
+        # Growth rates: allow 2 percentage points absolute tolerance
+        deviation = abs(claimed_growth - actual_growth)
+        if deviation <= 2.0:
+            result.status = "VERIFIED"
+            result.actual_value = actual_growth
+            result.deviation_pct = claimed_growth - actual_growth
+            result.evidence = (
+                f"Temporal claim verified from {source}: "
+                f"actual={actual_growth:.2f}%, claimed={claimed_growth:.2f}%"
+            )
+            result.confidence_score = max(0.0, 0.90 - deviation * 0.05)
+        elif deviation <= 5.0:
+            result.status = "APPROXIMATE"
+            result.actual_value = actual_growth
+            result.deviation_pct = claimed_growth - actual_growth
+            result.evidence = (
+                f"Temporal claim approximately correct from {source}: "
+                f"actual={actual_growth:.2f}%, claimed={claimed_growth:.2f}% "
+                f"(deviation: {deviation:.1f}pp)"
+            )
+            result.confidence_score = max(0.0, 0.50 - deviation * 0.05)
+        else:
+            result.status = "FAILED"
+            result.actual_value = actual_growth
+            result.deviation_pct = claimed_growth - actual_growth
+            result.evidence = (
+                f"Temporal claim REFUTED from {source}: "
+                f"actual={actual_growth:.2f}%, claimed={claimed_growth:.2f}% "
+                f"(deviation: {deviation:.1f}pp)"
+            )
+            result.confidence_score = 0.0
+
+        return result
+
+    # ── VAL-39: NEGATIVE CLAIM VERIFICATION ───────────────────────────
+
+    def _verify_negative_claim(self, claim: AtomicClaim) -> VerificationResult:
+        """
+        Verify a negative/absence claim ("no invoices overdue >90d").
+
+        Strategy:
+          1. Parse the claim to identify what entity/condition to check
+          2. Generate a SELECT COUNT(*) / EXISTS query
+          3. If count > 0 → REFUTED
+          4. If count == 0 → VERIFIED
+          5. If unable to query → check query results for relevant data
+        """
+        result = VerificationResult(
+            claim_id=claim.claim_id,
+            status="UNVERIFIABLE",
+            verified_at=self._now,
+        )
+
+        claim_text = claim.claim_text.lower()
+
+        # Strategy 1: Check existing query results for contradictions
+        contradiction = self._check_negative_against_results(claim_text)
+        if contradiction is not None:
+            if contradiction > 0:
+                result.status = "FAILED"
+                result.actual_value = float(contradiction)
+                result.evidence = (
+                    f"Negative claim REFUTED: found {contradiction} matching records "
+                    "in query results"
+                )
+                result.confidence_score = 0.90
+            else:
+                result.status = "VERIFIED"
+                result.actual_value = 0.0
+                result.evidence = "Negative claim verified: 0 matching records in query results"
+                result.confidence_score = 0.85
+            return result
+
+        # Strategy 2: Active re-query if connection available
+        if self.connection_string and self.entity_map:
+            count = self._active_negative_requery(claim)
+            if count is not None:
+                if count > 0:
+                    result.status = "FAILED"
+                    result.actual_value = float(count)
+                    result.evidence = (
+                        f"Negative claim REFUTED by existence check: "
+                        f"found {count} matching records"
+                    )
+                    result.confidence_score = 0.90
+                else:
+                    result.status = "VERIFIED"
+                    result.actual_value = 0.0
+                    result.evidence = (
+                        "Negative claim verified by existence check: "
+                        "0 matching records"
+                    )
+                    result.confidence_score = 0.90
+                return result
+
+        result.evidence = "Cannot verify negative claim: no query data or connection available"
+        return result
+
+    def _check_negative_against_results(self, claim_text: str) -> int | None:
+        """
+        Check if existing query results contradict a negative claim.
+
+        Looks for relevant data in aging_analysis, ar_outstanding, etc.
+        Returns count of contradicting records, or None if inconclusive.
+        """
+        results = self.query_results.get("results", {})
+
+        # Check overdue-related negative claims against aging data
+        is_overdue_claim = any(
+            kw in claim_text for kw in ("overdue", "vencid", "past due", "late")
+        )
+
+        if is_overdue_claim:
+            # Check aging_analysis for overdue buckets
+            aging_data = results.get("aging_analysis", {})
+            rows = aging_data.get("rows", [])
+            overdue_count = 0
+            for row in rows:
+                tramo = str(row.get("tramo", "")).lower()
+                count = row.get("num_payments", 0)
+                # Overdue buckets (not "not_due")
+                if tramo != "not_due" and count:
+                    try:
+                        overdue_count += int(count)
+                    except (TypeError, ValueError):
+                        pass
+
+            if rows:  # We have aging data, so we can be conclusive
+                return overdue_count
+
+            # Check ar_outstanding for overdue counts
+            ar_data = results.get("ar_outstanding_actual", {})
+            ar_rows = ar_data.get("rows", [])
+            if ar_rows:
+                overdue = ar_rows[0].get("overdue_count")
+                if overdue is not None:
+                    try:
+                        return int(overdue)
+                    except (TypeError, ValueError):
+                        pass
+
+        # Check for "90 day" specific claims
+        if "90" in claim_text and is_overdue_claim:
+            aging_data = results.get("aging_analysis", {})
+            rows = aging_data.get("rows", [])
+            count_90plus = 0
+            for row in rows:
+                tramo = str(row.get("tramo", "")).lower()
+                count = row.get("num_payments", 0)
+                if any(x in tramo for x in ("91", "180", "181", "365", ">365")):
+                    try:
+                        count_90plus += int(count)
+                    except (TypeError, ValueError):
+                        pass
+            if rows:
+                return count_90plus
+
+        return None
+
+    def _active_negative_requery(self, claim: AtomicClaim) -> int | None:
+        """
+        Generate and execute an existence check query for a negative claim.
+
+        Returns the count of matching records, or None if unable to query.
+        """
+        if not self.entity_map:
+            return None
+
+        entities = self.entity_map.get("entities", {})
+        claim_text = claim.claim_text.lower()
+
+        # Determine what kind of entity to check
+        is_overdue = any(kw in claim_text for kw in ("overdue", "vencid", "past due"))
+        is_invoice = any(kw in claim_text for kw in ("invoice", "factura"))
+
+        for entity_name, entity in entities.items():
+            table = entity.get("table", "")
+            key_cols = entity.get("key_columns", {})
+            base_filter = entity.get("base_filter", "")
+
+            if not table or not _is_safe_identifier(table):
+                continue
+
+            where_parts = []
+            if base_filter:
+                where_parts.append(base_filter)
+
+            # Build overdue condition
+            if is_overdue:
+                outstanding_col = (
+                    key_cols.get("outstanding_amount")
+                    or key_cols.get("outstandingamt")
+                    or key_cols.get("amount_residual")
+                )
+                due_date_col = (
+                    key_cols.get("due_date")
+                    or key_cols.get("duedate")
+                    or key_cols.get("date_maturity")
+                )
+
+                if outstanding_col and due_date_col:
+                    if not _is_safe_identifier(outstanding_col) or not _is_safe_identifier(due_date_col):
+                        continue
+
+                    # Check for specific day thresholds in claim
+                    day_match = re.search(r'(\d+)\s*(?:d(?:ays?)?|dias?)', claim_text)
+                    threshold_days = int(day_match.group(1)) if day_match else 30
+
+                    where_parts.append(f"{outstanding_col} > 0")
+                    where_parts.append(
+                        f"{due_date_col}::date < CURRENT_DATE - INTERVAL '{threshold_days} days'"
+                    )
+
+                    where_clause = " AND ".join(where_parts)
+                    sql = f"SELECT COUNT(*) AS cnt FROM {table} WHERE {where_clause}"
+
+                    exec_result = self._execute_verification_query(
+                        sql, self.connection_string, timeout=5,
+                    )
+                    if exec_result.get("error"):
+                        logger.warning(
+                            "Negative re-query failed",
+                            claim_id=claim.claim_id,
+                            error=exec_result["error"],
+                        )
+                        continue
+
+                    rows = exec_result.get("rows", [])
+                    if rows:
+                        try:
+                            return int(rows[0].get("cnt", 0))
+                        except (TypeError, ValueError):
+                            pass
+
+            # Generic existence check for invoice-related negative claims
+            elif is_invoice:
+                pk_col = key_cols.get("pk")
+                if entity.get("type") == "TRANSACTIONAL" and pk_col:
+                    if not _is_safe_identifier(pk_col):
+                        continue
+                    where_clause = " AND ".join(where_parts) if where_parts else "1=1"
+                    sql = f"SELECT COUNT({pk_col}) AS cnt FROM {table} WHERE {where_clause}"
+
+                    exec_result = self._execute_verification_query(
+                        sql, self.connection_string, timeout=5,
+                    )
+                    if not exec_result.get("error"):
+                        rows = exec_result.get("rows", [])
+                        if rows:
+                            try:
+                                return int(rows[0].get("cnt", 0))
+                            except (TypeError, ValueError):
+                                pass
+
+        return None
 
     # ── CROSS-VALIDATION ───────────────────────────────────────────────
 

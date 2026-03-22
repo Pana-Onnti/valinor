@@ -838,6 +838,192 @@ ORDER BY y1.year, y1.month"""
 
     # ── COLUMN DETECTION (by SEMANTIC ROLE) ─────────────────────────────
 
+    # ── ZERO-ROW REFORMULATION (VAL-43) ───────────────────────────────
+
+    def reformulate_zero_row_query(
+        self,
+        original_query: dict,
+        max_retries: int = 3,
+        semantic_enrichment: dict | None = None,
+    ) -> list[dict]:
+        """
+        Generate reformulated queries when the original returned 0 rows.
+
+        Strategies (tried in order):
+          1. Relax date filters (widen range by 6 months)
+          2. Remove one WHERE filter at a time
+          3. Try alternative column names from semantic enrichment
+
+        Args:
+            original_query: Dict with 'sql', 'id', 'description' keys.
+            max_retries: Maximum number of reformulations to return.
+            semantic_enrichment: Optional dict of column -> alternative names.
+
+        Returns:
+            List of reformulated query dicts, each with 'sql', 'id',
+            'description', 'reformulation_strategy'.
+        """
+        sql = original_query.get("sql", "")
+        query_id = original_query.get("id", "unknown")
+        reformulations: list[dict] = []
+
+        # Strategy 1: Relax date filters
+        relaxed = self._relax_date_filters(sql)
+        if relaxed and relaxed != sql:
+            reformulations.append({
+                "id": f"{query_id}_relaxed_dates",
+                "sql": relaxed,
+                "description": f"{original_query.get('description', '')} (relaxed date range)",
+                "reformulation_strategy": "relax_date_filters",
+                "attempt": len(reformulations) + 1,
+            })
+
+        # Strategy 2: Remove filters one at a time
+        stripped_variants = self._remove_filters_one_by_one(sql)
+        for i, variant_sql in enumerate(stripped_variants):
+            if len(reformulations) >= max_retries:
+                break
+            reformulations.append({
+                "id": f"{query_id}_no_filter_{i}",
+                "sql": variant_sql,
+                "description": f"{original_query.get('description', '')} (filter #{i+1} removed)",
+                "reformulation_strategy": f"remove_filter_{i}",
+                "attempt": len(reformulations) + 1,
+            })
+
+        # Strategy 3: Try alternative column names
+        if semantic_enrichment and len(reformulations) < max_retries:
+            alt_variants = self._try_alternative_columns(sql, semantic_enrichment)
+            for variant_sql in alt_variants:
+                if len(reformulations) >= max_retries:
+                    break
+                reformulations.append({
+                    "id": f"{query_id}_alt_cols",
+                    "sql": variant_sql,
+                    "description": f"{original_query.get('description', '')} (alternative columns)",
+                    "reformulation_strategy": "alternative_columns",
+                    "attempt": len(reformulations) + 1,
+                })
+
+        logger.info(
+            "zero_row_reformulations_generated",
+            query_id=query_id,
+            num_reformulations=len(reformulations),
+        )
+
+        return reformulations[:max_retries]
+
+    @staticmethod
+    def _relax_date_filters(sql: str) -> str:
+        """Widen date range by 6 months on each side."""
+        import re as _re
+
+        # Match patterns like: column >= '2024-01-01'
+        def _widen_start(match: _re.Match) -> str:
+            col = match.group(1)
+            date_str = match.group(2)
+            # Try to shift date back 6 months
+            try:
+                from datetime import datetime, timedelta
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                new_dt = dt - timedelta(days=180)
+                return f"{col} >= '{new_dt.strftime('%Y-%m-%d')}'"
+            except (ValueError, ImportError):
+                return match.group(0)
+
+        def _widen_end(match: _re.Match) -> str:
+            col = match.group(1)
+            date_str = match.group(2)
+            try:
+                from datetime import datetime, timedelta
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                new_dt = dt + timedelta(days=180)
+                return f"{col} <= '{new_dt.strftime('%Y-%m-%d')}'"
+            except (ValueError, ImportError):
+                return match.group(0)
+
+        result = _re.sub(
+            r"(\w+)\s*>=\s*'(\d{4}-\d{2}-\d{2})'",
+            _widen_start,
+            sql,
+        )
+        result = _re.sub(
+            r"(\w+)\s*<=\s*'(\d{4}-\d{2}-\d{2})'",
+            _widen_end,
+            result,
+        )
+        return result
+
+    @staticmethod
+    def _remove_filters_one_by_one(sql: str) -> list[str]:
+        """
+        Remove one AND condition at a time from the WHERE clause.
+        Returns a list of SQL variants, each missing one filter.
+        """
+        import re as _re
+
+        # Split WHERE clause into AND conditions
+        where_match = _re.search(r'WHERE\s+(.*?)(?:GROUP BY|ORDER BY|HAVING|LIMIT|$)',
+                                  sql, _re.IGNORECASE | _re.DOTALL)
+        if not where_match:
+            return []
+
+        where_body = where_match.group(1).strip()
+        # Split on AND (but not inside parentheses)
+        conditions = _re.split(r'\bAND\b', where_body, flags=_re.IGNORECASE)
+        conditions = [c.strip() for c in conditions if c.strip()]
+
+        if len(conditions) <= 1:
+            return []
+
+        variants = []
+        for i in range(len(conditions)):
+            # Skip removing date conditions (they're relaxed in strategy 1)
+            if ">=" in conditions[i] or "<=" in conditions[i]:
+                continue
+            remaining = [c for j, c in enumerate(conditions) if j != i]
+            new_where = " AND ".join(remaining)
+            new_sql = sql[:where_match.start(1)] + new_where + sql[where_match.end(1):]
+            variants.append(new_sql)
+
+        return variants
+
+    @staticmethod
+    def _try_alternative_columns(
+        sql: str,
+        semantic_enrichment: dict[str, list[str]],
+    ) -> list[str]:
+        """
+        Replace columns in SQL with alternatives from semantic enrichment.
+
+        Args:
+            sql: Original SQL string.
+            semantic_enrichment: Dict of column_name -> [alternative_names].
+
+        Returns:
+            List of SQL variants with alternative column names.
+        """
+        import re as _re
+
+        variants = []
+        for col_name, alternatives in semantic_enrichment.items():
+            if col_name.lower() not in sql.lower():
+                continue
+            for alt in alternatives[:2]:  # Try at most 2 alternatives per column
+                new_sql = _re.sub(
+                    rf'\b{_re.escape(col_name)}\b',
+                    alt,
+                    sql,
+                    flags=_re.IGNORECASE,
+                )
+                if new_sql != sql:
+                    variants.append(new_sql)
+                    break  # One alternative per column is enough
+
+        return variants
+
+    # ── COLUMN DETECTION (by SEMANTIC ROLE) ─────────────────────────────
+
     @staticmethod
     def _find_key_column(key_columns: dict, *semantic_keys: str) -> str | None:
         """
