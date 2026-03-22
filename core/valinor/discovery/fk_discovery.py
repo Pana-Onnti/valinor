@@ -151,77 +151,81 @@ class FKDiscovery:
                 logger.warning("fk_discovery.cols_error", table=table, error=str(exc))
                 table_columns[table] = []
 
-        # Step 3: For each non-PK column in table A,
-        #         check against PK columns in table B
+        # Step 3: Collect all candidate pairs (cheap name-similarity filter first),
+        #         then batch-check inclusion dependencies
         candidates: list[FKCandidate] = []
 
+        # Pre-index target column stats for cardinality ratio lookups
+        tgt_stats_idx: dict[tuple[str, str], dict] = {}
+        for tbl, cols in table_columns.items():
+            for c in cols:
+                tgt_stats_idx[(tbl, c["column_name"])] = c
+
+        # Collect pairs that pass the cheap name-similarity filter
+        pairs_to_check: list[tuple[str, str, str, str, float, dict]] = []
         for src_table in tables:
             for src_col in table_columns.get(src_table, []):
                 src_name = src_col["column_name"]
 
-                # Skip if this column is a PK of its own table
                 if src_name in pk_columns.get(src_table, set()):
                     continue
-
-                # Skip columns with very low cardinality (likely discriminators, not FKs)
                 if src_col["distinct_count"] < 2:
                     continue
 
                 for tgt_table in tables:
                     if tgt_table == src_table:
                         continue
-
                     for tgt_pk_name in pk_columns.get(tgt_table, set()):
-                        # Check name similarity first (cheap filter)
                         name_sim = self._name_similarity(src_name, tgt_pk_name)
                         if name_sim < self.min_name_similarity:
                             continue
-
-                        # Check inclusion dependency (expensive — SQL query)
-                        try:
-                            inclusion, orphan_count = self._check_inclusion(
-                                engine, src_table, src_name,
-                                tgt_table, tgt_pk_name, schema,
-                            )
-                        except Exception as exc:
-                            logger.debug(
-                                "fk_discovery.inclusion_error",
-                                src=f"{src_table}.{src_name}",
-                                tgt=f"{tgt_table}.{tgt_pk_name}",
-                                error=str(exc),
-                            )
-                            continue
-
-                        if inclusion < self.min_inclusion_ratio:
-                            continue
-
-                        # Cardinality ratio
-                        tgt_col_stats = next(
-                            (c for c in table_columns.get(tgt_table, [])
-                             if c["column_name"] == tgt_pk_name),
-                            None,
+                        pairs_to_check.append(
+                            (src_table, src_name, tgt_table, tgt_pk_name, name_sim, src_col)
                         )
-                        card_ratio = 0.0
-                        if tgt_col_stats and tgt_col_stats["distinct_count"] > 0:
-                            card_ratio = (
-                                src_col["distinct_count"]
-                                / tgt_col_stats["distinct_count"]
-                            )
 
-                        candidate = FKCandidate(
-                            source_table=src_table,
-                            source_column=src_name,
-                            target_table=tgt_table,
-                            target_column=tgt_pk_name,
-                            inclusion_ratio=inclusion,
-                            orphan_count=orphan_count,
-                            name_similarity=name_sim,
-                            cardinality_ratio=min(card_ratio, 1.0),
+        # Batch-check all inclusion dependencies in a single connection
+        if pairs_to_check:
+            with engine.connect() as conn:
+                for src_table, src_name, tgt_table, tgt_pk_name, name_sim, src_col in pairs_to_check:
+                    try:
+                        inclusion, orphan_count = self._check_inclusion_conn(
+                            conn, src_table, src_name,
+                            tgt_table, tgt_pk_name, schema,
                         )
-                        candidate.score = self.score_candidate(candidate)
+                    except Exception as exc:
+                        logger.debug(
+                            "fk_discovery.inclusion_error",
+                            src=f"{src_table}.{src_name}",
+                            tgt=f"{tgt_table}.{tgt_pk_name}",
+                            error=str(exc),
+                        )
+                        continue
 
-                        if candidate.score >= self.min_score:
-                            candidates.append(candidate)
+                    if inclusion < self.min_inclusion_ratio:
+                        continue
+
+                    tgt_col_stats = tgt_stats_idx.get((tgt_table, tgt_pk_name))
+                    card_ratio = 0.0
+                    if tgt_col_stats and tgt_col_stats["distinct_count"] > 0:
+                        card_ratio = (
+                            src_col["distinct_count"]
+                            / tgt_col_stats["distinct_count"]
+                        )
+
+                    candidate = FKCandidate(
+                        source_table=src_table,
+                        source_column=src_name,
+                        target_table=tgt_table,
+                        target_column=tgt_pk_name,
+                        inclusion_ratio=inclusion,
+                        orphan_count=orphan_count,
+                        name_similarity=name_sim,
+                        cardinality_ratio=min(card_ratio, 1.0),
+                    )
+                    candidate.score = self.score_candidate(candidate)
+
+                    if candidate.score >= self.min_score:
+                        candidates.append(candidate)
 
         # Sort by score descending
         candidates.sort(key=lambda c: c.score, reverse=True)
@@ -248,8 +252,7 @@ class FKDiscovery:
     def _get_column_stats(
         self, engine, table: str, schema: str,
     ) -> list[dict[str, Any]]:
-        """Get basic stats for all columns in a table."""
-        # First get column names
+        """Get basic stats for all columns in a table (single query)."""
         meta_sql = """
             SELECT column_name, data_type
             FROM information_schema.columns
@@ -259,31 +262,81 @@ class FKDiscovery:
         with engine.connect() as conn:
             meta_rows = conn.execute(_text(meta_sql), {"schema": schema, "table": table}).fetchall()
 
-        results = []
-        for col_name, data_type in meta_rows:
-            fqn = f'"{schema}"."{table}"'
-            cq = f'"{col_name}"'
-            stats_sql = f"""
-                SELECT
-                    COUNT(*) AS total,
-                    COUNT(DISTINCT {cq}) AS distinct_count,
-                    COUNT({cq}) AS non_null_count
-                FROM {fqn}
-            """
-            with engine.connect() as conn:
-                row = conn.execute(_text(stats_sql)).fetchone()
+        if not meta_rows:
+            return []
 
-            if row:
-                total, distinct, non_null = row[0], row[1], row[2]
-                results.append({
-                    "column_name": col_name,
-                    "data_type": data_type,
-                    "row_count": total,
-                    "distinct_count": distinct,
-                    "is_unique": distinct == total and total > 0,
-                    "is_non_null": non_null == total and total > 0,
-                })
+        # Build a single query that computes stats for ALL columns at once
+        fqn = f'"{schema}"."{table}"'
+        agg_parts = []
+        for col_name, _ in meta_rows:
+            cq = f'"{col_name}"'
+            agg_parts.append(f"COUNT(DISTINCT {cq})")
+            agg_parts.append(f"COUNT({cq})")
+
+        stats_sql = f"SELECT COUNT(*), {', '.join(agg_parts)} FROM {fqn}"
+
+        with engine.connect() as conn:
+            row = conn.execute(_text(stats_sql)).fetchone()
+
+        if not row:
+            return []
+
+        total = row[0]
+        results = []
+        for i, (col_name, data_type) in enumerate(meta_rows):
+            distinct = row[1 + i * 2]
+            non_null = row[2 + i * 2]
+            results.append({
+                "column_name": col_name,
+                "data_type": data_type,
+                "row_count": total,
+                "distinct_count": distinct,
+                "is_unique": distinct == total and total > 0,
+                "is_non_null": non_null == total and total > 0,
+            })
         return results
+
+    def _check_inclusion_conn(
+        self,
+        conn,
+        src_table: str,
+        src_col: str,
+        tgt_table: str,
+        tgt_col: str,
+        schema: str,
+    ) -> tuple[float, int]:
+        """
+        Check inclusion dependency using an existing connection.
+        Returns (inclusion_ratio, orphan_count).
+        Single query computes both orphan count and total distinct.
+        """
+        src_fqn = f'"{schema}"."{src_table}"'
+        tgt_fqn = f'"{schema}"."{tgt_table}"'
+        src_cq = f'"{src_col}"'
+        tgt_cq = f'"{tgt_col}"'
+
+        # Single query: total distinct + orphan count via LEFT JOIN
+        sql = f"""
+            SELECT
+                COUNT(*) AS total_distinct,
+                COUNT(*) FILTER (WHERE t.{tgt_cq} IS NULL) AS orphan_count
+            FROM (
+                SELECT DISTINCT {src_cq} FROM {src_fqn} WHERE {src_cq} IS NOT NULL
+            ) s
+            LEFT JOIN (
+                SELECT DISTINCT {tgt_cq} FROM {tgt_fqn} WHERE {tgt_cq} IS NOT NULL
+            ) t ON s.{src_cq}::text = t.{tgt_cq}::text
+        """
+
+        row = conn.execute(_text(sql)).fetchone()
+        total_distinct = row[0]
+        orphan_count = row[1]
+
+        if total_distinct == 0:
+            return 0.0, 0
+
+        inclusion_ratio = (total_distinct - orphan_count) / total_distinct
+        return round(inclusion_ratio, 4), orphan_count
 
     def _check_inclusion(
         self,
@@ -294,44 +347,11 @@ class FKDiscovery:
         tgt_col: str,
         schema: str,
     ) -> tuple[float, int]:
-        """
-        Check inclusion dependency: src.col values ⊆ tgt.col values.
-        Returns (inclusion_ratio, orphan_count).
-        Uses SQL-level set comparison — does NOT load all values into Python.
-        """
-        src_fqn = f'"{schema}"."{src_table}"'
-        tgt_fqn = f'"{schema}"."{tgt_table}"'
-        src_cq = f'"{src_col}"'
-        tgt_cq = f'"{tgt_col}"'
-
-        # Count orphans: source values NOT found in target
-        orphan_sql = f"""
-            SELECT COUNT(*) FROM (
-                SELECT DISTINCT a.{src_cq} FROM {src_fqn} a
-                WHERE a.{src_cq} IS NOT NULL
-                  AND a.{src_cq}::text NOT IN (
-                    SELECT DISTINCT b.{tgt_cq}::text FROM {tgt_fqn} b
-                    WHERE b.{tgt_cq} IS NOT NULL
-                  )
-            ) orphans
-        """
-
-        # Count total distinct source values
-        total_sql = f"""
-            SELECT COUNT(DISTINCT {src_cq})
-            FROM {src_fqn}
-            WHERE {src_cq} IS NOT NULL
-        """
-
+        """Check inclusion dependency (opens its own connection)."""
         with engine.connect() as conn:
-            orphan_count = conn.execute(_text(orphan_sql)).fetchone()[0]
-            total_distinct = conn.execute(_text(total_sql)).fetchone()[0]
-
-        if total_distinct == 0:
-            return 0.0, 0
-
-        inclusion_ratio = (total_distinct - orphan_count) / total_distinct
-        return round(inclusion_ratio, 4), orphan_count
+            return self._check_inclusion_conn(
+                conn, src_table, src_col, tgt_table, tgt_col, schema,
+            )
 
     @staticmethod
     def _name_similarity(name_a: str, name_b: str) -> float:

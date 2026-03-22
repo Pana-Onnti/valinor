@@ -113,24 +113,26 @@ async def _prescan_filter_candidates(client_config: dict) -> dict:
                 continue
 
             table_hints: dict = {}
-            with engine.connect() as conn:
-                for col in matches:
-                    try:
-                        result = conn.execute(
-                            sa_text(
-                                f'SELECT "{col}", COUNT(*) AS cnt '
-                                f'FROM "{db_schema}"."{table}" '
-                                f"GROUP BY 1 ORDER BY cnt DESC LIMIT 10"
-                            )
+            # Batch all discriminator probes into a single UNION ALL query
+            union_parts = []
+            for col in matches:
+                union_parts.append(
+                    f"(SELECT '{col}' AS col_name, \"{col}\"::text AS val, "
+                    f'COUNT(*) AS cnt '
+                    f'FROM "{db_schema}"."{table}" '
+                    f"GROUP BY 2 ORDER BY cnt DESC LIMIT 10)"
+                )
+            batch_sql = " UNION ALL ".join(union_parts)
+            try:
+                with engine.connect() as conn:
+                    result = conn.execute(sa_text(batch_sql))
+                    for row in result.fetchall():
+                        col_name, val, cnt = row[0], row[1], row[2]
+                        table_hints.setdefault(col_name, []).append(
+                            {"value": str(val), "count": cnt}
                         )
-                        values = [
-                            {"value": str(r[0]), "count": r[1]}
-                            for r in result.fetchall()
-                        ]
-                        if values:
-                            table_hints[col] = values
-                    except (OSError, TypeError, ValueError) as exc:
-                        logger.warning("cartographer prescan: failed to probe column %s.%s", table, col, exc_info=exc)
+            except (OSError, TypeError, ValueError) as exc:
+                logger.warning("cartographer prescan: failed to probe table %s", table, exc_info=exc)
 
             if table_hints:
                 candidate_hints[table] = table_hints

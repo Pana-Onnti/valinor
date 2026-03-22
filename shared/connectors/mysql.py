@@ -106,6 +106,9 @@ class MySQLConnector(DeltaConnector):
         # MySQL: schema_name maps to database name
         table_names = inspector.get_table_names(schema=target_schema)
 
+        # Batch-fetch all row counts in a single query
+        row_counts = self._estimate_all_row_counts(table_names, target_schema)
+
         tables = {}
         for table_name in table_names:
             try:
@@ -115,11 +118,9 @@ class MySQLConnector(DeltaConnector):
                     for c in cols
                 ]
 
-                row_count = self._estimate_row_count(table_name, target_schema)
-
                 tables[table_name] = {
                     "columns": column_info,
-                    "row_count": row_count,
+                    "row_count": row_counts.get(table_name, 0),
                 }
             except Exception as exc:
                 logger.warning("mysql.get_schema.table_failed", table=table_name, error=str(exc))
@@ -130,25 +131,33 @@ class MySQLConnector(DeltaConnector):
             "schema": target_schema,
         }
 
-    def _estimate_row_count(self, table_name: str, schema: Optional[str]) -> int:
-        """Estimate row count from information_schema (no full scan)."""
+    def _estimate_all_row_counts(
+        self, table_names: List[str], schema: Optional[str],
+    ) -> Dict[str, int]:
+        """Estimate row counts for all tables in a single information_schema query."""
+        if not table_names:
+            return {}
         try:
             from sqlalchemy import text as sa_text
-            query = (
-                "SELECT TABLE_ROWS FROM information_schema.TABLES "
-                "WHERE TABLE_NAME = :table"
+            # Build IN clause with positional placeholders
+            placeholders = ", ".join(f":t{i}" for i in range(len(table_names)))
+            sql = (
+                f"SELECT TABLE_NAME, TABLE_ROWS FROM information_schema.TABLES "
+                f"WHERE TABLE_NAME IN ({placeholders})"
             )
-            bind = {"table": table_name}
+            bind: Dict[str, Any] = {f"t{i}": name for i, name in enumerate(table_names)}
             if schema:
-                query += " AND TABLE_SCHEMA = :schema"
+                sql += " AND TABLE_SCHEMA = :schema"
                 bind["schema"] = schema
 
             with self._engine.connect() as conn:
-                result = conn.execute(sa_text(query), bind)
-                row = result.fetchone()
-                return int(row[0]) if row and row[0] else 0
+                result = conn.execute(sa_text(sql), bind)
+                return {
+                    row[0]: int(row[1]) if row[1] else 0
+                    for row in result.fetchall()
+                }
         except Exception:
-            return 0
+            return {}
 
     @staticmethod
     def _parse_host(conn_str: str) -> str:
