@@ -667,3 +667,47 @@ def build_queries(entity_map: dict, period: dict, profile: dict | None = None) -
             })
 
     return query_pack
+
+
+def build_queries_adaptive(
+    entity_map: dict,
+    period: dict,
+    kg=None,
+    profile: dict | None = None,
+) -> dict:
+    """
+    Try KG-guided generation first, fall back to static templates.
+
+    When a SchemaKnowledgeGraph is available, uses QueryGenerator to build
+    SQL programmatically (no static templates, no hardcoded column names).
+    Falls back to build_queries() when KG is unavailable or generation fails.
+
+    Args:
+        entity_map: Dict with 'entities' key mapping entity names to config.
+        period:     Dict with 'start', 'end', 'label' keys.
+        kg:         Optional SchemaKnowledgeGraph instance.
+        profile:    Optional dict for entity prioritisation.
+
+    Returns:
+        Dict with 'queries' and 'skipped' keys, same format as build_queries().
+    """
+    if kg is not None:
+        try:
+            from valinor.agents.query_generator import QueryGenerator
+
+            gen = QueryGenerator(kg, entity_map, period)
+            result = gen.generate_all()
+            if result.get("queries"):
+                logger.info(
+                    "KG-guided query generation succeeded",
+                    num_queries=len(result["queries"]),
+                    num_skipped=len(result.get("skipped", [])),
+                )
+                return result
+        except Exception as e:
+            logger.warning(
+                "Dynamic generation failed, falling back to templates",
+                error=str(e),
+            )
+
+    return build_queries(entity_map, period, profile)
