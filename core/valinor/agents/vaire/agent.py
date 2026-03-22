@@ -146,24 +146,56 @@ class VaireAgent:
 
     def _enforce_loss_framing(self, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
-        Verifica que hero numbers usen framing negativo.
-        Convierte "podrías ganar X" → "estás perdiendo X".
+        Verifica que hero numbers usen framing negativo (Kahneman loss aversion).
+        Convierte gain framing -> loss framing in both ES and EN.
         """
         replacements = [
-            (r'podrías ganar',   'estás perdiendo'),
-            (r'Podrías ganar',   'Estás perdiendo'),
-            (r'potencial de (.+?) en ingresos', r'pérdida de \1'),
-            (r'oportunidad de',  'costo de no actuar:'),
+            # Spanish
+            (r'podr[ií]as? ganar',        'est[a/as] perdiendo'),
+            (r'potencial de (.+?) en ingresos', r'perdida de \1'),
+            (r'oportunidad de',           'costo de no actuar:'),
+            (r'podr[ií]as? ahorrar',      'esta perdiendo'),
+            (r'ahorro potencial de',      'perdida actual de'),
+            # English
+            (r'you could save',           'you are losing'),
+            (r'You could save',           'You are losing'),
+            (r'potential savings? of',     'current loss of'),
+            (r'opportunity to gain',       'cost of inaction:'),
+            (r'you could gain',           'you are losing'),
+            (r'You could gain',           'You are losing'),
+            (r'potential revenue of',      'revenue loss of'),
         ]
         import re
+
+        # Fix the placeholder in Spanish replacements
+        es_replacements = [
+            (r'podr[ií]as ganar',         'estas perdiendo'),
+            (r'Podr[ií]as ganar',         'Estas perdiendo'),
+            (r'podria ganar',             'esta perdiendo'),
+            (r'Podria ganar',             'Esta perdiendo'),
+            (r'potencial de (.+?) en ingresos', r'perdida de \1'),
+            (r'oportunidad de',           'costo de no actuar:'),
+            (r'podr[ií]as ahorrar',       'estas perdiendo'),
+            (r'podria ahorrar',           'esta perdiendo'),
+            (r'ahorro potencial de',      'perdida actual de'),
+            # English
+            (r'you could save',           'you are losing'),
+            (r'You could save',           'You are losing'),
+            (r'potential savings? of',     'current loss of'),
+            (r'opportunity to gain',       'cost of inaction:'),
+            (r'you could gain',           'you are losing'),
+            (r'You could gain',           'You are losing'),
+            (r'potential revenue of',      'revenue loss of'),
+        ]
+
         for f in findings:
-            title = f.get('title', '')
-            body = f.get('body', '')
-            for pattern, replacement in replacements:
-                title = re.sub(pattern, replacement, title, flags=re.IGNORECASE)
-                body  = re.sub(pattern, replacement, body,  flags=re.IGNORECASE)
-            f['title'] = title
-            f['body']  = body
+            for field_name in ('title', 'body', 'situation', 'complication', 'resolution'):
+                text = f.get(field_name, '')
+                if not text:
+                    continue
+                for pattern, replacement in es_replacements:
+                    text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+                f[field_name] = text
         return findings
 
     def _build_whatsapp_summary(
