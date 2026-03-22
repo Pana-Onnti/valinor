@@ -54,6 +54,7 @@ class SQLBuilder:
         self._order_by: str | None = None
         self._limit: int | None = None
         self._table_aliases: dict[str, str] = {}  # table_name -> alias
+        self._ctes: list[tuple[str, str]] = []  # (name, sql_string)
 
     def select(self, expr: str, alias: str = "") -> "SQLBuilder":
         """Add a SELECT expression."""
@@ -160,6 +161,11 @@ class SQLBuilder:
         self._limit = n
         return self
 
+    def with_cte(self, name: str, sql: str) -> "SQLBuilder":
+        """Register a CTE. Rendered before the main SELECT."""
+        self._ctes.append((name, sql))
+        return self
+
     def build(self) -> str:
         """Assemble the final SQL string."""
         if not self._selects:
@@ -168,6 +174,9 @@ class SQLBuilder:
             raise ValueError("No FROM table defined")
 
         parts = []
+        if self._ctes:
+            cte_parts = [f"{name} AS (\n{sql}\n)" for name, sql in self._ctes]
+            parts.append("WITH " + ",\n".join(cte_parts))
         parts.append("SELECT")
         parts.append("    " + ",\n    ".join(self._selects))
 
@@ -237,6 +246,8 @@ class QueryGenerator:
             ("customer_concentration", "financial", self.generate_customer_concentration),
             ("top_debtors", "credit", self.generate_top_debtors),
             ("dormant_customers", "sales", self.generate_dormant_customers),
+            ("revenue_trend", "financial", self.generate_revenue_trend),
+            ("yoy_comparison", "financial", self.generate_yoy_comparison),
         ]
 
         for query_id, domain, gen_fn in generators:
@@ -578,6 +589,111 @@ class QueryGenerator:
         return {
             "description": f"Dormant customers from {customer['name']}",
             "sql": builder.build(),
+        }
+
+    def generate_revenue_trend(self) -> dict | None:
+        """Monthly revenue with MoM growth rate and 3-month moving average."""
+        revenue = self._find_revenue_entity()
+        if not revenue:
+            return None
+
+        table = revenue["table"]
+        kc = revenue.get("key_columns", {})
+        amount_col = self._find_key_column(kc, "amount_col", "grand_total", "amount")
+        date_col = self._find_key_column(kc, "invoice_date", "date_col", "date")
+        base_filter = revenue.get("base_filter", "")
+
+        if not amount_col or not date_col:
+            return None
+
+        where = f"WHERE {base_filter}" if base_filter else ""
+        if where and self.period:
+            where += f" AND {date_col} >= '{self.period.get('start', '')}'"
+            where += f" AND {date_col} <= '{self.period.get('end', '')}'"
+        elif self.period:
+            where = (
+                f"WHERE {date_col} >= '{self.period.get('start', '')}'"
+                f" AND {date_col} <= '{self.period.get('end', '')}'"
+            )
+
+        sql = f"""WITH monthly_agg AS (
+    SELECT
+        DATE_TRUNC('month', {date_col}) AS month,
+        SUM({amount_col}) AS revenue,
+        COUNT(*) AS invoice_count
+    FROM {table}
+    {where}
+    GROUP BY DATE_TRUNC('month', {date_col})
+    ORDER BY month
+)
+SELECT
+    month,
+    revenue,
+    invoice_count,
+    LAG(revenue) OVER (ORDER BY month) AS prev_month_revenue,
+    CASE
+        WHEN LAG(revenue) OVER (ORDER BY month) > 0
+        THEN ROUND(((revenue - LAG(revenue) OVER (ORDER BY month)) * 100.0
+              / LAG(revenue) OVER (ORDER BY month))::numeric, 2)
+        ELSE NULL
+    END AS mom_growth_pct,
+    ROUND(AVG(revenue) OVER (ORDER BY month ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)::numeric, 2) AS moving_avg_3m
+FROM monthly_agg
+ORDER BY month"""
+
+        return {
+            "id": "revenue_trend",
+            "sql": sql,
+            "description": "Monthly revenue with MoM growth rate and 3-month moving average",
+            "domain": "financial",
+        }
+
+    def generate_yoy_comparison(self) -> dict | None:
+        """Year-over-year comparison with actual growth rates."""
+        revenue = self._find_revenue_entity()
+        if not revenue:
+            return None
+
+        table = revenue["table"]
+        kc = revenue.get("key_columns", {})
+        amount_col = self._find_key_column(kc, "amount_col", "grand_total", "amount")
+        date_col = self._find_key_column(kc, "invoice_date", "date_col", "date")
+        base_filter = revenue.get("base_filter", "")
+
+        if not amount_col or not date_col:
+            return None
+
+        where = f"WHERE {base_filter}" if base_filter else "WHERE 1=1"
+
+        sql = f"""WITH yearly AS (
+    SELECT
+        EXTRACT(YEAR FROM {date_col}) AS year,
+        EXTRACT(MONTH FROM {date_col}) AS month,
+        SUM({amount_col}) AS revenue
+    FROM {table}
+    {where}
+    GROUP BY EXTRACT(YEAR FROM {date_col}), EXTRACT(MONTH FROM {date_col})
+)
+SELECT
+    y1.year,
+    y1.month,
+    y1.revenue AS current_revenue,
+    y2.revenue AS prior_year_revenue,
+    CASE
+        WHEN y2.revenue > 0
+        THEN ROUND(((y1.revenue - y2.revenue) * 100.0 / y2.revenue)::numeric, 2)
+        ELSE NULL
+    END AS yoy_growth_pct
+FROM yearly y1
+LEFT JOIN yearly y2
+    ON y1.month = y2.month AND y1.year = y2.year + 1
+ORDER BY y1.year, y1.month"""
+
+        return {
+            "id": "yoy_comparison",
+            "sql": sql,
+            "description": "Year-over-year monthly comparison with growth rates",
+            "domain": "financial",
         }
 
     # ── ENTITY DETECTION (by TYPE, not NAME) ────────────────────────────

@@ -22,6 +22,7 @@ Architecture references:
 
 from __future__ import annotations
 
+import heapq
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -69,7 +70,13 @@ class FKEdge:
     to_table: str
     to_column: str
     cardinality: str = "N:1"
-    weight: float = 1.0
+    confidence: float = 1.0  # 0.0-1.0: evidence strength for this relationship
+    weight: float = 0.0      # Dijkstra weight: lower = preferred (auto-computed)
+
+    def __post_init__(self):
+        # Weight inversely proportional to confidence: prefer high-confidence paths
+        if self.weight == 0.0:
+            self.weight = max(0.01, 1.0 - self.confidence)
 
 
 @dataclass
@@ -190,6 +197,8 @@ class SchemaKnowledgeGraph:
             to_entity = rel.get("to", "")
             via_col = rel.get("via", "")
             cardinality = rel.get("cardinality", "N:1")
+            # Accept confidence from FK discovery (if available)
+            confidence = float(rel.get("confidence", 1.0))
 
             from_table = entities.get(from_entity, {}).get("table", "")
             to_table = entities.get(to_entity, {}).get("table", "")
@@ -205,6 +214,7 @@ class SchemaKnowledgeGraph:
                 to_table=to_table,
                 to_column=to_pk or via_col,
                 cardinality=cardinality,
+                confidence=confidence,
             )
 
             self.edges.append(edge)
@@ -226,38 +236,49 @@ class SchemaKnowledgeGraph:
 
     def find_join_path(self, from_table: str, to_table: str) -> JoinPath | None:
         """
-        Find the shortest JOIN path between two tables using BFS.
+        Find the optimal JOIN path between two tables using Dijkstra.
 
-        This is the core anti-hallucination mechanism for JOINs:
-        instead of an LLM guessing the path, we compute it
-        deterministically from the FK graph.
+        Uses confidence-weighted edges: high-confidence FK relationships
+        are preferred over speculative ones. This is the core
+        anti-hallucination mechanism for JOINs.
+
+        Weight = 1 - confidence, so high-confidence edges have low weight.
         """
         if from_table == to_table:
             return JoinPath(tables=[from_table], edges=[], total_weight=0)
 
-        visited = {from_table}
-        queue: list[tuple[str, list[FKEdge]]] = [(from_table, [])]
+        # Dijkstra with (cost, counter, current_table, path)
+        # counter breaks ties deterministically
+        counter = 0
+        dist: dict[str, float] = {from_table: 0.0}
+        heap: list[tuple[float, int, str, list[FKEdge]]] = [(0.0, counter, from_table, [])]
 
-        while queue:
-            current, path = queue.pop(0)
+        while heap:
+            cost, _, current, path = heapq.heappop(heap)
 
+            if current == to_table:
+                return self._build_join_path(from_table, path)
+
+            if cost > dist.get(current, float("inf")):
+                continue
+
+            # Forward edges
             for edge in self._adjacency.get(current, []):
                 neighbor = edge.to_table
-                if neighbor not in visited:
-                    new_path = path + [edge]
-                    if neighbor == to_table:
-                        return self._build_join_path(from_table, new_path)
-                    visited.add(neighbor)
-                    queue.append((neighbor, new_path))
+                new_cost = cost + edge.weight
+                if new_cost < dist.get(neighbor, float("inf")):
+                    dist[neighbor] = new_cost
+                    counter += 1
+                    heapq.heappush(heap, (new_cost, counter, neighbor, path + [edge]))
 
+            # Reverse edges
             for edge in self._reverse_adjacency.get(current, []):
                 neighbor = edge.from_table
-                if neighbor not in visited:
-                    new_path = path + [edge]
-                    if neighbor == to_table:
-                        return self._build_join_path(from_table, new_path)
-                    visited.add(neighbor)
-                    queue.append((neighbor, new_path))
+                new_cost = cost + edge.weight
+                if new_cost < dist.get(neighbor, float("inf")):
+                    dist[neighbor] = new_cost
+                    counter += 1
+                    heapq.heappush(heap, (new_cost, counter, neighbor, path + [edge]))
 
         return None
 
@@ -403,14 +424,15 @@ class SchemaKnowledgeGraph:
                     marker = " [IN FILTER]" if col.in_base_filter else ""
                     lines.append(f"  - {col.name}: [{vals}]{marker}")
 
-        lines.append("\n### JOIN Paths (shortest-path from FK graph)")
+        lines.append("\n### JOIN Paths (confidence-weighted Dijkstra)")
         shown = set()
         for edge in self.edges:
             pair = (edge.from_table, edge.to_table)
             if pair not in shown:
+                conf_tag = f" [conf={edge.confidence:.0%}]" if edge.confidence < 1.0 else ""
                 lines.append(
                     f"- {edge.from_table}.{edge.from_column} → "
-                    f"{edge.to_table}.{edge.to_column} ({edge.cardinality})"
+                    f"{edge.to_table}.{edge.to_column} ({edge.cardinality}){conf_tag}"
                 )
                 shown.add(pair)
 

@@ -127,11 +127,13 @@ class DataQualityGate:
         # Generic / unknown: skip schema check
     }
 
-    def __init__(self, engine, period_start: str, period_end: str, erp: str = None):
+    def __init__(self, engine, period_start: str, period_end: str,
+                 erp: str = None, entity_map: dict | None = None):
         self.engine = engine
         self.period_start = period_start
         self.period_end = period_end
         self.erp = (erp or "").lower().strip()
+        self.entity_map = entity_map or {}
 
     # -----------------------------------------------------------------------
     # Public entry point
@@ -171,12 +173,22 @@ class DataQualityGate:
             try:
                 check = method()
             except Exception as e:
+                import structlog as _sl
+                _sl.get_logger().warning(
+                    "dq_gate.check_error",
+                    check=method.__name__,
+                    error=str(e),
+                )
                 check = QualityCheckResult(
                     check_name=method.__name__.replace("_check_", ""),
-                    passed=True,  # Don't penalize for check errors
-                    score_impact=0,
-                    severity="INFO",
-                    detail=f"Check skipped: {e}",
+                    passed=False,
+                    score_impact=self.SCORE_WEIGHTS.get(
+                        method.__name__.replace("_check_", ""), 5
+                    ) // 3,  # Partial deduction for crashed checks
+                    severity="WARNING",
+                    detail=f"Check crashed (error treated as warning): {e}",
+                    recommendation="Investigate why this check failed. "
+                                   "The check may need schema or config adjustments.",
                 )
 
             if _dq_metrics:
@@ -231,6 +243,28 @@ class DataQualityGate:
             return "PRELIMINARY"
         return "ESTIMATED"
 
+    def _find_transaction_table(self) -> Dict[str, Any]:
+        """Find the primary transaction table from entity_map.
+
+        Returns dict with table, amount_col, date_col, name_col, base_filter
+        or empty dict if not found.
+        """
+        entities = self.entity_map.get("entities", {})
+        for entity_name, entity in entities.items():
+            if entity.get("type") == "TRANSACTIONAL":
+                key_cols = entity.get("key_columns", {})
+                amount_col = key_cols.get("amount_col")
+                date_col = key_cols.get("date_col")
+                if amount_col and date_col:
+                    return {
+                        "table": entity.get("table", ""),
+                        "amount_col": amount_col,
+                        "date_col": date_col,
+                        "name_col": key_cols.get("name") or key_cols.get("document_no"),
+                        "base_filter": entity.get("base_filter", ""),
+                    }
+        return {}
+
     def _scalar(self, conn, sql: str, params: dict = None) -> Any:
         """Execute a scalar SQL query and return the first column of the first row."""
         result = conn.execute(text(sql), params or {})
@@ -263,10 +297,18 @@ class DataQualityGate:
     # -----------------------------------------------------------------------
 
     def _check_schema_integrity(self) -> QualityCheckResult:
-        """Verify core ERP tables and key columns exist. ERP-aware."""
-        erp_spec = self.ERP_CORE_TABLES.get(self.erp)
+        """Verify required tables and key columns exist.
 
-        # Unknown / generic ERP → skip destructive schema check
+        Uses entity_map when available (schema-agnostic), falls back to
+        ERP_CORE_TABLES for backward compatibility.
+        """
+        # Prefer entity_map-driven check (schema-agnostic)
+        entities = self.entity_map.get("entities", {})
+        if entities:
+            return self._check_schema_integrity_from_entity_map(entities)
+
+        # Fallback: legacy ERP-specific check
+        erp_spec = self.ERP_CORE_TABLES.get(self.erp)
         if erp_spec is None:
             return QualityCheckResult(
                 check_name="schema_integrity",
@@ -315,27 +357,96 @@ class DataQualityGate:
             detail="All required tables and columns present.",
         )
 
+    def _check_schema_integrity_from_entity_map(self, entities: dict) -> QualityCheckResult:
+        """Schema integrity check driven by entity_map — zero hardcoded ERP knowledge."""
+        missing_tables = []
+        missing_cols = []
+
+        with self.engine.connect() as conn:
+            for entity_name, entity in entities.items():
+                table = entity.get("table", "")
+                if not table:
+                    continue
+                if not self._table_exists(conn, table):
+                    missing_tables.append(f"{entity_name} → {table}")
+                    continue
+                # Check key_columns exist
+                for col_role, col_name in entity.get("key_columns", {}).items():
+                    if col_name and not self._column_exists(conn, table, col_name):
+                        missing_cols.append(f"{table}.{col_name} ({col_role})")
+
+        if missing_tables:
+            return QualityCheckResult(
+                check_name="schema_integrity",
+                passed=False,
+                score_impact=self.SCORE_WEIGHTS["schema_integrity"],
+                severity="FATAL",
+                detail=f"Entity tables missing: {missing_tables}",
+                recommendation="Verify entity_map table names match the actual database schema.",
+            )
+
+        if missing_cols:
+            return QualityCheckResult(
+                check_name="schema_integrity",
+                passed=False,
+                score_impact=self.SCORE_WEIGHTS["schema_integrity"],
+                severity="FATAL",
+                detail=f"Key columns missing: {missing_cols}",
+                recommendation="Verify key_columns in entity_map. Column may have been renamed.",
+            )
+
+        return QualityCheckResult(
+            check_name="schema_integrity",
+            passed=True,
+            score_impact=0,
+            severity="INFO",
+            detail=f"All {len(entities)} entity tables and key columns present.",
+        )
+
     # -----------------------------------------------------------------------
     # Check 2 — Null Density
     # -----------------------------------------------------------------------
 
     def _check_null_density(self) -> QualityCheckResult:
-        """Check null rates on critical financial columns."""
-        thresholds = {
-            # (table, column): max_null_fraction
-            ("account_move_line", "debit"):        0.01,
-            ("account_move_line", "credit"):       0.01,
-            ("account_move_line", "date"):         0.01,
-            ("account_move",      "partner_id"):   0.05,
-            ("account_move",      "invoice_date"): 0.05,
-            ("account_move",      "currency_id"):  0.05,
-        }
+        """Check null rates on critical columns.
+
+        Uses entity_map key_columns when available (schema-agnostic),
+        falls back to hardcoded Odoo columns for backward compatibility.
+        """
+        # Build thresholds from entity_map or legacy hardcoded values
+        thresholds: Dict[tuple, float] = {}
+        entities = self.entity_map.get("entities", {})
+        if entities:
+            # Entity-map-driven: check all key_columns
+            for entity_name, entity in entities.items():
+                table = entity.get("table", "")
+                if not table:
+                    continue
+                for col_role, col_name in entity.get("key_columns", {}).items():
+                    if not col_name:
+                        continue
+                    # Monetary and date columns are critical (low tolerance)
+                    if "amount" in col_role or "total" in col_role:
+                        thresholds[(table, col_name)] = 0.01
+                    elif "date" in col_role:
+                        thresholds[(table, col_name)] = 0.05
+                    else:
+                        thresholds[(table, col_name)] = 0.10
+        else:
+            # Legacy fallback: hardcoded Odoo columns
+            thresholds = {
+                ("account_move_line", "debit"):        0.01,
+                ("account_move_line", "credit"):       0.01,
+                ("account_move_line", "date"):         0.01,
+                ("account_move",      "partner_id"):   0.05,
+                ("account_move",      "invoice_date"): 0.05,
+                ("account_move",      "currency_id"):  0.05,
+            }
 
         violations: List[str] = []
 
         with self.engine.connect() as conn:
             for (table, col), threshold in thresholds.items():
-                # Skip if table/column doesn't exist to avoid crashing
                 if not self._table_exists(conn, table) or not self._column_exists(conn, table, col):
                     continue
 
@@ -345,7 +456,7 @@ class DataQualityGate:
 
                 null_count = self._scalar(
                     conn,
-                    f"SELECT COUNT(*) FROM {table} WHERE {col} IS NULL",  # noqa: S608
+                    f"SELECT COUNT(*) FROM {table} WHERE \"{col}\" IS NULL",  # noqa: S608
                 )
                 null_rate = (null_count or 0) / total
 
@@ -378,26 +489,58 @@ class DataQualityGate:
     # -----------------------------------------------------------------------
 
     def _check_duplicate_rate(self) -> QualityCheckResult:
-        """Detect duplicate invoice names in the analysis period."""
-        sql = """
-            SELECT
-                COUNT(*) AS total,
-                COUNT(*) - COUNT(DISTINCT name) AS duplicates
-            FROM account_move
-            WHERE move_type IN ('out_invoice', 'in_invoice')
-              AND state = 'posted'
-              AND invoice_date BETWEEN :period_start AND :period_end
-              AND name IS NOT NULL
-              AND name != '/'
+        """Detect duplicate invoice names in the analysis period.
+
+        Uses entity_map for table/column discovery when available.
         """
-        with self.engine.connect() as conn:
-            if not self._table_exists(conn, "account_move"):
+        txn = self._find_transaction_table()
+        if txn:
+            table = txn["table"]
+            date_col = txn["date_col"]
+            name_col = txn.get("name_col")
+            base_filter = txn.get("base_filter", "")
+            if not name_col:
                 return QualityCheckResult(
                     check_name="duplicate_rate",
                     passed=True,
                     score_impact=0,
                     severity="INFO",
-                    detail="account_move table not found; check skipped.",
+                    detail="No document name column in entity_map; duplicate check skipped.",
+                )
+            where_parts = [f"{date_col} BETWEEN :period_start AND :period_end",
+                           f"{name_col} IS NOT NULL"]
+            if base_filter:
+                where_parts.insert(0, base_filter)
+            where_clause = " AND ".join(where_parts)
+            sql = f"""
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(*) - COUNT(DISTINCT {name_col}) AS duplicates
+                FROM {table}
+                WHERE {where_clause}
+            """
+        else:
+            # Legacy Odoo fallback
+            sql = """
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(*) - COUNT(DISTINCT name) AS duplicates
+                FROM account_move
+                WHERE move_type IN ('out_invoice', 'in_invoice')
+                  AND state = 'posted'
+                  AND invoice_date BETWEEN :period_start AND :period_end
+                  AND name IS NOT NULL
+                  AND name != '/'
+            """
+            table = "account_move"
+        with self.engine.connect() as conn:
+            if not self._table_exists(conn, table):
+                return QualityCheckResult(
+                    check_name="duplicate_rate",
+                    passed=True,
+                    score_impact=0,
+                    severity="INFO",
+                    detail=f"{table} table not found; check skipped.",
                 )
             result = conn.execute(
                 text(sql),
@@ -624,24 +767,37 @@ class DataQualityGate:
 
     def _check_outlier_screen(self) -> QualityCheckResult:
         """IQR-based outlier detection on invoice amounts (log-transformed)."""
-        sql = """
-            SELECT amount_untaxed
-            FROM account_move
-            WHERE move_type   = 'out_invoice'
-              AND state        = 'posted'
-              AND invoice_date BETWEEN :period_start AND :period_end
-              AND amount_untaxed > 0
-        """
+        txn = self._find_transaction_table()
+        if txn:
+            table = txn["table"]
+            amount_col = txn["amount_col"]
+            date_col = txn["date_col"]
+            base_filter = txn.get("base_filter", "")
+            where_parts = [f"{date_col} BETWEEN :period_start AND :period_end",
+                           f"{amount_col} > 0"]
+            if base_filter:
+                where_parts.insert(0, base_filter)
+            sql = f"SELECT {amount_col} FROM {table} WHERE {' AND '.join(where_parts)}"
+        else:
+            table = "account_move"
+            sql = """
+                SELECT amount_untaxed
+                FROM account_move
+                WHERE move_type   = 'out_invoice'
+                  AND state        = 'posted'
+                  AND invoice_date BETWEEN :period_start AND :period_end
+                  AND amount_untaxed > 0
+            """
         params = {"period_start": self.period_start, "period_end": self.period_end}
 
         with self.engine.connect() as conn:
-            if not self._table_exists(conn, "account_move"):
+            if not self._table_exists(conn, table):
                 return QualityCheckResult(
                     check_name="outlier_screen",
                     passed=True,
                     score_impact=0,
                     severity="INFO",
-                    detail="account_move table not found; outlier check skipped.",
+                    detail=f"{table} table not found; outlier check skipped.",
                 )
             rows = conn.execute(text(sql), params).fetchall()
 
@@ -706,24 +862,37 @@ class DataQualityGate:
                 detail="scipy not available; Benford check skipped.",
             )
 
-        sql = """
-            SELECT amount_untaxed
-            FROM account_move
-            WHERE move_type   = 'out_invoice'
-              AND state        = 'posted'
-              AND invoice_date BETWEEN :period_start AND :period_end
-              AND amount_untaxed > 0
-        """
+        txn = self._find_transaction_table()
+        if txn:
+            table = txn["table"]
+            amount_col = txn["amount_col"]
+            date_col = txn["date_col"]
+            base_filter = txn.get("base_filter", "")
+            where_parts = [f"{date_col} BETWEEN :period_start AND :period_end",
+                           f"{amount_col} > 0"]
+            if base_filter:
+                where_parts.insert(0, base_filter)
+            sql = f"SELECT {amount_col} FROM {table} WHERE {' AND '.join(where_parts)}"
+        else:
+            table = "account_move"
+            sql = """
+                SELECT amount_untaxed
+                FROM account_move
+                WHERE move_type   = 'out_invoice'
+                  AND state        = 'posted'
+                  AND invoice_date BETWEEN :period_start AND :period_end
+                  AND amount_untaxed > 0
+            """
         params = {"period_start": self.period_start, "period_end": self.period_end}
 
         with self.engine.connect() as conn:
-            if not self._table_exists(conn, "account_move"):
+            if not self._table_exists(conn, table):
                 return QualityCheckResult(
                     check_name="benford_compliance",
                     passed=True,
                     score_impact=0,
                     severity="INFO",
-                    detail="account_move table not found; Benford check skipped.",
+                    detail=f"{table} table not found; Benford check skipped.",
                 )
             rows = conn.execute(text(sql), params).fetchall()
 
@@ -822,35 +991,57 @@ class DataQualityGate:
 
         Additionally runs a CUSUM structural-break test on the full history series.
         """
-        sql_history = """
-            SELECT
-                DATE_TRUNC('month', invoice_date) AS month,
-                SUM(amount_untaxed)               AS revenue
-            FROM account_move
-            WHERE move_type   = 'out_invoice'
-              AND state        = 'posted'
-              AND invoice_date < :period_start
-            GROUP BY 1
-            ORDER BY 1 ASC
-            LIMIT 24
-        """
-        sql_current = """
-            SELECT COALESCE(SUM(amount_untaxed), 0)
-            FROM account_move
-            WHERE move_type   = 'out_invoice'
-              AND state        = 'posted'
-              AND invoice_date BETWEEN :period_start AND :period_end
-        """
+        txn = self._find_transaction_table()
+        if txn:
+            table = txn["table"]
+            amount_col = txn["amount_col"]
+            date_col = txn["date_col"]
+            base_filter = txn.get("base_filter", "")
+            hist_where = f"WHERE {base_filter} AND" if base_filter else "WHERE"
+            sql_history = f"""
+                SELECT
+                    DATE_TRUNC('month', {date_col}) AS month,
+                    SUM({amount_col}) AS revenue
+                FROM {table}
+                {hist_where} {date_col} < :period_start
+                GROUP BY 1 ORDER BY 1 ASC LIMIT 24
+            """
+            sql_current = f"""
+                SELECT COALESCE(SUM({amount_col}), 0)
+                FROM {table}
+                {hist_where} {date_col} BETWEEN :period_start AND :period_end
+            """
+        else:
+            table = "account_move"
+            sql_history = """
+                SELECT
+                    DATE_TRUNC('month', invoice_date) AS month,
+                    SUM(amount_untaxed)               AS revenue
+                FROM account_move
+                WHERE move_type   = 'out_invoice'
+                  AND state        = 'posted'
+                  AND invoice_date < :period_start
+                GROUP BY 1
+                ORDER BY 1 ASC
+                LIMIT 24
+            """
+            sql_current = """
+                SELECT COALESCE(SUM(amount_untaxed), 0)
+                FROM account_move
+                WHERE move_type   = 'out_invoice'
+                  AND state        = 'posted'
+                  AND invoice_date BETWEEN :period_start AND :period_end
+            """
         params = {"period_start": self.period_start, "period_end": self.period_end}
 
         with self.engine.connect() as conn:
-            if not self._table_exists(conn, "account_move"):
+            if not self._table_exists(conn, table):
                 return QualityCheckResult(
                     check_name="temporal_consistency",
                     passed=True,
                     score_impact=0,
                     severity="INFO",
-                    detail="account_move table not found; temporal check skipped.",
+                    detail=f"{table} table not found; temporal check skipped.",
                 )
 
             history_rows = conn.execute(text(sql_history), params).fetchall()

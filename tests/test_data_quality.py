@@ -181,7 +181,7 @@ class TestDataQualityGateSchemaCheck:
         We mock _table_exists to always return False so SQLite compatibility
         does not interfere.
         """
-        gate = DataQualityGate(empty_engine, "2025-01-01", "2025-12-31")
+        gate = DataQualityGate(empty_engine, "2025-01-01", "2025-12-31", erp="odoo")
         with patch.object(gate, "_table_exists", return_value=False):
             result = gate._check_schema_integrity()
         assert result.passed is False
@@ -192,7 +192,7 @@ class TestDataQualityGateSchemaCheck:
         """
         Simulate the schema check passing when all tables and columns exist.
         """
-        gate = DataQualityGate(clean_engine, "2025-01-01", "2025-12-31")
+        gate = DataQualityGate(clean_engine, "2025-01-01", "2025-12-31", erp="odoo")
         with patch.object(gate, "_table_exists", return_value=True), \
              patch.object(gate, "_column_exists", return_value=True):
             result = gate._check_schema_integrity()

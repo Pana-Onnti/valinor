@@ -564,3 +564,80 @@ class TestIntegrationGloriaDB:
                     conn.execute(sqlalchemy.text(q["sql"]))
                 except Exception as e:
                     pytest.fail(f"Query {q['id']} failed: {e}\nSQL: {q['sql']}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TEST: Window function queries (revenue trend, YoY comparison)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestWindowFunctionQueries:
+
+    def test_revenue_trend_generated(self, gloria_kg, gloria_entity_map, period):
+        """Revenue trend SQL contains LAG, OVER, and moving_avg_3m."""
+        gen = QueryGenerator(gloria_kg, gloria_entity_map, period)
+        result = gen.generate_revenue_trend()
+        assert result is not None
+        sql = result["sql"]
+        assert "LAG" in sql
+        assert "OVER" in sql
+        assert "moving_avg_3m" in sql
+
+    def test_revenue_trend_has_cte(self, gloria_kg, gloria_entity_map, period):
+        """Revenue trend SQL starts with WITH monthly_agg."""
+        gen = QueryGenerator(gloria_kg, gloria_entity_map, period)
+        result = gen.generate_revenue_trend()
+        assert result is not None
+        assert result["sql"].strip().startswith("WITH monthly_agg")
+
+    def test_yoy_comparison_generated(self, gloria_kg, gloria_entity_map, period):
+        """YoY comparison SQL contains yoy_growth_pct and prior_year_revenue."""
+        gen = QueryGenerator(gloria_kg, gloria_entity_map, period)
+        result = gen.generate_yoy_comparison()
+        assert result is not None
+        sql = result["sql"]
+        assert "yoy_growth_pct" in sql
+        assert "prior_year_revenue" in sql
+
+    def test_revenue_trend_with_odoo_schema(self, odoo_kg, odoo_entity_map, period):
+        """Revenue trend with Odoo schema uses amount_total and invoice_date."""
+        gen = QueryGenerator(odoo_kg, odoo_entity_map, period)
+        result = gen.generate_revenue_trend()
+        assert result is not None
+        sql = result["sql"]
+        assert "amount_total" in sql
+        assert "invoice_date" in sql
+
+    def test_revenue_trend_returns_none_without_date_col(self, gloria_kg, period):
+        """Entity without date_col should return None for revenue trend."""
+        entity_map = {
+            "entities": {
+                "invoices": {
+                    "table": "c_invoice",
+                    "type": "TRANSACTIONAL",
+                    "key_columns": {
+                        "pk": "c_invoice_id",
+                        "amount_col": "grandtotal",
+                        # no date_col / invoice_date
+                    },
+                },
+            },
+            "relationships": [],
+        }
+        gen = QueryGenerator(gloria_kg, entity_map, period)
+        result = gen.generate_revenue_trend()
+        assert result is None
+
+    def test_cte_build_method(self, gloria_kg):
+        """SQLBuilder.with_cte() and build() produce valid WITH clause."""
+        builder = SQLBuilder(gloria_kg)
+        sql = (
+            builder
+            .with_cte("totals", "SELECT SUM(x) AS s FROM t")
+            .from_table("totals")
+            .select("s")
+            .build()
+        )
+        assert sql.strip().startswith("WITH totals AS")
+        assert "SELECT SUM(x) AS s FROM t" in sql
+        assert "FROM totals" in sql

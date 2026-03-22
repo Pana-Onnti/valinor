@@ -15,6 +15,7 @@ References:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -22,6 +23,13 @@ from typing import Any
 import structlog
 
 logger = structlog.get_logger()
+
+_SAFE_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+
+def _is_safe_identifier(name: str) -> bool:
+    """Validate that a string is a safe SQL identifier (table/column name)."""
+    return bool(name and _SAFE_IDENTIFIER_RE.match(name) and len(name) <= 128)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -137,6 +145,10 @@ class SchemaProfiler:
         """Profile all columns in a table."""
         profile = TableProfile(table_name=table_name, schema=schema)
 
+        if not _is_safe_identifier(table_name) or not _is_safe_identifier(schema):
+            logger.warning("profiler.unsafe_identifier", table=table_name, schema=schema)
+            return profile
+
         try:
             columns_meta = self._get_columns_metadata(engine, table_name, schema)
             if not columns_meta:
@@ -180,6 +192,10 @@ class SchemaProfiler:
     ) -> ColumnProfile:
         """Profile a single column with statistical queries."""
         col = ColumnProfile(name=column_name, table=table_name, db_type=db_type)
+
+        if not _is_safe_identifier(column_name):
+            logger.warning("profiler.unsafe_column", column=column_name)
+            return col
 
         try:
             fqn = f'"{schema}"."{table_name}"'

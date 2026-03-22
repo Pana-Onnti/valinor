@@ -2053,9 +2053,8 @@ class TestDQGateHaltAndWarnScenarios:
                 conn.execute(text(ddl))
             conn.commit()
 
-        gate = DataQualityGate(engine, "2025-01-01", "2025-12-31")
+        gate = DataQualityGate(engine, "2025-01-01", "2025-12-31", erp="odoo")
         # Patch _table_exists to report account_account as missing
-        original_table_exists = gate._table_exists
 
         def _patched_table_exists(conn, table_name):
             if table_name == "account_account":
@@ -2081,7 +2080,7 @@ class TestDQGateHaltAndWarnScenarios:
                 conn.execute(text(ddl))
             conn.commit()
 
-        gate = DataQualityGate(engine, "2025-01-01", "2025-12-31")
+        gate = DataQualityGate(engine, "2025-01-01", "2025-12-31", erp="odoo")
 
         def _patched_table_exists(conn, table_name):
             if table_name == "res_partner":
@@ -2667,3 +2666,147 @@ class TestBaselineEdgeCases:
         }
         baseline = compute_baseline(qr)
         assert baseline["warning"] is not None
+
+
+# ---------------------------------------------------------------------------
+# TestMoMDelta — month-over-month trend detection
+# ---------------------------------------------------------------------------
+
+class TestMoMDelta:
+    """Tests for compute_mom_delta() — period-over-period comparison."""
+
+    @staticmethod
+    def _import():
+        from valinor.pipeline import compute_mom_delta
+        return compute_mom_delta
+
+    def _make_baseline(self, total_revenue=100_000, num_invoices=50,
+                       distinct_customers=10, overdue_ar=5000):
+        return {
+            "data_available": True,
+            "total_revenue": total_revenue,
+            "num_invoices": num_invoices,
+            "avg_invoice": total_revenue / max(num_invoices, 1),
+            "distinct_customers": distinct_customers,
+            "total_outstanding_ar": overdue_ar * 2,
+            "overdue_ar": overdue_ar,
+            "customers_with_debt": 5,
+            "data_freshness_days": 3,
+            "_provenance": {},
+        }
+
+    def test_no_previous_returns_no_deltas(self):
+        compute_mom_delta = self._import()
+        result = compute_mom_delta(self._make_baseline(), None)
+        assert result["has_previous"] is False
+        assert result["deltas"] == {}
+
+    def test_identical_baselines_no_alerts(self):
+        compute_mom_delta = self._import()
+        bl = self._make_baseline()
+        result = compute_mom_delta(bl, bl)
+        assert result["has_previous"] is True
+        assert result["alerts"] == []
+
+    def test_revenue_increase_alert(self):
+        compute_mom_delta = self._import()
+        prev = self._make_baseline(total_revenue=100_000)
+        curr = self._make_baseline(total_revenue=125_000)
+        result = compute_mom_delta(curr, prev)
+        revenue_alerts = [a for a in result["alerts"] if a["metric"] == "total_revenue"]
+        assert len(revenue_alerts) == 1
+        assert revenue_alerts[0]["pct_change"] == 25.0
+
+    def test_revenue_decrease_critical(self):
+        compute_mom_delta = self._import()
+        prev = self._make_baseline(total_revenue=100_000)
+        curr = self._make_baseline(total_revenue=70_000)
+        result = compute_mom_delta(curr, prev)
+        revenue_alerts = [a for a in result["alerts"] if a["metric"] == "total_revenue"]
+        assert len(revenue_alerts) == 1
+        assert revenue_alerts[0]["severity"] == "critical"
+
+    def test_small_change_no_alert(self):
+        compute_mom_delta = self._import()
+        prev = self._make_baseline(total_revenue=100_000)
+        curr = self._make_baseline(total_revenue=105_000)
+        result = compute_mom_delta(curr, prev)
+        revenue_alerts = [a for a in result["alerts"] if a["metric"] == "total_revenue"]
+        assert len(revenue_alerts) == 0
+
+    def test_trend_summary_present(self):
+        compute_mom_delta = self._import()
+        prev = self._make_baseline(total_revenue=100_000)
+        curr = self._make_baseline(total_revenue=130_000)
+        result = compute_mom_delta(curr, prev)
+        assert "significant change" in result["trend_summary"].lower()
+
+    def test_deltas_have_direction(self):
+        compute_mom_delta = self._import()
+        prev = self._make_baseline(total_revenue=100_000)
+        curr = self._make_baseline(total_revenue=120_000)
+        result = compute_mom_delta(curr, prev)
+        assert result["deltas"]["total_revenue"]["direction"] == "up"
+
+
+# ---------------------------------------------------------------------------
+# TestPrepareNarratorContext — verification-aware finding filtering
+# ---------------------------------------------------------------------------
+
+class TestPrepareNarratorContext:
+
+    @staticmethod
+    def _import():
+        from valinor.pipeline import prepare_narrator_context
+        return prepare_narrator_context
+
+    def test_no_verification_passes_everything(self):
+        prepare_narrator_context = self._import()
+        findings = {"analyst": {"findings": [{"id": "F1", "headline": "test"}]}}
+        ctx = prepare_narrator_context(findings, None, role="executive")
+        assert "analyst" in ctx["verified_findings"]
+
+    def test_ceo_only_sees_verified(self):
+        prepare_narrator_context = self._import()
+        from valinor.verification import VerificationReport, VerificationResult
+        report = VerificationReport(
+            total_claims=2, verified_claims=1,
+            results=[
+                VerificationResult(claim_id="F1_value", status="VERIFIED"),
+                VerificationResult(claim_id="F2_value", status="UNVERIFIABLE"),
+            ],
+        )
+        findings = {
+            "analyst": {
+                "findings": [
+                    {"id": "F1", "headline": "Verified", "value_eur": 100},
+                    {"id": "F2", "headline": "Unverifiable", "value_eur": 200},
+                ],
+            }
+        }
+        ctx = prepare_narrator_context(findings, report, role="ceo")
+        analyst_findings = ctx["verified_findings"].get("analyst", {}).get("findings", [])
+        finding_ids = [f["id"] for f in analyst_findings]
+        assert "F1" in finding_ids
+        assert "F2" not in finding_ids
+
+    def test_retracted_findings_tracked(self):
+        prepare_narrator_context = self._import()
+        from valinor.verification import VerificationReport, VerificationResult
+        report = VerificationReport(
+            total_claims=1, failed_claims=1,
+            results=[
+                VerificationResult(
+                    claim_id="F1_value", status="FAILED",
+                    evidence="Actual was 500, claimed 1000",
+                ),
+            ],
+        )
+        findings = {
+            "analyst": {
+                "findings": [{"id": "F1", "headline": "Wrong", "value_eur": 1000}],
+            }
+        }
+        ctx = prepare_narrator_context(findings, report, role="executive")
+        assert len(ctx["retracted_findings"]) == 1
+        assert ctx["retracted_findings"][0]["finding_id"] == "F1"

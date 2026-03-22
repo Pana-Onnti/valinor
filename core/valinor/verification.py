@@ -21,11 +21,33 @@ import signal
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 import structlog
 
 logger = structlog.get_logger()
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SQL SAFETY
+# ═══════════════════════════════════════════════════════════════════════════
+
+_SAFE_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+
+def _is_safe_identifier(name: str) -> bool:
+    """Validate that a string is a safe SQL identifier (table/column name)."""
+    return bool(name and _SAFE_IDENTIFIER_RE.match(name) and len(name) <= 128)
+
+
+class Dimension(str, Enum):
+    """Dimensional type for unit-aware verification."""
+    EUR = "EUR"
+    COUNT = "count"
+    PERCENT = "percent"
+    DAYS = "days"
+    RATIO = "ratio"
+    UNKNOWN = "unknown"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -57,6 +79,7 @@ class VerificationResult:
     evidence: str = ""
     verification_query: str | None = None
     verified_at: str = ""
+    confidence_score: float = 0.0
 
 
 @dataclass
@@ -69,6 +92,7 @@ class NumberRegistryEntry:
     source_description: str = ""
     confidence: str = "measured"  # "measured", "computed", "estimated"
     verified_at: str = ""
+    dimension: str = "unknown"
 
 
 @dataclass
@@ -103,8 +127,15 @@ class VerificationReport:
 
         lines.append("\n### NUMBER REGISTRY (use ONLY these values)")
         for label, entry in self.number_registry.items():
-            conf_tag = f"[{entry.confidence.upper()}]"
-            lines.append(f"- **{label}**: {entry.value:,.2f} {entry.unit} {conf_tag}")
+            # Determine confidence tier from matching verification results
+            conf_score = self._get_entry_confidence_score(label)
+            if conf_score >= 0.85:
+                tier_tag = "[HIGH CONFIDENCE]"
+            elif conf_score >= 0.60:
+                tier_tag = "[MEDIUM CONFIDENCE]"
+            else:
+                tier_tag = "[LOW CONFIDENCE]"
+            lines.append(f"- **{label}**: {entry.value:,.2f} {entry.unit} {tier_tag}")
             if entry.source_description:
                 lines.append(f"  Source: {entry.source_description}")
 
@@ -114,6 +145,18 @@ class VerificationReport:
                 lines.append(f"- [{issue.get('severity', '?')}] {issue.get('description', '')}")
 
         return "\n".join(lines)
+
+    def _get_entry_confidence_score(self, label: str) -> float:
+        """Get the confidence score for a registry entry based on its provenance."""
+        entry = self.number_registry.get(label)
+        if entry is None:
+            return 0.0
+        _confidence_scores = {
+            "measured": 0.95,
+            "computed": 0.85,
+            "estimated": 0.50,
+        }
+        return _confidence_scores.get(entry.confidence, 0.50)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -150,7 +193,7 @@ class VerificationEngine:
         self.connection_string = connection_string
         self.entity_map = entity_map
         self._registry: dict[str, NumberRegistryEntry] = {}
-        self._now = datetime.utcnow().isoformat()
+        self._now = datetime.now().isoformat()
 
     def verify_findings(self, findings: dict) -> VerificationReport:
         """
@@ -297,8 +340,23 @@ class VerificationEngine:
                     confidence="computed",
                 )
 
+    # Dimension mapping for known registry labels
+    _DIMENSION_MAP: dict[str, str] = {
+        "total_revenue": Dimension.EUR,
+        "avg_invoice": Dimension.EUR,
+        "min_invoice": Dimension.EUR,
+        "max_invoice": Dimension.EUR,
+        "total_outstanding_ar": Dimension.EUR,
+        "overdue_ar": Dimension.EUR,
+        "num_invoices": Dimension.COUNT,
+        "distinct_customers": Dimension.COUNT,
+        "customers_with_debt": Dimension.COUNT,
+        "data_freshness_days": Dimension.DAYS,
+    }
+
     def _register(self, label: str, value: Any, source_query: str,
-                  description: str, confidence: str = "measured") -> None:
+                  description: str, confidence: str = "measured",
+                  dimension: str | None = None) -> None:
         """Add a value to the number registry."""
         if value is None:
             return
@@ -307,6 +365,15 @@ class VerificationEngine:
         except (TypeError, ValueError):
             return
 
+        # Auto-detect dimension from label if not explicitly provided
+        if dimension is None:
+            if label in self._DIMENSION_MAP:
+                dimension = self._DIMENSION_MAP[label]
+            elif label.startswith("customer_pct_"):
+                dimension = Dimension.PERCENT
+            else:
+                dimension = Dimension.UNKNOWN
+
         self._registry[label] = NumberRegistryEntry(
             label=label,
             value=float_val,
@@ -314,6 +381,7 @@ class VerificationEngine:
             source_description=description,
             confidence=confidence,
             verified_at=self._now,
+            dimension=dimension,
         )
 
     # ── CLAIM EXTRACTION ───────────────────────────────────────────────
@@ -455,40 +523,59 @@ class VerificationEngine:
         )
 
         claimed = claim.claimed_value
+        claim_unit = claim.claimed_unit
 
         # Strategy 1: Direct registry match
         for label, entry in self._registry.items():
-            if self._values_match(claimed, entry.value):
+            if self._values_match(claimed, entry.value, claim_unit):
                 result.status = "VERIFIED"
                 result.actual_value = entry.value
                 result.deviation_pct = self._deviation_pct(claimed, entry.value)
                 result.evidence = f"Matches registry[{label}] = {entry.value} (source: {entry.source_query})"
                 result.verification_query = entry.source_query
+                # Confidence: measured vs computed
+                base_score = 0.95 if entry.confidence == "measured" else 0.85
+                result.confidence_score = self._apply_deviation_penalty(
+                    base_score, result.deviation_pct)
                 return result
 
         # Strategy 2: Check if it's a derivable value
-        derived = self._check_derived_value(claimed)
+        derived = self._check_derived_value(claimed, claim_unit)
         if derived:
             result.status = "VERIFIED"
             result.actual_value = derived["value"]
             result.deviation_pct = self._deviation_pct(claimed, derived["value"])
             result.evidence = f"Derived: {derived['derivation']}"
+            result.confidence_score = self._apply_deviation_penalty(
+                0.60, result.deviation_pct)
             return result
 
         # Strategy 3: Search raw query results
-        raw_match = self._search_raw_results(claimed)
+        raw_match = self._search_raw_results(claimed, claim_unit)
         if raw_match:
             result.status = "VERIFIED"
             result.actual_value = raw_match["value"]
             result.deviation_pct = self._deviation_pct(claimed, raw_match["value"])
             result.evidence = f"Found in {raw_match['query']} row {raw_match.get('row', '?')}"
             result.verification_query = raw_match["query"]
+            result.confidence_score = self._apply_deviation_penalty(
+                0.75, result.deviation_pct)
             return result
 
         # Strategy 4: ACTIVE RE-QUERY — generate and execute a verification SQL
         if self.connection_string and self.entity_map:
             active_result = self._active_requery(claim)
             if active_result is not None:
+                if active_result.status == "VERIFIED":
+                    active_result.confidence_score = self._apply_deviation_penalty(
+                        0.90, active_result.deviation_pct)
+                elif active_result.status == "APPROXIMATE":
+                    dev = abs(active_result.deviation_pct or 0)
+                    base = 0.50 if dev < 2.0 else 0.30
+                    active_result.confidence_score = self._apply_deviation_penalty(
+                        base, active_result.deviation_pct)
+                else:
+                    active_result.confidence_score = 0.0
                 return active_result
 
         # Strategy 5: Approximate match (within 5%)
@@ -499,19 +586,42 @@ class VerificationEngine:
                 result.actual_value = entry.value
                 result.deviation_pct = dev
                 result.evidence = f"Approximate match to registry[{label}] = {entry.value} (deviation: {dev:.1f}%)"
+                base = 0.50 if abs(dev) < 2.0 else 0.30
+                result.confidence_score = self._apply_deviation_penalty(
+                    base, dev)
                 return result
 
         # No match found
         result.status = "UNVERIFIABLE"
         result.evidence = f"Value {claimed} not found in any query result or registry"
+        result.confidence_score = 0.0
         return result
 
-    def _values_match(self, claimed: float, actual: float) -> bool:
-        """Check if two values match within tolerance."""
+    def _apply_deviation_penalty(self, base_score: float, deviation_pct: float | None) -> float:
+        """Apply deviation penalty to a confidence score and clamp to [0.0, 1.0]."""
+        if deviation_pct is not None:
+            base_score -= abs(deviation_pct) * 0.02
+        return max(0.0, min(1.0, base_score))
+
+    def _values_match(self, claimed: float, actual: float, claim_unit: str = "EUR") -> bool:
+        """Check if two values match within tolerance (claim-type-aware)."""
         if actual == 0:
             return claimed == 0
-        deviation = abs(claimed - actual) / abs(actual) * 100
-        return deviation <= self.TOLERANCE_PCT
+        if claim_unit == "count":
+            # Counts must match exactly (after rounding to int)
+            return round(claimed) == round(actual)
+        elif claim_unit == "percent":
+            # Percentages: 2% absolute tolerance
+            return abs(claimed - actual) <= 2.0
+        else:
+            # EUR/other: use relative tolerance based on magnitude
+            deviation = abs(claimed - actual) / abs(actual) * 100
+            if abs(actual) > 1_000_000:
+                return deviation <= 0.5
+            elif abs(actual) > 10_000:
+                return deviation <= 0.1
+            else:
+                return deviation <= 0.01
 
     def _deviation_pct(self, claimed: float, actual: float) -> float | None:
         """Compute percentage deviation."""
@@ -519,7 +629,7 @@ class VerificationEngine:
             return None if claimed == 0 else 100.0
         return (claimed - actual) / abs(actual) * 100
 
-    def _check_derived_value(self, claimed: float) -> dict | None:
+    def _check_derived_value(self, claimed: float, claim_unit: str = "EUR") -> dict | None:
         """Check if the claimed value is derivable from registry values."""
         registry_values = list(self._registry.items())
 
@@ -531,7 +641,7 @@ class VerificationEngine:
 
                 # Division
                 ratio = entry_a.value / entry_b.value
-                if self._values_match(claimed, ratio):
+                if self._values_match(claimed, ratio, claim_unit):
                     return {
                         "value": ratio,
                         "derivation": f"{label_a} / {label_b} = {ratio:.2f}",
@@ -539,7 +649,7 @@ class VerificationEngine:
 
                 # Multiplication
                 product = entry_a.value * entry_b.value
-                if abs(product) > 0 and self._values_match(claimed, product):
+                if abs(product) > 0 and self._values_match(claimed, product, claim_unit):
                     return {
                         "value": product,
                         "derivation": f"{label_a} × {label_b} = {product:.2f}",
@@ -547,7 +657,7 @@ class VerificationEngine:
 
                 # Subtraction (e.g., net = gross - credits)
                 diff = entry_a.value - entry_b.value
-                if abs(diff) > 0 and self._values_match(claimed, diff):
+                if abs(diff) > 0 and self._values_match(claimed, diff, claim_unit):
                     return {
                         "value": diff,
                         "derivation": f"{label_a} - {label_b} = {diff:.2f}",
@@ -559,7 +669,7 @@ class VerificationEngine:
             pct_of_rev = (claimed / total_rev.value) * 100
             for label, entry in registry_values:
                 if entry.unit == "percent" or "pct" in label:
-                    if self._values_match(pct_of_rev, entry.value):
+                    if self._values_match(pct_of_rev, entry.value, claim_unit):
                         return {
                             "value": claimed,
                             "derivation": f"{pct_of_rev:.2f}% of total_revenue matches {label}",
@@ -567,14 +677,14 @@ class VerificationEngine:
 
         return None
 
-    def _search_raw_results(self, claimed: float) -> dict | None:
+    def _search_raw_results(self, claimed: float, claim_unit: str = "EUR") -> dict | None:
         """Search for the claimed value in raw query result rows."""
         for query_id, result in self.query_results.get("results", {}).items():
             for row_idx, row in enumerate(result.get("rows", [])):
                 for col, val in row.items():
                     try:
                         float_val = float(val)
-                        if self._values_match(claimed, float_val):
+                        if self._values_match(claimed, float_val, claim_unit):
                             return {
                                 "value": float_val,
                                 "query": query_id,
@@ -612,6 +722,7 @@ class VerificationEngine:
 
         exec_result = self._execute_verification_query(
             vq["sql"], self.connection_string, timeout=5,
+            params=vq.get("params"),
         )
         if exec_result.get("error"):
             logger.warning(
@@ -649,7 +760,7 @@ class VerificationEngine:
             verified_at=self._now,
         )
 
-        if self._values_match(claimed, actual_value):
+        if self._values_match(claimed, actual_value, claim.claimed_unit):
             result.status = "VERIFIED"
             result.actual_value = actual_value
             result.deviation_pct = self._deviation_pct(claimed, actual_value)
@@ -726,7 +837,7 @@ class VerificationEngine:
             key_cols = entity.get("key_columns", {})
             base_filter = entity.get("base_filter", "")
 
-            if not table:
+            if not table or not _is_safe_identifier(table):
                 continue
 
             # Build WHERE clause from base_filter
@@ -749,13 +860,13 @@ class VerificationEngine:
             # Strategy A: Count claims — find entity with a PK to COUNT
             if is_count and etype == "TRANSACTIONAL":
                 pk_col = key_cols.get("pk") or key_cols.get("customer_pk")
-                if not pk_col:
+                if not pk_col or not _is_safe_identifier(pk_col):
                     continue
 
                 # Check if claim is about customers specifically
                 if "customer" in claim_text_lower or "client" in claim_text_lower:
                     customer_fk = key_cols.get("customer_fk")
-                    if customer_fk:
+                    if customer_fk and _is_safe_identifier(customer_fk):
                         sql = (
                             f"SELECT COUNT(DISTINCT {table}.{customer_fk}) AS cnt "
                             f"FROM {table} WHERE {where_clause}"
@@ -784,7 +895,7 @@ class VerificationEngine:
                     or key_cols.get("grand_total")
                     or key_cols.get("amount")
                 )
-                if not amount_col:
+                if not amount_col or not _is_safe_identifier(amount_col):
                     continue
 
                 # Check if claim is about a specific customer
@@ -800,19 +911,28 @@ class VerificationEngine:
                         self._find_customer_entity(entities)
                     )
                     if customer_table and customer_pk and customer_name_col:
-                        customer_fk = key_cols["customer_fk"]
+                        customer_fk_col = key_cols["customer_fk"]
+                        # Validate all identifiers before SQL interpolation
+                        ids_to_check = [
+                            customer_table, customer_pk, customer_name_col,
+                            table, customer_fk_col, amount_col,
+                        ]
+                        if not all(_is_safe_identifier(n) for n in ids_to_check):
+                            continue
                         join_clause = (
                             f"JOIN {customer_table} ON "
-                            f"{table}.{customer_fk} = {customer_table}.{customer_pk}"
+                            f"{table}.{customer_fk_col} = {customer_table}.{customer_pk}"
                         )
+                        # Use parameterized query for customer name to prevent SQL injection
                         sql = (
                             f"SELECT SUM({table}.{amount_col}) AS total "
                             f"FROM {table} {join_clause} "
                             f"WHERE {where_clause} AND "
-                            f"{customer_table}.{customer_name_col} ILIKE '%{customer_name}%'"
+                            f"{customer_table}.{customer_name_col} ILIKE :cust_name_pattern"
                         )
                         return {
                             "sql": sql,
+                            "params": {"cust_name_pattern": f"%{customer_name}%"},
                             "expected_type": "sum",
                             "description": (
                                 f"Total {amount_col} for customer '{customer_name}' "
@@ -854,6 +974,7 @@ class VerificationEngine:
 
     def _execute_verification_query(
         self, sql: str, connection_string: str, timeout: int = 5,
+        params: dict | None = None,
     ) -> dict:
         """
         Execute a read-only verification query with safety guards.
@@ -884,12 +1005,14 @@ class VerificationEngine:
         result_container: dict = {}
         error_container: dict = {}
 
+        query_params = params or {}
+
         def _run_query():
             try:
                 from sqlalchemy import create_engine, text as sa_text
                 engine = create_engine(connection_string)
                 with engine.connect() as conn:
-                    result = conn.execute(sa_text(sql))
+                    result = conn.execute(sa_text(sql), query_params)
                     columns = list(result.keys())
                     rows = []
                     for i, row in enumerate(result):
