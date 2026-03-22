@@ -91,11 +91,60 @@ Genera las queries SQL según el schema mapeado y las preferencias del QueryEvol
 ### 6. AlertEngine
 Evalúa umbrales configurados por cliente. Genera alerts si hay desvíos.
 
-### 7. Narrators
-Reciben contexto inyectado por AdaptiveContextBuilder (histórico del cliente, findings persistentes, currency context, segmentation) y generan el reporte ejecutivo.
+### 7. Narrators (parallelized)
+Run in parallel via `asyncio.gather()` with per-narrator timeout (default: 60s). Each narrator (CEO, Controller, Sales, Executive) runs independently. If one fails or times out, the others continue (graceful degradation). Reciben contexto inyectado por AdaptiveContextBuilder (histórico del cliente, findings persistentes, currency context, segmentation) y generan el reporte por audiencia.
 
 ### 8. ProfileExtractor
 Post-análisis, extrae el perfil actualizado del cliente y lo persiste para el próximo análisis.
+
+---
+
+## Verification & Anti-Hallucination Layer
+
+### Verification Engine
+Post-analysis verification of agent findings against actual database values. Extracts numeric claims from agent output, generates verification SQL, and classifies claims as VERIFIED / APPROXIMATE / FAILED. Failed findings are retracted before they reach narrators.
+
+### Knowledge Graph
+Data-driven schema understanding built entirely from the Cartographer's entity_map. Provides:
+- Automatic JOIN path reasoning via BFS (shortest path)
+- Discriminator awareness from probed data
+- Required filter injection (base_filter from entity_map)
+- Business concept generation from entity semantics
+
+### Calibration Loop (Guard Rail)
+Deterministic pre-flight check (no LLM cost). Verifies base_filter correctness via COUNT queries. If checks fail, structured feedback is fed back to Cartographer for correction (Reflexion pattern).
+
+### Discovery (Schema Topology)
+Classifies schema complexity (FULL / SLIM / MINIMAL) to gate query generation. FULL topology requires invoices + customers + payments. SLIM requires invoices + customers. MINIMAL generates only base financial queries.
+
+---
+
+## Connection Pooling (`shared/db_pool.py`)
+
+SQLAlchemy `QueuePool`-based connection pooling. Configuration via environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `VALINOR_DB_POOL_SIZE` | 5 | Base pool size |
+| `VALINOR_DB_POOL_MAX` | 10 | Max overflow connections |
+| `VALINOR_DB_POOL_TIMEOUT` | 30 | Checkout timeout (seconds) |
+| `VALINOR_DB_POOL_RECYCLE` | 1800 | Connection recycle time (seconds) |
+| `VALINOR_DB_POOL_PRE_PING` | true | Health check on checkout |
+
+Engines are cached by connection string and reused across tool calls. `db_tools.py` uses the pool automatically when available, with fallback to direct `create_engine()`.
+
+---
+
+## Auth Layer
+
+API key authentication via `VALINOR_API_KEY` environment variable. CORS origins configurable via `CORS_ORIGINS`. Rate limiting middleware on all API endpoints.
+
+---
+
+## Cash Flow Forecaster & Quorum Model
+
+- **Cash Flow Forecaster**: Forward-looking cash flow projections based on aging analysis, payment patterns, and outstanding AR.
+- **Quorum Model**: Multi-agent consensus mechanism. When 2+ agents report conflicting values (>2x difference), a Haiku arbiter reconciles. The reconciliation result includes which agent was closer to truth.
 
 ---
 
@@ -124,8 +173,12 @@ AlertEngine → umbrales por cliente
 |---|---|---|
 | `ValinorAdapter` | `api/adapters/valinor_adapter.py` | Punto de entrada al pipeline v0 |
 | `SSHTunnelManager` | `shared/ssh_tunnel.py` | Túneles SSH efímeros + ZeroTrust |
+| `ConnectionPoolManager` | `shared/db_pool.py` | Connection pooling con SQLAlchemy QueuePool |
 | `DataQualityGate` | `core/valinor/gates.py` | 8+1 checks pre-análisis |
 | `CurrencyGuard` | `core/valinor/quality/` | Detección de datos stale |
+| `VerificationEngine` | `core/valinor/verification.py` | Anti-hallucination: verifica findings contra DB |
+| `SchemaKnowledgeGraph` | `core/valinor/knowledge_graph.py` | Grafo de schema para JOINs y filtros |
+| `QueryGenerator` | `core/valinor/agents/query_generator.py` | SQL dinámico guiado por KG |
 | `ProfileStore` | `shared/memory/profile_store.py` | Persistencia de perfiles de cliente |
 | `AdaptiveContextBuilder` | `shared/memory/adaptive_context_builder.py` | Contexto histórico para agentes |
 | `QueryEvolver` | `api/refinement/query_evolver.py` | Aprendizaje de queries valiosas |
