@@ -71,22 +71,10 @@ if "claude_agent_sdk" not in sys.modules:
     sys.modules["claude_agent_sdk"] = _sdk
 
 
-# ── structlog stub ────────────────────────────────────────────────────────────
-# Some shared modules require structlog. Provide a minimal stub if missing.
-
-if "structlog" not in sys.modules:
-    _sl = types.ModuleType("structlog")
-
-    class _NullLog:
-        def info(self, *a, **kw): pass
-        def warning(self, *a, **kw): pass
-        def error(self, *a, **kw): pass
-        def debug(self, *a, **kw): pass
-        def exception(self, *a, **kw): pass
-        def bind(self, **kw): return self
-
-    _sl.get_logger = lambda *a, **kw: _NullLog()
-    sys.modules["structlog"] = _sl
+# ── structlog ─────────────────────────────────────────────────────────────────
+# Import the real module so submodules (contextvars, stdlib, processors, dev)
+# are available when api/logging_config.py calls setup_logging().
+import structlog  # noqa: E402
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -63,8 +63,8 @@ sys.modules["slowapi"]._rate_limit_exceeded_handler = MagicMock()
 sys.modules["slowapi.util"].get_remote_address = MagicMock(return_value="127.0.0.1")
 sys.modules["slowapi.errors"].RateLimitExceeded = _FakeRateLimitExceeded
 
-_stub_missing("structlog")
-sys.modules["structlog"].get_logger = lambda *a, **kw: MagicMock()
+import structlog  # real module — stub breaks structlog.contextvars
+structlog.get_logger = lambda *a, **kw: MagicMock()
 
 _stub_missing("adapters", "adapters.valinor_adapter")
 sys.modules["adapters.valinor_adapter"].ValinorAdapter = MagicMock

@@ -52,8 +52,8 @@ def _stub_missing(*module_names: str) -> None:
 # ---------------------------------------------------------------------------
 
 # structlog
-_stub_missing("structlog")
-_structlog = sys.modules["structlog"]
+import structlog  # real module — stub breaks structlog.contextvars
+_structlog = structlog
 _structlog.get_logger = MagicMock(
     return_value=MagicMock(info=MagicMock(), error=MagicMock(), warning=MagicMock())
 )
