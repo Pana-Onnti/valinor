@@ -77,6 +77,25 @@ if "claude_agent_sdk" not in sys.modules:
 import structlog  # noqa: E402
 
 
+# ── anthropic stub ────────────────────────────────────────────────────────────
+# The real anthropic SDK may not be installed in test environments.
+# Provide a stub with AsyncAnthropic and Message so shared.llm imports work.
+
+if "anthropic" not in sys.modules:
+    _anthropic = types.ModuleType("anthropic")
+    _anthropic.__spec__ = None
+    _anthropic.AsyncAnthropic = MagicMock
+    _anthropic.Anthropic = MagicMock
+
+    _types_mod = types.ModuleType("anthropic.types")
+    _types_mod.__spec__ = None
+    _types_mod.Message = MagicMock
+
+    _anthropic.types = _types_mod
+    sys.modules["anthropic"] = _anthropic
+    sys.modules["anthropic.types"] = _types_mod
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SHARED FIXTURES
 # ══════════════════════════════════════════════════════════════════════════════

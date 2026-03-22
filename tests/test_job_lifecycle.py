@@ -209,16 +209,20 @@ async def client(redis_mock, storage_mock):
     # Import (or reuse cached) app after stubs are in place
     from api.main import app  # noqa: PLC0415
 
+    from api.deps import set_redis_client
+
     with (
         patch("redis.asyncio.from_url", return_value=redis_mock),
         patch("api.main.metadata_storage", storage_mock),
         patch("api.main.redis_client", redis_mock),
     ):
+        set_redis_client(redis_mock)
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
             transport=transport, base_url="http://testserver"
         ) as ac:
             yield ac
+        set_redis_client(None)
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +266,7 @@ class TestJobLifecycle:
 
         redis_mock.scan_iter = _empty_scan
 
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             submit_resp = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
 
         assert submit_resp.status_code == 200
@@ -428,7 +432,7 @@ class TestJobLifecycle:
             }
         )
 
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             response = await client.post(f"/api/jobs/{original_job_id}/retry")
 
         assert response.status_code == 200
@@ -621,7 +625,7 @@ class TestAnalysisSubmissionValidation:
             **VALID_ANALYSIS_PAYLOAD,
             "client_name": "invalid name with spaces!",
         }
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=payload)
         assert response.status_code == 422
 
@@ -633,7 +637,7 @@ class TestAnalysisSubmissionValidation:
             "period": "Q1-2025",
             # db_config intentionally omitted
         }
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=payload)
         assert response.status_code == 422
 
@@ -652,7 +656,7 @@ class TestAnalysisSubmissionValidation:
                 "password": "secret",
             },
         }
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=payload)
         assert response.status_code == 422
 
@@ -685,7 +689,7 @@ class TestAnalysisSubmissionValidation:
 
         redis_mock.hget = AsyncMock(side_effect=_hget_side_effect)
 
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
         assert response.status_code == 429
 
@@ -739,7 +743,7 @@ class TestJobResultsEdgeCases:
 
         redis_mock.scan_iter = _empty_scan
 
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
 
         assert response.status_code == 200
@@ -807,7 +811,7 @@ class TestCancelRetryEdgeCases:
                 "request_data": json.dumps(VALID_ANALYSIS_PAYLOAD),
             }
         )
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             response = await client.post(f"/api/jobs/{job_id}/retry")
         assert response.status_code == 400
 
@@ -823,7 +827,7 @@ class TestCancelRetryEdgeCases:
                 "request_data": json.dumps(VALID_ANALYSIS_PAYLOAD),
             }
         )
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             response = await client.post(f"/api/jobs/{job_id}/retry")
         assert response.status_code == 200
         data = response.json()
@@ -1048,7 +1052,7 @@ class TestAnalysisSubmissionAdditionalValidation:
             **VALID_ANALYSIS_PAYLOAD,
             "db_config": {**VALID_ANALYSIS_PAYLOAD["db_config"], "port": 0},
         }
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=payload)
         assert response.status_code == 422
 
@@ -1068,7 +1072,7 @@ class TestAnalysisSubmissionAdditionalValidation:
                 "port": 22,
             },
         }
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=payload)
         assert response.status_code == 422
 
@@ -1080,7 +1084,7 @@ class TestAnalysisSubmissionAdditionalValidation:
             yield
 
         redis_mock.scan_iter = _empty_scan
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
         assert response.status_code == 200
         data = response.json()
@@ -1100,7 +1104,7 @@ class TestAnalysisSubmissionAdditionalValidation:
         redis_mock.scan_iter = _empty_scan
         # Simulate monthly counter already at 26 (> 25 limit)
         redis_mock.incr = AsyncMock(return_value=26)
-        with patch("api.main.run_analysis_task", new=AsyncMock()):
+        with patch("api.routers.jobs.run_analysis_task", new=AsyncMock()):
             response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
         assert response.status_code == 429
         detail = response.json().get("detail", {})

@@ -131,11 +131,14 @@ def async_client():
     async def _make():
         return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
+    from api.deps import set_redis_client
+
     with (
         patch("redis.asyncio.from_url", return_value=redis_mock),
         patch("api.main.metadata_storage", storage_mock),
         patch("api.main.redis_client", redis_mock),
     ):
+        set_redis_client(redis_mock)
         loop = asyncio.new_event_loop()
         client = loop.run_until_complete(_make())
         client._loop = loop
@@ -143,6 +146,7 @@ def async_client():
         yield client
         loop.run_until_complete(client.aclose())
         loop.close()
+        set_redis_client(None)
 
 
 # ---------------------------------------------------------------------------

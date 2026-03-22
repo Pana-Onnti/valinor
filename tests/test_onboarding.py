@@ -159,6 +159,8 @@ class _SyncAsgiClient:
         return self._loop.run_until_complete(coro)
 
     def _request(self, method: str, url: str, **kwargs):
+        from api.deps import set_redis_client
+
         async def _inner():
             async with AsyncClient(
                 transport=ASGITransport(app=self._app),
@@ -169,7 +171,11 @@ class _SyncAsgiClient:
             patch("api.main.metadata_storage", _storage_mock),
             patch("api.main.redis_client", _redis_mock),
         ):
-            return self._run(_inner())
+            set_redis_client(_redis_mock)
+            try:
+                return self._run(_inner())
+            finally:
+                set_redis_client(None)
 
     def get(self, url, **kwargs): return self._request("get", url, **kwargs)
     def post(self, url, **kwargs): return self._request("post", url, **kwargs)

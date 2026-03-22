@@ -204,16 +204,20 @@ async def client(redis_mock, storage_mock):
     # Import (or reuse cached) app after stubs are in place
     from api.main import app  # noqa: PLC0415
 
+    from api.deps import set_redis_client
+
     with (
         patch("redis.asyncio.from_url", return_value=redis_mock),
         patch("api.main.metadata_storage", storage_mock),
         patch("api.main.redis_client", redis_mock),
     ):
+        set_redis_client(redis_mock)
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
             transport=transport, base_url="http://testserver"
         ) as ac:
             yield ac
+        set_redis_client(None)
 
 
 # ---------------------------------------------------------------------------
@@ -551,6 +555,7 @@ class TestAuditEndpoints:
             patch("redis.asyncio.from_url", return_value=redis_mock),
             patch("api.main.metadata_storage", storage_mock),
             patch("api.main.redis_client", redis_mock),
+            patch("api.deps._redis_client", redis_mock),
         ):
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
@@ -579,6 +584,7 @@ class TestAuditEndpoints:
             patch("redis.asyncio.from_url", return_value=redis_mock),
             patch("api.main.metadata_storage", storage_mock),
             patch("api.main.redis_client", redis_mock),
+            patch("api.deps._redis_client", redis_mock),
         ):
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
@@ -612,6 +618,7 @@ class TestAuditEndpoints:
             patch("redis.asyncio.from_url", return_value=redis_mock),
             patch("api.main.metadata_storage", storage_mock),
             patch("api.main.redis_client", redis_mock),
+            patch("api.deps._redis_client", redis_mock),
         ):
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
@@ -663,6 +670,7 @@ class TestJobStatusEndpoint:
             patch("redis.asyncio.from_url", return_value=redis_mock),
             patch("api.main.metadata_storage", storage_mock),
             patch("api.main.redis_client", redis_mock),
+            patch("api.deps._redis_client", redis_mock),
         ):
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
@@ -702,6 +710,7 @@ class TestJobResultsEndpoint:
             patch("redis.asyncio.from_url", return_value=redis_mock),
             patch("api.main.metadata_storage", storage_mock),
             patch("api.main.redis_client", redis_mock),
+            patch("api.deps._redis_client", redis_mock),
         ):
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
@@ -737,6 +746,7 @@ class TestJobResultsEndpoint:
             patch("redis.asyncio.from_url", return_value=redis_mock),
             patch("api.main.metadata_storage", storage_mock),
             patch("api.main.redis_client", redis_mock),
+            patch("api.deps._redis_client", redis_mock),
         ):
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
@@ -823,6 +833,7 @@ class TestJobControlEndpoints:
             patch("redis.asyncio.from_url", return_value=redis_mock),
             patch("api.main.metadata_storage", storage_mock),
             patch("api.main.redis_client", redis_mock),
+            patch("api.deps._redis_client", redis_mock),
         ):
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
@@ -846,6 +857,7 @@ class TestJobControlEndpoints:
             patch("redis.asyncio.from_url", return_value=redis_mock),
             patch("api.main.metadata_storage", storage_mock),
             patch("api.main.redis_client", redis_mock),
+            patch("api.deps._redis_client", redis_mock),
         ):
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
@@ -867,6 +879,7 @@ class TestJobControlEndpoints:
             patch("redis.asyncio.from_url", return_value=redis_mock),
             patch("api.main.metadata_storage", storage_mock),
             patch("api.main.redis_client", redis_mock),
+            patch("api.deps._redis_client", redis_mock),
         ):
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
@@ -898,6 +911,7 @@ class TestExportPdfEndpoint:
             patch("redis.asyncio.from_url", return_value=redis_mock),
             patch("api.main.metadata_storage", storage_mock),
             patch("api.main.redis_client", redis_mock),
+            patch("api.deps._redis_client", redis_mock),
         ):
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
@@ -924,6 +938,7 @@ class TestExportPdfEndpoint:
             patch("redis.asyncio.from_url", return_value=redis_mock),
             patch("api.main.metadata_storage", storage_mock),
             patch("api.main.redis_client", redis_mock),
+            patch("api.deps._redis_client", redis_mock),
         ):
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
