@@ -2810,3 +2810,88 @@ class TestPrepareNarratorContext:
         ctx = prepare_narrator_context(findings, report, role="executive")
         assert len(ctx["retracted_findings"]) == 1
         assert ctx["retracted_findings"][0]["finding_id"] == "F1"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# VAL-45 / VAL-46 — Pipeline degradation & NULL-density-aware degradation
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestPipelineDegradation:
+
+    @staticmethod
+    def _import():
+        from valinor.pipeline import compute_degradation_level, compute_baseline
+        return compute_degradation_level, compute_baseline
+
+    def test_full_degradation_all_queries_pass(self):
+        compute_degradation_level, _ = self._import()
+        qr = {
+            "results": {
+                "total_revenue_summary": {"rows": [{"total_revenue": 100}], "row_count": 1},
+                "ar_outstanding_actual": {"rows": [{"total_outstanding": 50}], "row_count": 1},
+                "customer_concentration": {"rows": [], "row_count": 0},
+            },
+            "errors": {},
+        }
+        assert compute_degradation_level(qr) == "full"
+
+    def test_degraded_when_critical_ok_but_errors(self):
+        compute_degradation_level, _ = self._import()
+        qr = {
+            "results": {"total_revenue_summary": {"rows": [{}], "row_count": 1}},
+            "errors": {"aging_analysis": {"error": "timeout", "error_type": "timeout"}},
+        }
+        assert compute_degradation_level(qr) == "degraded"
+
+    def test_minimal_when_no_critical(self):
+        compute_degradation_level, _ = self._import()
+        qr = {
+            "results": {"data_freshness": {"rows": [{}], "row_count": 1}},
+            "errors": {"total_revenue_summary": {"error": "timeout", "error_type": "timeout"}},
+        }
+        assert compute_degradation_level(qr) == "minimal"
+
+    def test_failed_when_no_results(self):
+        compute_degradation_level, _ = self._import()
+        qr = {"results": {}, "errors": {"all": {"error": "crash"}}}
+        assert compute_degradation_level(qr) == "failed"
+
+    def test_baseline_carries_degradation_level(self):
+        _, compute_baseline = self._import()
+        qr = {
+            "results": {
+                "total_revenue_summary": {
+                    "rows": [{"total_revenue": 100000, "num_invoices": 50}],
+                    "row_count": 1,
+                    "domain": "financial",
+                    "description": "Rev",
+                }
+            },
+            "errors": {"aging_analysis": {"error": "timeout", "error_type": "timeout"}},
+            "snapshot_timestamp": "",
+        }
+        baseline = compute_baseline(qr)
+        assert "_degradation_level" in baseline
+        assert baseline["_degradation_level"] == "degraded"
+
+    def test_baseline_tracks_error_counts(self):
+        _, compute_baseline = self._import()
+        qr = {
+            "results": {
+                "total_revenue_summary": {
+                    "rows": [{"total_revenue": 100000, "num_invoices": 50}],
+                    "row_count": 1,
+                    "domain": "financial",
+                    "description": "Rev",
+                }
+            },
+            "errors": {
+                "aging": {"error": "timeout", "error_type": "timeout"},
+                "ar": {"error": "fail", "error_type": "error"},
+            },
+            "snapshot_timestamp": "",
+        }
+        baseline = compute_baseline(qr)
+        assert baseline.get("_query_errors") == 2
+        assert baseline.get("_query_timeouts") == 1

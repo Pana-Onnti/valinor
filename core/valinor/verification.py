@@ -135,6 +135,8 @@ class VerificationReport:
                 tier_tag = "[MEDIUM CONFIDENCE]"
             else:
                 tier_tag = "[LOW CONFIDENCE]"
+            if entry.confidence in ("degraded", "partial"):
+                tier_tag += " ⚠ HIGH NULL RATE"
             lines.append(f"- **{label}**: {entry.value:,.2f} {entry.unit} {tier_tag}")
             if entry.source_description:
                 lines.append(f"  Source: {entry.source_description}")
@@ -154,7 +156,9 @@ class VerificationReport:
         _confidence_scores = {
             "measured": 0.95,
             "computed": 0.85,
+            "partial": 0.60,
             "estimated": 0.50,
+            "degraded": 0.30,
         }
         return _confidence_scores.get(entry.confidence, 0.50)
 
@@ -334,10 +338,13 @@ class VerificationEngine:
                     "distinct_customers", "total_outstanding_ar", "overdue_ar",
                     "customers_with_debt", "data_freshness_days"):
             if key not in self._registry and self.baseline.get(key) is not None:
+                # Use provenance confidence if available
+                prov = self.baseline.get("_provenance", {}).get(key, {})
+                confidence = prov.get("confidence", "computed") if isinstance(prov, dict) else "computed"
                 self._register(
                     key, self.baseline[key],
                     "baseline", f"From frozen baseline: {key}",
-                    confidence="computed",
+                    confidence=confidence,
                 )
 
     # Dimension mapping for known registry labels

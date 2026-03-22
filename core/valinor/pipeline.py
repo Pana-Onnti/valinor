@@ -46,7 +46,7 @@ from valinor.verification import VerificationEngine
 # STAGE 2.5 — EXECUTE QUERIES
 # ═══════════════════════════════════════════════════════════════
 
-async def execute_queries(query_pack: dict, client_config: dict) -> dict:
+async def execute_queries(query_pack: dict, client_config: dict, query_timeout_ms: int = 30000) -> dict:
     """
     Execute all queries from the query pack against the client database.
 
@@ -71,6 +71,12 @@ async def execute_queries(query_pack: dict, client_config: dict) -> dict:
             query_id = query_item["id"]
             sql = query_item["sql"]
             try:
+                # Try to set per-query timeout (PostgreSQL only, harmless on others)
+                try:
+                    conn.execute(text(f"SET LOCAL statement_timeout = '{query_timeout_ms}'"))
+                except Exception:
+                    pass  # Non-PostgreSQL databases ignore this
+
                 result = conn.execute(text(sql))
                 columns = list(result.keys())
                 rows = []
@@ -88,8 +94,10 @@ async def execute_queries(query_pack: dict, client_config: dict) -> dict:
                     "description": query_item.get("description", ""),
                 }
             except Exception as e:
+                error_type = "timeout" if "cancel" in str(e).lower() or "timeout" in str(e).lower() else "error"
                 results["errors"][query_id] = {
                     "error": str(e),
+                    "error_type": error_type,
                     "sql": sql[:200],
                     "domain": query_item.get("domain", "unknown"),
                 }
@@ -478,6 +486,41 @@ def compute_baseline(query_results: dict) -> dict:
             "snapshot. Verify with source system before acting."
         )
 
+    # ── Degradation level ──
+    baseline["_degradation_level"] = compute_degradation_level(query_results)
+
+    # ── Error / timeout summary ──
+    errors = query_results.get("errors", {})
+    if errors:
+        timeout_count = sum(1 for e in errors.values() if isinstance(e, dict) and e.get("error_type") == "timeout")
+        baseline["_query_errors"] = len(errors)
+        baseline["_query_timeouts"] = timeout_count
+
+    # ── NULL-rate metadata: degrade confidence for NULL-heavy columns ──
+    null_analysis = results.get("null_analysis", {}).get("rows", [])
+    if null_analysis:
+        for row in null_analysis:
+            col_name = row.get("column_name", "")
+            null_rate = row.get("null_rate")
+            if null_rate is None:
+                continue
+            try:
+                null_rate_f = float(null_rate)
+            except (TypeError, ValueError):
+                continue
+
+            # Find which baseline metrics depend on this column
+            # and degrade their provenance
+            for metric_key, prov in baseline["_provenance"].items():
+                if isinstance(prov, dict) and prov.get("confidence") == "measured":
+                    # Degrade based on NULL rate
+                    if null_rate_f > 0.50:
+                        prov["confidence"] = "degraded"
+                        prov["null_rate"] = null_rate_f
+                    elif null_rate_f > 0.20:
+                        prov["confidence"] = "partial"
+                        prov["null_rate"] = null_rate_f
+
     return baseline
 
 
@@ -493,6 +536,50 @@ def _i(val: Any) -> int | None:
         return int(val) if val is not None else None
     except (TypeError, ValueError):
         return None
+
+
+# ═══════════════════════════════════════════════════════════════
+# PIPELINE DEGRADATION LEVEL
+# ═══════════════════════════════════════════════════════════════
+
+
+def compute_degradation_level(query_results: dict) -> str:
+    """
+    Compute pipeline degradation level based on query execution results.
+
+    Returns:
+        "full": All critical queries succeeded
+        "degraded": Revenue data OK but some non-critical queries failed
+        "minimal": Only metadata queries succeeded
+        "failed": No queries succeeded
+    """
+    results = query_results.get("results", {})
+    errors = query_results.get("errors", {})
+
+    if not results:
+        return "failed"
+
+    # Critical queries — pipeline cannot produce useful output without these
+    critical_queries = {"total_revenue_summary"}
+    # Important but not critical
+    important_queries = {"ar_outstanding_actual", "customer_concentration", "aging_analysis"}
+
+    has_critical = bool(critical_queries & set(results.keys()))
+    has_important = bool(important_queries & set(results.keys()))
+
+    error_count = len(errors)
+    timeout_count = sum(1 for e in errors.values() if isinstance(e, dict) and e.get("error_type") == "timeout")
+
+    if not has_critical:
+        # Check if at least data_freshness or some metadata query succeeded
+        if results:
+            return "minimal"
+        return "failed"
+
+    if has_critical and has_important and error_count == 0:
+        return "full"
+
+    return "degraded"
 
 
 # ═══════════════════════════════════════════════════════════════

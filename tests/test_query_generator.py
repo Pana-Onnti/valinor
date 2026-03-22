@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "core"))
 import pytest
 
 from valinor.knowledge_graph import SchemaKnowledgeGraph, build_knowledge_graph
-from valinor.agents.query_generator import QueryGenerator, SQLBuilder
+from valinor.agents.query_generator import QueryGenerator, SQLBuilder, SchemaTopology, classify_schema_topology
 from valinor.agents.query_builder import build_queries, build_queries_adaptive
 
 
@@ -641,3 +641,132 @@ class TestWindowFunctionQueries:
         assert sql.strip().startswith("WITH totals AS")
         assert "SELECT SUM(x) AS s FROM t" in sql
         assert "FROM totals" in sql
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TEST: Schema Topology Classifier (VAL-44)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSchemaTopology:
+
+    def test_full_topology(self, gloria_entity_map):
+        """Entity map with invoices + customers + payments → FULL."""
+        topology = classify_schema_topology(gloria_entity_map)
+        assert topology == SchemaTopology.FULL
+
+    def test_full_topology_odoo(self, odoo_entity_map):
+        """Odoo entity map with all 3 entity types → FULL."""
+        topology = classify_schema_topology(odoo_entity_map)
+        assert topology == SchemaTopology.FULL
+
+    def test_slim_topology(self):
+        """Entity map with invoices + customers only → SLIM."""
+        em = {
+            "entities": {
+                "invoices": {
+                    "table": "inv",
+                    "type": "TRANSACTIONAL",
+                    "key_columns": {"amount_col": "total", "date_col": "dt"},
+                },
+                "customers": {
+                    "table": "cust",
+                    "type": "MASTER",
+                    "key_columns": {"pk": "id"},
+                },
+            },
+            "relationships": [],
+        }
+        topology = classify_schema_topology(em)
+        assert topology == SchemaTopology.SLIM
+
+    def test_minimal_topology(self):
+        """Entity map with only 1 entity → MINIMAL."""
+        em = {
+            "entities": {
+                "sales": {
+                    "table": "sales",
+                    "type": "TRANSACTIONAL",
+                    "key_columns": {"amount_col": "amount", "date_col": "date"},
+                },
+            },
+            "relationships": [],
+        }
+        topology = classify_schema_topology(em)
+        assert topology == SchemaTopology.MINIMAL
+
+    def test_empty_entity_map_minimal(self):
+        """Empty entity map → MINIMAL."""
+        assert classify_schema_topology({"entities": {}}) == SchemaTopology.MINIMAL
+
+    def test_full_generates_all_queries(self, gloria_kg, gloria_entity_map, period):
+        """FULL topology should generate AR/aging/debtor queries."""
+        gen = QueryGenerator(gloria_kg, gloria_entity_map, period)
+        result = gen.generate_all()
+        ids = {q["id"] for q in result.get("queries", [])}
+        assert "revenue_summary" in ids
+        # AR queries should be present in FULL
+        assert "ar_outstanding" in ids
+        assert "aging_analysis" in ids
+        assert "top_debtors" in ids
+
+    def test_slim_skips_ar_queries(self):
+        """SLIM topology should NOT generate AR/aging queries."""
+        em = {
+            "entities": {
+                "invoices": {
+                    "table": "inv",
+                    "type": "TRANSACTIONAL",
+                    "key_columns": {"amount_col": "total", "date_col": "dt"},
+                },
+                "customers": {
+                    "table": "cust",
+                    "type": "MASTER",
+                    "key_columns": {"pk": "id"},
+                },
+            },
+            "relationships": [
+                {"from": "invoices", "to": "customers", "via": "customer_id", "cardinality": "N:1"},
+            ],
+        }
+        kg = build_knowledge_graph(em)
+        gen = QueryGenerator(kg, em, period={"start": "2025-01-01", "end": "2025-12-31"})
+        result = gen.generate_all()
+        ids = {q["id"] for q in result.get("queries", [])}
+        assert "ar_outstanding" not in ids
+        assert "aging_analysis" not in ids
+        assert "top_debtors" not in ids
+
+    def test_minimal_skips_ar_and_customer_queries(self):
+        """MINIMAL topology should NOT generate AR/aging or customer queries."""
+        em = {
+            "entities": {
+                "sales": {
+                    "table": "sales",
+                    "type": "TRANSACTIONAL",
+                    "key_columns": {"amount_col": "amount", "date_col": "date"},
+                },
+            },
+            "relationships": [],
+        }
+        kg = build_knowledge_graph(em)
+        gen = QueryGenerator(kg, em, period={"start": "2025-01-01", "end": "2025-12-31"})
+        result = gen.generate_all()
+        ids = {q["id"] for q in result.get("queries", [])}
+        assert "ar_outstanding" not in ids
+        assert "aging_analysis" not in ids
+        assert "customer_concentration" not in ids
+        assert "dormant_customers" not in ids
+
+    def test_topology_tag_in_query_pack(self, gloria_kg, gloria_entity_map, period):
+        """Query pack should carry _topology field."""
+        gen = QueryGenerator(gloria_kg, gloria_entity_map, period)
+        result = gen.generate_all()
+        assert "_topology" in result
+        assert result["_topology"] == "full"
+
+    def test_topology_is_string_enum(self):
+        """SchemaTopology values are strings usable in JSON."""
+        assert SchemaTopology.FULL == "full"
+        assert SchemaTopology.SLIM == "slim"
+        assert SchemaTopology.MINIMAL == "minimal"

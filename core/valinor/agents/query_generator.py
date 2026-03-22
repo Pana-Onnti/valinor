@@ -18,6 +18,7 @@ Architecture references:
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
 
 import structlog
@@ -25,6 +26,46 @@ import structlog
 from valinor.knowledge_graph import SchemaKnowledgeGraph, JoinPath
 
 logger = structlog.get_logger()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SCHEMA TOPOLOGY CLASSIFIER — gates query generation by schema complexity
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class SchemaTopology(str, Enum):
+    FULL = "full"         # 3+ entities with invoices, customers, payments
+    SLIM = "slim"         # 2 entities (e.g., invoices + customers, no payments)
+    MINIMAL = "minimal"   # 1 entity or no clear TRANSACTIONAL
+
+
+def classify_schema_topology(entity_map: dict) -> SchemaTopology:
+    """Classify schema complexity from entity_map."""
+    entities = entity_map.get("entities", {})
+    if not entities:
+        return SchemaTopology.MINIMAL
+
+    has_transactional = False
+    has_master = False
+    has_payment = False
+
+    for name, entity in entities.items():
+        etype = entity.get("type", "")
+        key_cols = entity.get("key_columns", {})
+        if etype == "TRANSACTIONAL":
+            has_transactional = True
+        elif etype == "MASTER":
+            has_master = True
+        # Check for payment-like entity
+        if any(k in key_cols for k in ("outstanding_amount", "outstandingamt", "amount_residual")):
+            has_payment = True
+
+    if has_transactional and has_master and has_payment:
+        return SchemaTopology.FULL
+    elif has_transactional and (has_master or len(entities) >= 2):
+        return SchemaTopology.SLIM
+    else:
+        return SchemaTopology.MINIMAL
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -236,19 +277,38 @@ class QueryGenerator:
 
     def generate_all(self) -> dict:
         """Generate all analysis queries. Returns same format as build_queries()."""
+        topology = classify_schema_topology(self.entity_map)
+        logger.info("schema_topology_classified", topology=topology.value)
+
         queries = []
         skipped = []
 
-        generators = [
+        # Base generators available in all topologies
+        base_generators = [
             ("revenue_summary", "financial", self.generate_revenue_summary),
-            ("ar_outstanding", "credit", self.generate_ar_outstanding),
-            ("aging_analysis", "credit", self.generate_aging_analysis),
-            ("customer_concentration", "financial", self.generate_customer_concentration),
-            ("top_debtors", "credit", self.generate_top_debtors),
-            ("dormant_customers", "sales", self.generate_dormant_customers),
             ("revenue_trend", "financial", self.generate_revenue_trend),
             ("yoy_comparison", "financial", self.generate_yoy_comparison),
         ]
+
+        # Slim adds customer-related queries
+        slim_generators = [
+            ("customer_concentration", "financial", self.generate_customer_concentration),
+            ("dormant_customers", "sales", self.generate_dormant_customers),
+        ]
+
+        # Full adds AR/payment queries
+        full_generators = [
+            ("ar_outstanding", "credit", self.generate_ar_outstanding),
+            ("aging_analysis", "credit", self.generate_aging_analysis),
+            ("top_debtors", "credit", self.generate_top_debtors),
+        ]
+
+        if topology == SchemaTopology.FULL:
+            generators = base_generators + slim_generators + full_generators
+        elif topology == SchemaTopology.SLIM:
+            generators = base_generators + slim_generators
+        else:
+            generators = base_generators
 
         for query_id, domain, gen_fn in generators:
             try:
@@ -279,7 +339,8 @@ class QueryGenerator:
                     "reason": f"Generation error: {e}",
                 })
 
-        return {"queries": queries, "skipped": skipped}
+        query_pack = {"queries": queries, "skipped": skipped, "_topology": topology.value}
+        return query_pack
 
     # ── QUERY GENERATORS ────────────────────────────────────────────────
 
@@ -785,8 +846,18 @@ ORDER BY y1.year, y1.month"""
         Tries each key in order, returning the first match from key_columns.
         This makes the generator schema-agnostic: Openbravo uses 'amount_col',
         Odoo might use 'amount', SAP might use 'amount_total'.
+
+        Fallback: if no exact key matches, search by substring in key names
+        (e.g., 'amount' matches 'amount_col').
         """
+        # Try exact key match first
         for key in semantic_keys:
             if key in key_columns:
                 return key_columns[key]
+        # Fallback: search by value substring in key names
+        for candidate in semantic_keys:
+            normalized = candidate.replace("_col", "")
+            for key, val in key_columns.items():
+                if normalized in key.lower():
+                    return val
         return None
