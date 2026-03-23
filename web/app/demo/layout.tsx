@@ -3,6 +3,12 @@ import { T } from '@/components/d4c/tokens'
 export const metadata = {
   title: 'Demo — Delta 4C Valinor',
   description: 'Descubri lo que esconde tu base de datos. Analisis automatizado con IA.',
+  openGraph: {
+    title: 'Delta 4C — Analisis ejecutivo automatizado',
+    description: 'Mira lo que encontramos en la base de datos de Gloria Distribuciones. Sin instalar nada.',
+    type: 'website',
+    siteName: 'Delta 4C',
+  },
 }
 
 export default function DemoLayout({ children }: { children: React.ReactNode }) {
