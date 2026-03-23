@@ -84,6 +84,7 @@ services:
       - ./shared:/app/shared
       - ./ssh_keys:/app/ssh_keys:ro
       - valinor_profiles:/tmp/valinor_profiles
+      - valinor_uploads:/data/valinor/uploads
       # Monta el CLI de claude, node y su config del host
       - ${HOME}/.nvm/versions/node/v20.20.1/bin/claude:/usr/local/bin/claude:ro
       - ${HOME}/.nvm/versions/node/v20.20.1/bin/node:/usr/local/bin/node:ro
@@ -129,6 +130,7 @@ services:
       - ./worker:/app/worker
       - ./shared:/app/shared
       - ./ssh_keys:/app/ssh_keys:ro
+      - valinor_uploads:/data/valinor/uploads
     logging:
       driver: json-file
       options:
@@ -283,6 +285,8 @@ volumes:
   redis_data:
   postgres_data:
   valinor_profiles:
+  valinor_uploads:
+    driver: local
   prometheus_data:
   grafana_data:
   loki_data:
