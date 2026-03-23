@@ -281,6 +281,7 @@ def _make_redis_mock():
     rc.get = MagicMock(return_value=None)
     rc.hget = MagicMock(return_value=None)
     rc.hgetall = MagicMock(return_value={})
+    rc.scan_iter = MagicMock(return_value=iter([]))
     rc.keys = MagicMock(return_value=[])
     rc.delete = MagicMock()
     rc.expire = MagicMock()
@@ -492,7 +493,7 @@ class TestCleanupExpiredJobs:
     def test_deletes_jobs_older_than_7_days(self):
         rc = _make_redis_mock()
         old_key = "job:old-job-1"
-        rc.keys.return_value = [old_key]
+        rc.scan_iter.return_value = iter([old_key])
         rc.hget.return_value = self._old_ts(8)
 
         with patch.object(tasks_module, "get_redis_client", return_value=rc):
@@ -504,7 +505,7 @@ class TestCleanupExpiredJobs:
     def test_keeps_recent_jobs(self):
         rc = _make_redis_mock()
         recent_key = "job:recent-job-1"
-        rc.keys.return_value = [recent_key]
+        rc.scan_iter.return_value = iter([recent_key])
         rc.hget.return_value = self._recent_ts(1)
 
         with patch.object(tasks_module, "get_redis_client", return_value=rc):
@@ -518,7 +519,7 @@ class TestCleanupExpiredJobs:
     def test_returns_count_of_deleted_jobs(self):
         rc = _make_redis_mock()
         keys = [f"job:old-{i}" for i in range(3)]
-        rc.keys.return_value = keys
+        rc.scan_iter.return_value = iter(keys)
         rc.hget.return_value = self._old_ts(10)
 
         with patch.object(tasks_module, "get_redis_client", return_value=rc):
@@ -530,7 +531,7 @@ class TestCleanupExpiredJobs:
         """For each expired job, the :results sub-key must also be deleted."""
         rc = _make_redis_mock()
         job_key = "job:old-job-x"
-        rc.keys.return_value = [job_key]
+        rc.scan_iter.return_value = iter([job_key])
         rc.hget.side_effect = [self._old_ts(9), None]  # created_at, then job_id lookup
 
         with patch.object(tasks_module, "get_redis_client", return_value=rc):
@@ -543,7 +544,7 @@ class TestCleanupExpiredJobs:
     def test_excludes_results_sub_keys_from_scan(self):
         """Keys ending in :results must be skipped by the scanner."""
         rc = _make_redis_mock()
-        rc.keys.return_value = ["job:foo:results", "job:foo"]
+        rc.scan_iter.return_value = iter(["job:foo:results", "job:foo"])
         # Only "job:foo" has created_at; the :results key should be ignored
         rc.hget.return_value = self._recent_ts(1)
 
@@ -555,7 +556,7 @@ class TestCleanupExpiredJobs:
 
     def test_returns_zero_when_no_jobs(self):
         rc = _make_redis_mock()
-        rc.keys.return_value = []
+        rc.scan_iter.return_value = iter([])
 
         with patch.object(tasks_module, "get_redis_client", return_value=rc):
             result = cleanup_expired_jobs.run()
@@ -565,7 +566,7 @@ class TestCleanupExpiredJobs:
     def test_continues_on_per_key_error(self):
         """Errors on individual keys should not abort the whole scan."""
         rc = _make_redis_mock()
-        rc.keys.return_value = ["job:bad-key", "job:old-good"]
+        rc.scan_iter.return_value = iter(["job:bad-key", "job:old-good"])
         # First hget raises, second returns an old timestamp
         rc.hget.side_effect = [Exception("bad key"), self._old_ts(9), None]
 
@@ -602,10 +603,10 @@ class TestCeleryAppConfiguration:
     def test_task_soft_time_limit(self):
         assert celery_app.conf.task_soft_time_limit == 3300
 
-    def test_task_routing_to_valinor_queue(self):
+    def test_task_routing_separates_queues(self):
         routes = celery_app.conf.task_routes
-        assert "worker.tasks.*" in routes
-        assert routes["worker.tasks.*"]["queue"] == "valinor"
+        assert routes["worker.tasks.run_analysis_task"]["queue"] == "analysis"
+        assert routes["worker.tasks.cleanup_expired_jobs"]["queue"] == "maintenance"
 
     def test_beat_schedule_contains_cleanup(self):
         assert "cleanup-expired-jobs" in celery_app.conf.beat_schedule
@@ -766,7 +767,7 @@ class TestMonitorJobs:
     def test_stale_running_job_is_marked_failed(self):
         """Jobs running for >2 hours must be marked as failed."""
         rc = _make_redis_mock()
-        rc.keys.return_value = ["job:stale-job-99"]
+        rc.scan_iter.return_value = iter(["job:stale-job-99"])
         rc.hgetall.return_value = self._stale_job_data()
         with patch.object(tasks_module, "get_redis_client", return_value=rc):
             result = monitor_jobs.run()
@@ -782,7 +783,7 @@ class TestMonitorJobs:
     def test_fresh_running_job_is_not_touched(self):
         """Jobs updated recently must not be marked stale."""
         rc = _make_redis_mock()
-        rc.keys.return_value = ["job:fresh-job-99"]
+        rc.scan_iter.return_value = iter(["job:fresh-job-99"])
         rc.hgetall.return_value = self._fresh_job_data()
         with patch.object(tasks_module, "get_redis_client", return_value=rc):
             result = monitor_jobs.run()
@@ -793,7 +794,7 @@ class TestMonitorJobs:
     def test_returns_checked_jobs_count(self):
         """monitor_jobs must report how many job keys were inspected."""
         rc = _make_redis_mock()
-        rc.keys.return_value = ["job:a", "job:b", "job:c"]
+        rc.scan_iter.return_value = iter(["job:a", "job:b", "job:c"])
         rc.hgetall.return_value = {"status": "completed"}
         with patch.object(tasks_module, "get_redis_client", return_value=rc):
             result = monitor_jobs.run()
@@ -803,7 +804,7 @@ class TestMonitorJobs:
     def test_results_sub_keys_excluded_from_monitor_scan(self):
         """Keys ending in :results must not be counted as job keys."""
         rc = _make_redis_mock()
-        rc.keys.return_value = ["job:x", "job:x:results"]
+        rc.scan_iter.return_value = iter(["job:x", "job:x:results"])
         rc.hgetall.return_value = {"status": "completed"}
         with patch.object(tasks_module, "get_redis_client", return_value=rc):
             result = monitor_jobs.run()

@@ -627,12 +627,12 @@ class TestGateCartographerAdditional:
 
     def test_customers_and_invoices_high_conf_passes(self):
         """customers + invoices both at confidence > 0.7 should pass."""
-        entity_map = {"entities": {"customers": {"confidence": 0.9}, "invoices": {"confidence": 0.85}}}
+        entity_map = {"entities": {"customers": {"confidence": 0.9, "type": "MASTER"}, "invoices": {"confidence": 0.85, "type": "TRANSACTIONAL"}}}
         assert gate_cartographer(entity_map) is True
 
     def test_products_and_payments_high_conf_passes(self):
         """products + payments both above 0.7 confidence should pass."""
-        entity_map = {"entities": {"products": {"confidence": 0.8}, "payments": {"confidence": 0.75}}}
+        entity_map = {"entities": {"products": {"confidence": 0.8, "type": "MASTER"}, "payments": {"confidence": 0.75, "type": "TRANSACTIONAL"}}}
         assert gate_cartographer(entity_map) is True
 
     def test_unknown_entity_names_not_counted(self):
