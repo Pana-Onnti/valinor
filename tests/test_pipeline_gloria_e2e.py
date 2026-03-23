@@ -20,11 +20,14 @@ Refs: VAL-7, VAL-90
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import sys
 import shutil
 import tempfile
+import time
 import urllib.request
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -191,6 +194,21 @@ def gloria_sqlite_conn_str():
 
 
 GLORIA_PERIOD = {"start": "2025-01-01", "end": "2025-12-31", "label": "FY-2025"}
+
+# Output directory for test reports (persisted for later analysis)
+OUTPUT_DIR = Path(__file__).parent / "output" / "gloria_e2e"
+
+
+def _save_test_output(data: dict, label: str) -> Path:
+    """Save pipeline output to tests/output/gloria_e2e/ for later analysis."""
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    ts = time.strftime("%Y-%m-%d_%H-%M-%S")
+    path = OUTPUT_DIR / f"{label}_{ts}.json"
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    return path
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -407,6 +425,7 @@ class TestGloriaE2EReal:
             assert has_output or has_findings, f"{agent_name} produced no output"
 
         # Findings must be parseable into structured data
+        all_parsed = {}
         for agent_name in ("analyst", "sentinel", "hunter"):
             parsed = _parse_findings_from_output(findings[agent_name])
             assert len(parsed) > 0, (
@@ -417,6 +436,23 @@ class TestGloriaE2EReal:
                 assert "id" in finding, f"{agent_name} finding missing 'id'"
                 assert "headline" in finding, f"{agent_name} finding missing 'headline'"
                 assert "domain" in finding, f"{agent_name} finding missing 'domain'"
+            all_parsed[agent_name] = parsed
+
+        # Save raw agent outputs for analysis
+        agent_report = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "baseline": baseline,
+            "agents": {
+                agent_name: {
+                    "raw_output": findings[agent_name].get("output", "")[:5000],
+                    "parsed_findings": all_parsed[agent_name],
+                    "finding_count": len(all_parsed[agent_name]),
+                }
+                for agent_name in ("analyst", "sentinel", "hunter")
+            },
+        }
+        output_path = _save_test_output(agent_report, "agent_outputs")
+        print(f"\n  Agent outputs saved: {output_path}")
 
     @pytest.mark.asyncio
     async def test_full_pipeline_real_agents(
@@ -482,6 +518,48 @@ class TestGloriaE2EReal:
         )
         assert total_findings > 0, "Pipeline produced zero findings from real agents"
 
+        # ── Save full output for later analysis ──
+        # Strip raw LLM output (too large) but keep parsed findings
+        findings_clean = {}
+        for k, v in findings.items():
+            if isinstance(v, dict) and "output" in v:
+                findings_clean[k] = {
+                    key: val for key, val in v.items() if key != "output"
+                }
+            else:
+                findings_clean[k] = v
+
+        report_data = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "period": GLORIA_PERIOD,
+            "summary": {
+                "queries_executed": len(query_results["results"]),
+                "queries_failed": len(query_results.get("errors", {})),
+                "baseline_revenue": baseline.get("total_revenue"),
+                "baseline_customers": baseline.get("distinct_customers"),
+                "agents_with_findings": agents_with_findings,
+                "total_findings": total_findings,
+                "conflicts_reconciled": findings["_reconciliation"]["conflicts_found"],
+            },
+            "baseline": baseline,
+            "query_results": {
+                qid: {
+                    "row_count": qr.get("row_count"),
+                    "domain": qr.get("domain"),
+                    "rows": qr.get("rows", [])[:10],  # first 10 rows per query
+                }
+                for qid, qr in query_results["results"].items()
+            },
+            "findings": findings_clean,
+            "narrator_contexts": {
+                role: prepare_narrator_context(findings, verification_report=None, role=role)
+                for role in ("ceo", "controller", "sales", "executive")
+            },
+            "entity_map": gloria_entity_map,
+        }
+
+        output_path = _save_test_output(report_data, "full_pipeline")
+
         print(
             f"\n{'='*60}\n"
             f"LIVE PIPELINE RESULTS\n"
@@ -490,5 +568,6 @@ class TestGloriaE2EReal:
             f"  Agents with findings: {agents_with_findings}/3\n"
             f"  Total findings: {total_findings}\n"
             f"  Conflicts reconciled: {findings['_reconciliation']['conflicts_found']}\n"
+            f"  Output saved: {output_path}\n"
             f"{'='*60}"
         )

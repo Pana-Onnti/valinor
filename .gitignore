@@ -95,3 +95,4 @@ Pulumi.*.yaml
 *.sln
 *.sw?__pycache__/
 *.pyc
+tests/output/
