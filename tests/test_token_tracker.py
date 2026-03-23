@@ -36,7 +36,7 @@ class TestTokenTracker:
         tracker = TokenTracker.get_instance()
         tracker.record(
             agent="analyst",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=1000,
             output_tokens=200,
         )
@@ -51,7 +51,7 @@ class TestTokenTracker:
         tracker = TokenTracker.get_instance()
         tracker.record(
             agent="cartographer",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=500,
             output_tokens=100,
             cache_read_tokens=800,
@@ -86,7 +86,7 @@ class TestTokenTracker:
         for _ in range(3):
             tracker.record(
                 agent="sentinel",
-                model="claude-3-5-sonnet-20241022",
+                model="claude-sonnet-4-6",
                 input_tokens=100,
                 output_tokens=50,
             )
@@ -111,7 +111,7 @@ class TestTokenTracker:
         tracker = TokenTracker.get_instance()
         tracker.record(
             agent="analyst",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=1_000_000,
             output_tokens=0,
         )
@@ -137,7 +137,7 @@ class TestEstimateCost:
         """1M input tokens on Sonnet costs $3."""
         from shared.llm.token_tracker import estimate_cost
         cost = estimate_cost(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=1_000_000,
             output_tokens=0,
         )
@@ -147,7 +147,7 @@ class TestEstimateCost:
         """1M output tokens on Sonnet costs $15."""
         from shared.llm.token_tracker import estimate_cost
         cost = estimate_cost(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=0,
             output_tokens=1_000_000,
         )
@@ -157,12 +157,12 @@ class TestEstimateCost:
         """Cache read is significantly cheaper than regular input."""
         from shared.llm.token_tracker import estimate_cost
         regular = estimate_cost(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=1_000_000,
             output_tokens=0,
         )
         cached = estimate_cost(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=0,
             output_tokens=0,
             cache_read_tokens=1_000_000,
@@ -243,7 +243,7 @@ class TestAnthropicProviderKVCache:
 
         mock_response = MagicMock()
         mock_response.content = [MagicMock(text="result")]
-        mock_response.model = "claude-3-5-sonnet-20241022"
+        mock_response.model = "claude-sonnet-4-6"
         mock_response.stop_reason = "end_turn"
         mock_response.id = "msg_123"
         mock_response.role = "assistant"

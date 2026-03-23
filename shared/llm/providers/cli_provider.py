@@ -14,14 +14,10 @@ import json
 import urllib.request
 import urllib.error
 from typing import Optional, List, AsyncIterator, Union
-from ..base import LLMProvider, LLMResponse, LLMOptions, ModelType
+from ..base import LLMProvider, LLMResponse, LLMOptions, ModelType, ANTHROPIC_MODEL_IDS
 
 
-MODEL_MAP = {
-    ModelType.OPUS:   "claude-opus-4-6",
-    ModelType.SONNET: "claude-sonnet-4-6",
-    ModelType.HAIKU:  "claude-haiku-4-5",
-}
+MODEL_MAP = ANTHROPIC_MODEL_IDS
 
 # host.docker.internal resolves to the host machine from inside Docker
 PROXY_HOST = os.getenv("CLAUDE_PROXY_HOST", "host.docker.internal")
