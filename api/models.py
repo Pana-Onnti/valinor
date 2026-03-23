@@ -4,7 +4,7 @@ Valinor SaaS API — Pydantic request/response models.
 Extracted from main.py for better modularity.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
@@ -107,3 +107,19 @@ class AnalysisResults(BaseModel):
     findings: Optional[Dict[str, Any]] = None
     reports: Optional[Dict[str, Any]] = None
     download_urls: Optional[Dict[str, str]] = None
+
+
+class UploadResponse(BaseModel):
+    """Response model for file upload endpoint."""
+    upload_id: str
+    filename: str
+    size_bytes: int
+    file_type: str  # csv, xlsx, xls
+    sheets: List[str] = []  # only populated for Excel files
+    status: str = "pending"
+
+
+class PreviewRequest(BaseModel):
+    """Request model for file preview."""
+    rows: int = 20
+    sheet: Optional[str] = None
