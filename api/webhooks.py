@@ -7,6 +7,7 @@ import asyncio
 import json
 import hmac
 import hashlib
+import os
 from datetime import datetime
 from typing import Optional, Dict, Any
 import httpx
@@ -18,7 +19,9 @@ MAX_ATTEMPTS = 3
 
 logger = structlog.get_logger()
 
-WEBHOOK_SECRET = "valinor_webhook_v1"  # In prod, per-client secret from env/config
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+if not WEBHOOK_SECRET:
+    logger.warning("WEBHOOK_SECRET is not set — webhook signatures will be empty")
 
 
 async def fire_job_completion_webhook(

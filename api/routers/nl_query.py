@@ -13,8 +13,10 @@ Use this for ad-hoc questions. Use the analysis pipeline for scheduled reports.
 from __future__ import annotations
 
 import sys
+import time
+from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -86,9 +88,40 @@ class NLQueryResponse(BaseModel):
     rows_returned: int = Field(default=0)
 
 
-# ── Per-tenant adapter cache ──────────────────────────────────────────────────
+# ── Per-tenant adapter cache (bounded) ────────────────────────────────────────
 
-_adapter_cache: Dict[str, Any] = {}
+_ADAPTER_CACHE_MAXSIZE = 128
+_ADAPTER_CACHE_TTL_SECONDS = 3600  # 1 hour
+
+
+class _BoundedAdapterCache:
+    """LRU cache with TTL and max size for per-tenant VannaAdapters."""
+
+    def __init__(self, maxsize: int = _ADAPTER_CACHE_MAXSIZE, ttl: int = _ADAPTER_CACHE_TTL_SECONDS):
+        self._maxsize = maxsize
+        self._ttl = ttl
+        # OrderedDict: key → (adapter, created_at)
+        self._store: OrderedDict[str, Tuple[Any, float]] = OrderedDict()
+
+    def get(self, key: str) -> Any | None:
+        if key in self._store:
+            adapter, created_at = self._store[key]
+            if time.monotonic() - created_at > self._ttl:
+                del self._store[key]
+                return None
+            self._store.move_to_end(key)
+            return adapter
+        return None
+
+    def put(self, key: str, adapter: Any) -> None:
+        if key in self._store:
+            self._store.move_to_end(key)
+        self._store[key] = (adapter, time.monotonic())
+        while len(self._store) > self._maxsize:
+            self._store.popitem(last=False)
+
+
+_adapter_cache = _BoundedAdapterCache()
 
 
 def _get_adapter(tenant_id: str, entity_map: Optional[Dict[str, Any]] = None):
@@ -99,11 +132,11 @@ def _get_adapter(tenant_id: str, entity_map: Optional[Dict[str, Any]] = None):
     """
     from core.valinor.nl.vanna_adapter import VannaAdapter
 
-    if tenant_id not in _adapter_cache:
-        _adapter_cache[tenant_id] = VannaAdapter()
+    adapter = _adapter_cache.get(tenant_id)
+    if adapter is None:
+        adapter = VannaAdapter()
+        _adapter_cache.put(tenant_id, adapter)
         logger.info("nl_query: created new adapter", tenant_id=tenant_id)
-
-    adapter = _adapter_cache[tenant_id]
 
     if entity_map:
         adapter.train_from_entity_map(entity_map)
