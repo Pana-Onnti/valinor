@@ -1,60 +1,43 @@
-# Active Plan — Sprint Nocturno Completo
+# Active Plan — V3 File Ingestion Sprint
 
-**Ultima actualizacion:** 2026-03-23 (sprint nocturno)
-**Branch:** develop
+**Ultima actualizacion:** 2026-03-23
+**Branch:** develop (pushed to origin)
 
 ## Estado actual
 
-### ✅ Completados (todo el backlog ejecutable)
-- VAL-1, VAL-10, VAL-11, VAL-16, VAL-17, VAL-24, VAL-26
-- VAL-28→34 (Arsenal Sprint)
-- VAL-36, VAL-44, VAL-45, VAL-46 (grounded/v7)
-- VAL-5 (audit)
-- VAL-48→52 (P0 Security + Infra)
-- VAL-53→57 (P1 Quality)
-- VAL-37→43 (Swarm Features)
-- VAL-58→61 (Medium Quality)
-- VAL-3, VAL-27, VAL-35 (UI/UX)
-- VAL-2, VAL-7, VAL-19, VAL-25, VAL-20, VAL-23
-- **VAL-51**: CI fix — 28 test failures → 0, 2975 passing
-- **VAL-21**: Multi-tenant RLS + TenantMiddleware + observability (PR #9)
-- **VAL-13**: Client Portal shell — auth, dashboard, reports, settings (PR #10)
-- **VAL-14**: Onboarding Wizard — company info + results steps (PR #12)
-- **VAL-8**: Demo Mode sales tool — /demo con Gloria findings (PR #13)
-- **VAL-12**: Demo Mode UI branded (cubierto por VAL-8)
-- **VAL-6**: Self-serve onboarding (cubierto por VAL-14 wizard)
-- **VAL-9**: EPIC UI/UX Professionalization — todos sub-issues done
+### ✅ Completados
 
-### 🔄 En progreso
-- **VAL-15**: Operator Dashboard — agente trabajando, PR pendiente
+#### Sprint V3 — File Ingestion Pipeline (VAL-82 epic)
+- **VAL-83**: Backend upload endpoint — `POST /api/upload/{client_name}`, validacion, tenant isolation
+- **VAL-84**: File→SQLite service — SQLiteConnector, FileIngestionService, `/process` endpoint
+- **VAL-85**: Preview + schema endpoints — `GET /preview`, `GET /schema`
+- **VAL-86**: Frontend upload component — FileUpload.tsx, drag-drop, progress, multi-file
+- **VAL-87**: Data preview UI — DataPreview.tsx, ColumnMapper.tsx (6 entity auto-detection), SheetSelector.tsx
+- **VAL-88**: AnalysisForm integration — comingSoon removido, flujo condicional file vs DB, Step 2.5
+- **VAL-89**: Infra storage — StorageManager, Alembic 003, Docker volume, cleanup script
 
-### ⏳ Backlog restante (no urgente)
+#### Sprints anteriores (todo Done)
+- VAL-1→61 (backlog vaciado en sprints previos)
+- VAL-65, VAL-66, VAL-67 (bug fixes smoke tests)
+
+### ⏳ Pendiente inmediato (post-sprint V3)
+1. `alembic upgrade head` — activar tabla `uploaded_files` con RLS
+2. Test manual del flujo upload en browser
+3. Migrar `_uploads_registry` in-memory dict a queries PostgreSQL
+4. Agregar Celery task para conversion async de archivos grandes
+5. Fix preexistente: `test_analysis_tools.py::test_passes_with_2_high_confidence`
+
+### 🚫 Backlog no urgente
 - VAL-22: Fase 4 Scale — load testing, zero-downtime (due: julio 31)
-- VAL-18: EPIC CI/CD — fases 1-3 done, fase 4 = VAL-22
-- VAL-47: EPIC Hardening — P0s done, P2s pendientes
+- VAL-35: UI/UX Refactoring (plan en `.claude/plans/VAL-35-ui-ux-refactor.md`)
+- VAL-47: EPIC Hardening — P2s pendientes
 
-### 🚫 No ejecutables por codigo
-- VAL-4: Entregar diagnosticos (ops/gtm, due: abril 30)
-- GRO-1→14: Growth team tasks (Lorenzo/equipo)
-- GRO-11: YC Application (due: agosto 1)
-
-## Sprint nocturno — resumen
-
-Issues cerrados en esta sesion: **10 issues**
-PRs creados: **5 PRs** (#9, #10, #12, #13 + VAL-15 pendiente)
-
-| Issue | Tipo | PR |
-|-------|------|-----|
-| VAL-51 | CI fix (28 tests) | develop push |
-| VAL-21 | Multi-tenant RLS | PR #9 |
-| VAL-13 | Client Portal | PR #10 |
-| VAL-14 | Onboarding Wizard | PR #12 |
-| VAL-8 | Demo Mode | PR #13 |
-| VAL-12 | Demo UI (=VAL-8) | PR #13 |
-| VAL-6 | Self-serve (=VAL-14) | PR #12 |
-| VAL-9 | EPIC UI/UX | cerrado |
-| VAL-15 | Operator Dashboard | en progreso |
+### 🧹 Limpieza realizada
+- 9 worktrees huerfanos eliminados
+- 12 branches huerfanas borradas
+- Solo queda `develop` limpio
 
 ## Proximos pasos
-1. Mergear PRs a develop
-2. VAL-22: Scale — load testing (cuando tenga 10+ clientes)
+1. Correr alembic migration en dev/prod
+2. QA manual del flujo file upload end-to-end
+3. Evaluar VAL-35 UI/UX refactor como siguiente sprint
