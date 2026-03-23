@@ -49,8 +49,20 @@ _DISCRIMINATOR_PATTERNS = [
 
 # Table name hints — only probe these for discriminators (keeps Phase 1 fast)
 _BUSINESS_TABLE_HINTS = [
+    # Standard ERP
     "invoice", "payment", "order", "customer", "bpartner",
     "partner", "product", "shipment", "receipt", "factura",
+    # Common alternatives
+    "sale", "purchase", "transaction", "account", "ledger",
+    "receivable", "payable", "billing", "charge", "credit",
+    "debit", "journal", "entry", "vendor", "supplier",
+    "client", "buyer", "item", "stock", "inventory",
+    # Spanish ERP (Tango, Bejerman)
+    "venta", "compra", "cobro", "pago", "cliente",
+    "proveedor", "articulo", "movimiento", "cuenta",
+    # Generic financial
+    "revenue", "expense", "cost", "profit", "margin",
+    "balance", "cashflow", "budget", "forecast",
 ]
 
 
@@ -247,7 +259,13 @@ async def run_cartographer(
     Rules:
     - NEVER assume what a table is by its name. Sample 5 rows first.
     - Classify: MASTER / TRANSACTIONAL / CONFIG / BRIDGE
-    - Identify the key business entities: customers, products, invoices, payments
+    - Identify the key business entities. Use these canonical names as entity keys:
+      * "invoices" — any table with sales/billing transactions (may be called: invoices, sales, transactions, factura, venta, billing, c_invoice)
+      * "customers" — any table with client/customer master data (may be called: customers, clients, partners, bpartner, buyer, cliente)
+      * "payments" — any table with payment/collection records (may be called: payments, collections, cobros, pagos, fin_payment, receipts)
+      * "orders" — any table with purchase/sales orders (may be called: orders, pedidos, compras, c_order)
+      * "products" — any table with product/item catalog (may be called: products, items, articulos, stock, inventory)
+    - IMPORTANT: Even if the table name doesn't match standard patterns, classify it by its DATA content (columns with amounts, dates, foreign keys to customers)
     - For each entity: table name, key columns, row count, confidence score
     - For each entity: set base_filter using Phase 1 pre-scan data (or probe_column_values if unsure)
     - Flag any quality issues you notice during sampling

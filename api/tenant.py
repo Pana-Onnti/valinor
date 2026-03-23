@@ -20,8 +20,8 @@ import os
 from typing import Optional
 
 import structlog
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import HTTPException, Request, status
+from fastapi.security import HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = structlog.get_logger()
