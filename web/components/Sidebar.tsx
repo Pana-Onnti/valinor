@@ -34,6 +34,9 @@ export default function Sidebar() {
 
   const width = expanded ? SIDEBAR_WIDTH_EXPANDED : SIDEBAR_WIDTH_COLLAPSED;
 
+  // Hide sidebar on public demo pages
+  if (pathname.startsWith('/demo')) return null;
+
   return (
     <aside
       style={{
