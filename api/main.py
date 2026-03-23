@@ -46,6 +46,7 @@ from api.routers.reports import router as reports_router  # noqa: E402
 from api.routers.system import router as system_router  # noqa: E402
 from api.routers.portal import router as portal_router  # noqa: E402
 from api.routers.upload import router as upload_router  # noqa: E402
+from api.routers.demo import router as demo_router  # noqa: E402
 from api.logging_config import setup_logging  # noqa: E402
 from api.metrics import PrometheusMiddleware, metrics_response  # noqa: E402, F401
 from api.deps import set_redis_client, set_limiter  # noqa: E402
@@ -293,6 +294,7 @@ app.include_router(onboarding_router)
 app.include_router(nl_query_router)
 app.include_router(portal_router)
 app.include_router(upload_router)
+app.include_router(demo_router)
 
 
 # ═══ MAIN ═══
