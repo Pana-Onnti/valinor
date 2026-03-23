@@ -5,7 +5,6 @@ Extracted from main.py for better modularity.
 """
 
 import os
-import sys
 import glob as _glob
 import json as _json
 import re as _re
@@ -30,19 +29,12 @@ def _validate_client_name(name: str) -> str:
     return name
 
 
-def _ensure_shared_path():
-    """Ensure shared modules are on sys.path."""
-    shared_parent = os.path.join(os.path.dirname(__file__), '..', '..')
-    if shared_parent not in sys.path:
-        sys.path.insert(0, shared_parent)
-
-
 # ── Client Profile endpoints ──────────────────────────────────────────────────
 
 @router.get("/clients/{client_name}/profile", tags=["Clients"])
 async def get_client_profile(client_name: str):
     """Get the persistent ClientProfile for a client."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()
@@ -55,7 +47,7 @@ async def get_client_profile(client_name: str):
 @router.get("/clients/{client_name}/profile/export", tags=["Clients"])
 async def export_client_profile(client_name: str):
     """Export the full ClientProfile as a downloadable JSON file."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
     from fastapi.responses import Response
 
@@ -76,7 +68,7 @@ async def export_client_profile(client_name: str):
 @router.post("/clients/{client_name}/profile/import", tags=["Clients"])
 async def import_client_profile(client_name: str, body: dict):
     """Import (overwrite) a ClientProfile from a JSON body."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
     from shared.memory.client_profile import ClientProfile
 
@@ -99,7 +91,7 @@ async def import_client_profile(client_name: str, body: dict):
 @router.get("/clients/{client_name}/refinement", tags=["Clients"])
 async def get_client_refinement(client_name: str):
     """Return the current refinement settings stored in the ClientProfile."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()
@@ -116,7 +108,7 @@ async def get_client_refinement(client_name: str):
 @router.patch("/clients/{client_name}/refinement", tags=["Clients"])
 async def patch_client_refinement(client_name: str, body: dict):
     """Merge a partial refinement dict into the existing refinement settings."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()
@@ -162,7 +154,7 @@ async def list_clients():
 @router.get("/clients/summary", tags=["Clients"])
 async def get_clients_summary():
     """Aggregated summary of all clients for operator dashboard."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()
@@ -220,7 +212,7 @@ async def get_clients_summary():
 @router.get("/clients/comparison", tags=["Clients"])
 async def get_clients_comparison(clients: Optional[str] = None):
     """Compare DQ scores and trends across multiple clients."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()
@@ -319,7 +311,7 @@ async def get_clients_comparison(clients: Optional[str] = None):
 @router.get("/clients/{client_name}/findings", tags=["Clients"])
 async def get_client_findings(client_name: str, severity_filter: Optional[str] = None):
     """Return all active findings for a client with full details."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     severity_filter_upper: Optional[str] = severity_filter.upper() if severity_filter else None
@@ -376,7 +368,7 @@ async def get_client_findings(client_name: str, severity_filter: Optional[str] =
 @router.get("/clients/{client_name}/findings/{finding_id}", tags=["Clients"])
 async def get_client_finding(client_name: str, finding_id: str):
     """Return a single finding by ID for a client."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()
@@ -400,7 +392,7 @@ async def get_client_finding(client_name: str, finding_id: str):
 @router.get("/clients/{client_name}/costs", tags=["Clients"])
 async def get_client_costs(client_name: str):
     """Return a cost summary for a client based on their run history."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     _validate_client_name(client_name)
@@ -441,7 +433,7 @@ async def get_client_costs(client_name: str):
 @router.put("/clients/{client_name}/profile/false-positive")
 async def mark_false_positive(client_name: str, finding_id: str):
     """Mark a finding as a false positive for this client."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()
@@ -464,7 +456,7 @@ async def mark_false_positive(client_name: str, finding_id: str):
 @router.delete("/clients/{client_name}/profile")
 async def reset_client_profile(client_name: str):
     """Reset (delete) a client's profile."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
     from shared.memory.client_profile import ClientProfile
 
@@ -477,7 +469,7 @@ async def reset_client_profile(client_name: str):
 @router.get("/clients/{client_name}/dq-history", tags=["Quality"])
 async def get_client_dq_history(client_name: str):
     """Get historical DQ scores for a client."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
     store = get_profile_store()
     profile = await store.load(client_name)
@@ -512,7 +504,7 @@ async def get_client_dq_history(client_name: str):
 @router.get("/clients/{client_name}/kpis", tags=["Clients"])
 async def get_client_kpis(client_name: str):
     """Get KPI baseline history for a client."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     _validate_client_name(client_name)
@@ -543,7 +535,7 @@ async def get_client_kpis(client_name: str):
 @router.get("/clients/{client_name}/stats", tags=["Clients"])
 async def get_client_stats(client_name: str):
     """Get summary statistics for a client."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()
@@ -587,7 +579,7 @@ async def get_client_stats(client_name: str):
 @router.get("/clients/{client_name}/analytics", tags=["Clients"])
 async def get_client_analytics(client_name: str):
     """Return deeper run analytics derived from the client's run_history."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()
@@ -654,7 +646,7 @@ async def get_client_analytics(client_name: str):
 @router.get("/clients/{client_name}/segmentation", tags=["Segmentation"])
 async def get_client_segmentation(client_name: str):
     """Get latest customer segmentation for a client."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
     store = get_profile_store()
     profile = await store.load(client_name)
@@ -681,7 +673,7 @@ async def get_client_segmentation(client_name: str):
 @router.post("/clients/{client_name}/webhooks")
 async def register_webhook(client_name: str, body: dict):
     """Register a webhook URL for a client."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
     webhook_url = body.get("url")
     if not webhook_url or not webhook_url.startswith("http"):
@@ -701,7 +693,7 @@ async def register_webhook(client_name: str, body: dict):
 @router.get("/clients/{client_name}/webhooks")
 async def list_webhooks(client_name: str):
     """List registered webhooks for a client."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
     store = get_profile_store()
     profile = await store.load(client_name)
@@ -713,7 +705,7 @@ async def list_webhooks(client_name: str):
 @router.delete("/clients/{client_name}/webhooks")
 async def delete_webhook(client_name: str, url: str):
     """Remove a webhook."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
     store = get_profile_store()
     profile = await store.load(client_name)

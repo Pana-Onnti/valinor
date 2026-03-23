@@ -12,10 +12,8 @@ Use this for ad-hoc questions. Use the analysis pipeline for scheduled reports.
 
 from __future__ import annotations
 
-import sys
 import time
 from collections import OrderedDict
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException
@@ -24,11 +22,6 @@ from pydantic import BaseModel, Field
 import structlog
 
 logger = structlog.get_logger()
-
-# Ensure project root is importable
-_ROOT = Path(__file__).parent.parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 
 router = APIRouter(prefix="/api/v1", tags=["nl-query"])
 

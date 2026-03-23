@@ -16,10 +16,8 @@ Router modules:
 """
 
 import os
-import sys
 import uuid as _uuid
 import time
-from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -37,12 +35,9 @@ try:
 except ImportError:
     sentry_sdk = None
 
-# Add shared modules to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from shared.storage import MetadataStorage  # noqa: E402
-from api.routes.quality import router as quality_router  # noqa: E402
-from api.routes.onboarding import router as onboarding_router  # noqa: E402
+from shared.storage import MetadataStorage
+from api.routes.quality import router as quality_router
+from api.routes.onboarding import router as onboarding_router
 from api.routers.nl_query import router as nl_query_router  # noqa: E402
 from api.routers.jobs import router as jobs_router  # noqa: E402
 from api.routers.clients import router as clients_router  # noqa: E402

@@ -4,8 +4,6 @@ Reports router — PDF export, email digest, and quality report endpoints.
 Extracted from main.py for better modularity.
 """
 
-import os
-import sys
 import json
 from datetime import datetime  # noqa: F401
 
@@ -21,12 +19,6 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/api", tags=["Reports"])
 
 
-def _ensure_shared_path():
-    shared_parent = os.path.join(os.path.dirname(__file__), '..', '..')
-    if shared_parent not in sys.path:
-        sys.path.insert(0, shared_parent)
-
-
 @router.get("/jobs/{job_id}/export/pdf", summary="Export job results as PDF", tags=["Jobs"])
 async def export_job_pdf(
     request: Request,
@@ -35,7 +27,7 @@ async def export_job_pdf(
 ):
     """Generate and download a PDF report for a completed analysis job."""
     from fastapi.responses import Response as _Response
-    _ensure_shared_path()
+
     from shared.pdf_generator import generate_pdf_report
 
     try:

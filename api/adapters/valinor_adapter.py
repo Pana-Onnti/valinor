@@ -5,7 +5,6 @@ Preserves all original functionality while adding SaaS capabilities.
 
 import copy
 import os
-import sys
 import json
 import re
 import asyncio
@@ -19,19 +18,15 @@ import structlog
 # The core agents do `from claude_agent_sdk import query` at module load time.
 # We must replace sys.modules['claude_agent_sdk'] first so those imports
 # resolve to our provider-switching shim instead of the real SDK.
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "core"))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))  # shared/
-
 os.environ.setdefault("LLM_PROVIDER", "console_cli")
 
 from shared.llm.monkey_patch import apply_monkey_patch  # noqa: E402
 apply_monkey_patch()
 # ──────────────────────────────────────────────────────────────────────────────
 
-from api.adapters.exceptions import (  # noqa: E402, F401
+from api.adapters.exceptions import (  # noqa: E402
     ValinorError,
     SSHConnectionError,
-    DatabaseConnectionError,
     PipelineTimeoutError,
     DQGateHaltError,
 )
@@ -61,6 +56,7 @@ from core.valinor.quality.currency_guard import get_currency_guard  # noqa: E402
 from core.valinor.quality.data_quality_gate import DataQualityGate  # noqa: E402
 from core.valinor.quality.provenance import ProvenanceRegistry  # noqa: E402
 from shared.llm.token_tracker import TokenTracker  # noqa: E402
+from shared.tracing import PipelineTracer  # noqa: E402
 from core.valinor.schemas.agent_outputs import (  # noqa: E402
     CartographerOutput,
     QueryBuilderOutput,
@@ -500,6 +496,7 @@ RETURN ONLY THE JSON OBJECT."""
         """
         results = {"stages": {}}
         client_name = config.get("name", "unknown")
+        tracer = PipelineTracer(job_id=job_id, client_name=client_name)
 
         try:
             # Parse period
@@ -511,30 +508,34 @@ RETURN ONLY THE JSON OBJECT."""
                         has_cache=profile.is_entity_map_fresh())
 
             # ═══ STAGE 1: CARTOGRAPHER ═══
-            if profile.is_entity_map_fresh():
-                # Use cached entity_map — skip expensive LLM cartographer call
-                entity_map = profile.entity_map_cache
-                await self._progress("cartographer", 25,
-                                     f"Usando mapa de entidades en caché ({len(entity_map.get('entities', {}))} entidades)")
-                results["stages"]["cartographer"] = {
-                    "entities_found": len(entity_map.get("entities", {})),
-                    "success": True,
-                    "cache_hit": True
-                }
-            else:
-                await self._progress("cartographer", 15, "Discovering database schema...")
-                entity_map = await self._run_direct_cartographer(config)
-                results["stages"]["cartographer"] = {
-                    "entities_found": len(entity_map.get("entities", {})),
-                    "success": True,
-                    "cache_hit": False
-                }
-                # Update entity_map cache in profile
-                profile.entity_map_cache = entity_map
-                profile.entity_map_updated_at = datetime.utcnow().isoformat()
-                # Auto-detect industry and currency from schema
-                self.industry_detector.update_profile(profile, entity_map, config)
-                await self._progress("cartographer", 25, f"Found {len(entity_map['entities'])} entities")
+            with tracer.stage("cartographer") as _carto_span:
+                if profile.is_entity_map_fresh():
+                    # Use cached entity_map — skip expensive LLM cartographer call
+                    entity_map = profile.entity_map_cache
+                    _carto_span.set_attribute("cache_hit", True)
+                    await self._progress("cartographer", 25,
+                                         f"Usando mapa de entidades en caché ({len(entity_map.get('entities', {}))} entidades)")
+                    results["stages"]["cartographer"] = {
+                        "entities_found": len(entity_map.get("entities", {})),
+                        "success": True,
+                        "cache_hit": True
+                    }
+                else:
+                    _carto_span.set_attribute("cache_hit", False)
+                    await self._progress("cartographer", 15, "Discovering database schema...")
+                    entity_map = await self._run_direct_cartographer(config)
+                    results["stages"]["cartographer"] = {
+                        "entities_found": len(entity_map.get("entities", {})),
+                        "success": True,
+                        "cache_hit": False
+                    }
+                    # Update entity_map cache in profile
+                    profile.entity_map_cache = entity_map
+                    profile.entity_map_updated_at = datetime.utcnow().isoformat()
+                    # Auto-detect industry and currency from schema
+                    self.industry_detector.update_profile(profile, entity_map, config)
+                    await self._progress("cartographer", 25, f"Found {len(entity_map['entities'])} entities")
+                _carto_span.set_attribute("entities_found", len(entity_map.get("entities", {})))
 
             # ── Validate cartographer output against Pydantic schema (VAL-76) ──
             _validate_agent_output(
@@ -561,20 +562,23 @@ RETURN ONLY THE JSON OBJECT."""
             entity_map = self.focus_ranker.rerank_entity_map(entity_map, profile)
 
             # ═══ STAGE 1.8: DATA QUALITY GATE ═══
-            await self._progress("data_quality", 28, "Running data quality checks...")
+            with tracer.stage("data_quality_gate") as _dq_span:
+                await self._progress("data_quality", 28, "Running data quality checks...")
 
-            from sqlalchemy import create_engine as _create_engine
-            _dq_engine = _create_engine(config["connection_string"])
-            try:
-                dq_gate = DataQualityGate(_dq_engine, period_config.get("start", ""), period_config.get("end", ""), erp=config.get("erp"), db_schema=config.get("db_schema", "public"))
-                dq_report = dq_gate.run()
-            except Exception as _dq_err:
-                logger.warning("DataQualityGate failed, proceeding without DQ check", error=str(_dq_err))
-                from core.valinor.quality.data_quality_gate import DataQualityReport
-                dq_report = DataQualityReport(overall_score=75.0, gate_decision="PROCEED_WITH_WARNINGS",
-                                              warnings=[f"DQ gate error: {_dq_err}"])
-            finally:
-                _dq_engine.dispose()
+                from sqlalchemy import create_engine as _create_engine
+                _dq_engine = _create_engine(config["connection_string"])
+                try:
+                    dq_gate = DataQualityGate(_dq_engine, period_config.get("start", ""), period_config.get("end", ""), erp=config.get("erp"), db_schema=config.get("db_schema", "public"))
+                    dq_report = dq_gate.run()
+                except Exception as _dq_err:
+                    logger.warning("DataQualityGate failed, proceeding without DQ check", error=str(_dq_err))
+                    from core.valinor.quality.data_quality_gate import DataQualityReport
+                    dq_report = DataQualityReport(overall_score=75.0, gate_decision="PROCEED_WITH_WARNINGS",
+                                                  warnings=[f"DQ gate error: {_dq_err}"])
+                finally:
+                    _dq_engine.dispose()
+                _dq_span.set_attribute("dq_score", dq_report.overall_score)
+                _dq_span.set_attribute("gate_decision", dq_report.gate_decision)
 
             results["data_quality"] = {
                 "score": dq_report.overall_score,
@@ -676,25 +680,27 @@ RETURN ONLY THE JSON OBJECT."""
                 logger.warning("CUSUM structural break detection failed, skipping", error=str(_cusum_err))
 
             # ═══ STAGE 2: QUERY BUILDER ═══
-            await self._progress("query_builder", 30, "Building analysis queries...")
+            with tracer.stage("query_builder") as _qb_span:
+                await self._progress("query_builder", 30, "Building analysis queries...")
 
-            # Forward query hints from profile refinement to query builder context
-            refinement = profile.get_refinement()
-            if refinement.query_hints:
-                # Inject hints into period_config as additional context (non-breaking)
-                period_config_with_hints = {
-                    **period_config,
-                    "query_hints": refinement.query_hints,
-                    "focus_tables": profile.focus_tables[:5],
+                # Forward query hints from profile refinement to query builder context
+                refinement = profile.get_refinement()
+                if refinement.query_hints:
+                    # Inject hints into period_config as additional context (non-breaking)
+                    period_config_with_hints = {
+                        **period_config,
+                        "query_hints": refinement.query_hints,
+                        "focus_tables": profile.focus_tables[:5],
+                    }
+                    query_pack = build_queries(entity_map, period_config_with_hints)
+                else:
+                    query_pack = build_queries(entity_map, period_config)
+                _qb_span.set_attribute("queries_built", len(query_pack.get("queries", [])))
+                results["stages"]["query_builder"] = {
+                    "queries_built": len(query_pack.get("queries", [])),
+                    "queries_skipped": len(query_pack.get("skipped", [])),
+                    "success": True
                 }
-                query_pack = build_queries(entity_map, period_config_with_hints)
-            else:
-                query_pack = build_queries(entity_map, period_config)
-            results["stages"]["query_builder"] = {
-                "queries_built": len(query_pack.get("queries", [])),
-                "queries_skipped": len(query_pack.get("skipped", [])),
-                "success": True
-            }
 
             # ── Validate query builder output against Pydantic schema (VAL-76) ──
             _validate_agent_output(
@@ -705,17 +711,20 @@ RETURN ONLY THE JSON OBJECT."""
             await self._progress("query_builder", 35, f"Built {len(query_pack['queries'])} queries")
 
             # ═══ STAGE 2.5: EXECUTE QUERIES ═══
-            await self._progress("query_execution", 40, "Executing database queries...")
+            with tracer.stage("query_execution") as _qe_span:
+                await self._progress("query_execution", 40, "Executing database queries...")
 
-            query_results = await execute_queries(query_pack, config)
-            results["stages"]["query_execution"] = {
-                "executed": len(query_results.get("results", [])),
-                "failed": len(query_results.get("errors", [])),
-                "snapshot_timestamp": query_results.get("snapshot_timestamp"),
-                "success": True
-            }
+                query_results = await execute_queries(query_pack, config)
+                _qe_span.set_attribute("queries_executed", len(query_results.get("results", [])))
+                _qe_span.set_attribute("queries_failed", len(query_results.get("errors", [])))
+                results["stages"]["query_execution"] = {
+                    "executed": len(query_results.get("results", [])),
+                    "failed": len(query_results.get("errors", [])),
+                    "snapshot_timestamp": query_results.get("snapshot_timestamp"),
+                    "success": True
+                }
 
-            await self._progress("query_execution", 50, f"Executed {len(query_results['results'])} queries")
+                await self._progress("query_execution", 50, f"Executed {len(query_results['results'])} queries")
 
             # ── Currency homogeneity check ────────────────────────────────────
             _guard = get_currency_guard()
@@ -829,6 +838,7 @@ RETURN ONLY THE JSON OBJECT."""
                     results["_segmentation_context"] = seg_context
 
             # ═══ STAGE 3: ANALYSIS AGENTS (PARALLEL) ═══
+            _analysis_span = tracer.start("analysis_agents")
             await self._progress("analysis_agents", 55, "Running AI analysis agents...")
 
             # Get old-style memory for backward compatibility
@@ -1006,47 +1016,52 @@ RETURN ONLY THE JSON OBJECT."""
             except Exception as _qe_err:
                 logger.warning("QueryEvolver failed", error=str(_qe_err))
 
+            _analysis_span.set_attribute("agents_completed", len(findings))
+            _analysis_span.finish()
             await self._progress("analysis_agents", 75, f"Completed {len(findings)} agent analyses")
 
             # ═══ STAGE 4: NARRATORS ═══
-            await self._progress("narrators", 80, "Generating executive reports...")
+            with tracer.stage("narrators") as _narr_span:
+                await self._progress("narrators", 80, "Generating executive reports...")
 
-            report_text = await narrate_executive(findings, entity_map, memory, config, baseline)
+                report_text = await narrate_executive(findings, entity_map, memory, config, baseline)
 
-            # Post-process report with quality certification
-            try:
-                from valinor.agents.narrators.quality_certifier import certify_report
-                _dq_score = results.get("data_quality", {}).get("score", 75.0)
-                _dq_label = results.get("data_quality", {}).get("confidence_label", "PROVISIONAL")
-                if isinstance(report_text, str):
-                    report_text = certify_report(report_text, _dq_label, _dq_score)
-                elif isinstance(report_text, dict):
-                    for key in report_text:
-                        if isinstance(report_text[key], str):
-                            report_text[key] = certify_report(report_text[key], _dq_label, _dq_score)
-            except Exception as _cert_err:
-                logger.warning("Quality certifier failed", error=str(_cert_err))
+                # Post-process report with quality certification
+                try:
+                    from valinor.agents.narrators.quality_certifier import certify_report
+                    _dq_score = results.get("data_quality", {}).get("score", 75.0)
+                    _dq_label = results.get("data_quality", {}).get("confidence_label", "PROVISIONAL")
+                    if isinstance(report_text, str):
+                        report_text = certify_report(report_text, _dq_label, _dq_score)
+                    elif isinstance(report_text, dict):
+                        for key in report_text:
+                            if isinstance(report_text[key], str):
+                                report_text[key] = certify_report(report_text[key], _dq_label, _dq_score)
+                except Exception as _cert_err:
+                    logger.warning("Quality certifier failed", error=str(_cert_err))
 
-            reports = {"executive": report_text} if isinstance(report_text, str) else report_text
-            results["stages"]["narrators"] = {
-                "reports_generated": len(reports),
-                "success": True
-            }
-            results["reports"] = reports
+                reports = {"executive": report_text} if isinstance(report_text, str) else report_text
+                _narr_span.set_attribute("reports_generated", len(reports))
+                results["stages"]["narrators"] = {
+                    "reports_generated": len(reports),
+                    "success": True
+                }
+                results["reports"] = reports
 
-            await self._progress("narrators", 95, "Reports generated successfully")
+                await self._progress("narrators", 95, "Reports generated successfully")
 
             # ═══ STAGE 5: DELIVER ═══
-            await self._progress("delivery", 98, "Finalizing results...")
+            with tracer.stage("delivery"):
+                await self._progress("delivery", 98, "Finalizing results...")
 
-            output_dir = Path(f"/tmp/valinor_output/{job_id}")
-            output_dir.mkdir(parents=True, exist_ok=True)
+                output_dir = Path(f"/tmp/valinor_output/{job_id}")
+                output_dir.mkdir(parents=True, exist_ok=True)
 
-            await deliver_reports(reports, entity_map, findings, results, output_dir)
-            results["stages"]["delivery"] = {
-                "output_path": str(output_dir),
-                "success": True
-            }
+                await deliver_reports(reports, entity_map, findings, results, output_dir)
+                results["stages"]["delivery"] = {
+                    "output_path": str(output_dir),
+                    "success": True
+                }
 
             # ── Update ClientProfile ──────────────────────────────────────────────
             run_delta = self.profile_extractor.update_from_run(
@@ -1139,9 +1154,17 @@ RETURN ONLY THE JSON OBJECT."""
                 except Exception as _wh_err:
                     logger.warning("Webhook dispatch setup failed", error=str(_wh_err))
 
+            # Finalize pipeline trace and attach summary to results
+            results["trace"] = tracer.finish()
+
             return results
 
         except Exception as e:
+            # Ensure trace is finalized even on failure
+            try:
+                results["trace"] = tracer.finish()
+            except Exception:
+                pass
             logger.error(
                 "Pipeline stage failed",
                 job_id=job_id,

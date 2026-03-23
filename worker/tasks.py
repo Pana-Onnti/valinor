@@ -4,7 +4,6 @@ Handles background processing of analysis jobs.
 """
 
 import os
-import sys
 import json
 import asyncio
 from pathlib import Path
@@ -13,9 +12,6 @@ from datetime import datetime, timedelta
 
 import structlog
 import redis
-
-# Add shared modules to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from api.adapters.valinor_adapter import ValinorAdapter
 from shared.storage import MetadataStorage
@@ -53,7 +49,6 @@ def _fire_webhooks_sync(job_id: str, client_name: str, status: str, results: dic
 
 async def _fire_webhooks_async(job_id: str, client_name: str, status: str, results: dict):
     """Load client profile and fire all registered webhooks."""
-    sys.path.insert(0, str(Path(__file__).parent.parent))
     from shared.memory.profile_store import get_profile_store
     from api.webhooks import fire_job_completion_webhook, build_job_summary
 
