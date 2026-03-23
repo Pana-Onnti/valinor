@@ -182,3 +182,27 @@ export function getPreview(
 export function getSchema(uploadId: string): Promise<SchemaData> {
   return apiFetch<SchemaData>(`/api/upload/${encodeURIComponent(uploadId)}/schema`)
 }
+
+// ── File-based Analysis ───────────────────────────────────────────────────────
+
+/**
+ * Submit an analysis job backed by previously-uploaded files.
+ * Maps to the same /api/v1/analyze endpoint but uses source_type "sqlite"
+ * so the backend reads from the uploaded SQLite snapshots instead of a
+ * live database connection.
+ */
+export function startFileAnalysis(req: {
+  client_name: string
+  upload_ids: string[]
+  column_mapping: Record<string, string>
+  period: string
+}): Promise<{ job_id: string }> {
+  return apiFetch<{ job_id: string }>("/api/v1/analyze", {
+    method: "POST",
+    body: JSON.stringify({
+      ...req,
+      source_type: "sqlite",
+      db_config: { type: "sqlite", host: "local", port: 0, name: "upload" },
+    }),
+  })
+}
