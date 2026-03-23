@@ -5,7 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import axios from 'axios'
 import Link from 'next/link'
-import { ArrowLeft, ArrowRight, TrendingUp, TrendingDown, Minus, AlertOctagon, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
