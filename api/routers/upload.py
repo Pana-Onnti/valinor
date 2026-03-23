@@ -5,7 +5,10 @@ Accepts CSV and Excel files for analysis, validates extension/size/content,
 detects Excel sheet names, saves to tenant-isolated storage, and registers
 upload metadata in an in-memory registry (temporary until Alembic migration).
 
-Refs: VAL-83
+Adds a /process endpoint that converts an uploaded file to SQLite for
+downstream analysis (VAL-84).
+
+Refs: VAL-83, VAL-84
 """
 
 import io
@@ -16,7 +19,7 @@ from pathlib import Path
 import structlog
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
-from api.models import UploadResponse
+from api.models import ProcessResponse, TableInfo, UploadResponse
 
 logger = structlog.get_logger()
 
@@ -210,4 +213,80 @@ async def upload_file(
         file_type=file_type,
         sheets=sheets,
         status="pending",
+    )
+
+
+# ── Process endpoint (VAL-84) ──────────────────────────────────────────────────
+
+@router.post("/{upload_id}/process", response_model=ProcessResponse)
+async def process_upload(upload_id: str) -> ProcessResponse:
+    """
+    Convert a previously uploaded CSV/Excel file to a SQLite database.
+
+    Looks up the upload by *upload_id* in the in-memory registry, calls
+    FileIngestionService to parse the file and produce a .db file via
+    StorageManager, then marks the upload as 'processed'.
+
+    Returns a ProcessResponse with the db_path and table metadata.
+
+    Raises:
+        404 if upload_id is not found.
+        400 if the upload is already processed.
+        500 if conversion fails.
+    """
+    meta = _uploads_registry.get(upload_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Upload '{upload_id}' not found")
+
+    if meta.get("status") == "processed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Upload '{upload_id}' has already been processed",
+        )
+
+    from api.services.file_ingestion import FileIngestionService
+
+    service = FileIngestionService()
+
+    try:
+        result = service.convert_to_sqlite(
+            file_path=meta["storage_path"],
+            file_type=meta["file_type"],
+            client_name=meta["client_name"],
+            tenant_id=meta["tenant_id"],
+            upload_id=upload_id,
+        )
+    except FileNotFoundError as exc:
+        logger.error("upload.process.file_not_found", upload_id=upload_id, error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Source file missing: {exc}")
+    except Exception as exc:
+        logger.error("upload.process.failed", upload_id=upload_id, error=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=f"File conversion failed: {exc}",
+        )
+
+    # Update registry status and persist db path
+    meta["status"] = "processed"
+    meta["db_path"] = result["db_path"]
+
+    logger.info(
+        "upload.process.done",
+        upload_id=upload_id,
+        db_path=result["db_path"],
+        tables=[t["name"] for t in result["tables"]],
+    )
+
+    return ProcessResponse(
+        upload_id=upload_id,
+        status="processed",
+        db_path=result["db_path"],
+        tables=[
+            TableInfo(
+                name=t["name"],
+                row_count=t["row_count"],
+                columns=t["columns"],
+            )
+            for t in result["tables"]
+        ],
     )

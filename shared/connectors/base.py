@@ -24,6 +24,7 @@ class SourceType(str, Enum):
     POSTGRESQL = "postgresql"
     MYSQL = "mysql"
     ETENDO = "etendo"
+    SQLITE = "sqlite"
 
 
 class DeltaConnector(abc.ABC):

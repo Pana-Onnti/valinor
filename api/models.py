@@ -123,3 +123,18 @@ class PreviewRequest(BaseModel):
     """Request model for file preview."""
     rows: int = 20
     sheet: Optional[str] = None
+
+
+class TableInfo(BaseModel):
+    """Metadata for a single table produced by file ingestion."""
+    name: str
+    row_count: int
+    columns: List[str]
+
+
+class ProcessResponse(BaseModel):
+    """Response model for the file process/ingestion endpoint (VAL-84)."""
+    upload_id: str
+    status: str  # "processed"
+    db_path: str
+    tables: List[TableInfo]
