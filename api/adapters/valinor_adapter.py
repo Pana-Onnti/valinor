@@ -61,8 +61,43 @@ from core.valinor.quality.currency_guard import get_currency_guard  # noqa: E402
 from core.valinor.quality.data_quality_gate import DataQualityGate  # noqa: E402
 from core.valinor.quality.provenance import ProvenanceRegistry  # noqa: E402
 from shared.llm.token_tracker import TokenTracker  # noqa: E402
+from core.valinor.schemas.agent_outputs import (  # noqa: E402
+    CartographerOutput,
+    QueryBuilderOutput,
+    AnalystOutput,
+    SentinelOutput,
+)
 
 logger = structlog.get_logger()
+
+
+def _validate_agent_output(schema_cls, data: Dict[str, Any], stage: str, *, factory: str | None = None) -> None:
+    """
+    Validate an agent output dict against its Pydantic schema.
+
+    Informational only — logs warnings on failure but never raises.
+
+    Args:
+        schema_cls: The Pydantic model class to validate against.
+        data: The raw dict output from the agent.
+        stage: Human-readable stage name for log messages.
+        factory: Optional factory classmethod name (e.g. 'from_entity_map_dict').
+                 If provided, calls schema_cls.<factory>(data) instead of model_validate.
+    """
+    try:
+        if factory:
+            getattr(schema_cls, factory)(data)
+        else:
+            schema_cls.model_validate(data)
+        logger.info("Schema validation passed", stage=stage, schema=schema_cls.__name__)
+    except Exception as exc:
+        logger.warning(
+            "Schema validation failed (non-blocking)",
+            stage=stage,
+            schema=schema_cls.__name__,
+            error=str(exc),
+        )
+
 
 try:
     from api.metrics import JOBS_TOTAL, ACTIVE_JOBS, ANALYSIS_COST_USD, DQ_CHECKS_TOTAL  # noqa: F401
@@ -501,6 +536,12 @@ RETURN ONLY THE JSON OBJECT."""
                 self.industry_detector.update_profile(profile, entity_map, config)
                 await self._progress("cartographer", 25, f"Found {len(entity_map['entities'])} entities")
 
+            # ── Validate cartographer output against Pydantic schema (VAL-76) ──
+            _validate_agent_output(
+                CartographerOutput, entity_map, "cartographer",
+                factory="from_entity_map_dict",
+            )
+
             # Initialize default alert thresholds for new clients (after industry detection)
             if not profile.alert_thresholds:
                 try:
@@ -654,6 +695,12 @@ RETURN ONLY THE JSON OBJECT."""
                 "queries_skipped": len(query_pack.get("skipped", [])),
                 "success": True
             }
+
+            # ── Validate query builder output against Pydantic schema (VAL-76) ──
+            _validate_agent_output(
+                QueryBuilderOutput, query_pack, "query_builder",
+                factory="from_query_pack_dict",
+            )
 
             await self._progress("query_builder", 35, f"Built {len(query_pack['queries'])} queries")
 
@@ -917,6 +964,29 @@ RETURN ONLY THE JSON OBJECT."""
                 "success": gate_analysis(findings)
             }
             results["findings"] = findings
+
+            # ── Validate analysis agent outputs against Pydantic schemas (VAL-76) ──
+            _AGENT_SCHEMA_MAP = {
+                "analyst": (AnalystOutput, "from_agent_dict"),
+                "financial_analyst": (AnalystOutput, "from_agent_dict"),
+                "sentinel": (SentinelOutput, "from_agent_dict"),
+                "data_quality_sentinel": (SentinelOutput, "from_agent_dict"),
+            }
+            for agent_name, agent_output in findings.items():
+                if not isinstance(agent_output, dict):
+                    continue
+                schema_entry = _AGENT_SCHEMA_MAP.get(agent_name)
+                if schema_entry:
+                    _schema_cls, _factory_name = schema_entry
+                    _validate_agent_output(
+                        _schema_cls, agent_output, f"analysis_agents/{agent_name}",
+                        factory=_factory_name,
+                    )
+                else:
+                    logger.debug(
+                        "No schema registered for agent output (skipping validation)",
+                        agent=agent_name,
+                    )
 
             # Run QueryEvolver to track empty queries and high-value tables
             try:
