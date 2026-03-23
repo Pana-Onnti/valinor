@@ -7,6 +7,9 @@ export { default as EmptyState } from './EmptyState'
 export { default as ErrorBoundary } from './ErrorBoundary'
 export { default as ResultsDisplay } from './ResultsDisplay'
 export { default as SkeletonCard } from './SkeletonCard'
+export { default as FileUpload } from './FileUpload'
+export type { FileUploadProps } from './FileUpload'
+export { default as FileUploadProgress } from './FileUploadProgress'
 
 // Named exports
 export { DQScoreBadge } from './DQScoreBadge'
