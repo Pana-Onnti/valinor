@@ -98,11 +98,20 @@ async def test_db_connection(request: ConnectionTestRequest):
         conn_str = f"postgresql://{request.user}:{request.password}@{request.host}:{request.port}/{request.database}"
     elif request.db_type == "mysql":
         conn_str = f"mysql+pymysql://{request.user}:{request.password}@{request.host}:{request.port}/{request.database}"
+    elif request.db_type in ("mssql", "sqlserver"):
+        conn_str = (
+            f"mssql+pyodbc://{request.user}:{request.password}@{request.host}:{request.port}/{request.database}"
+            "?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+        )
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported DB type: {request.db_type}")
 
     try:
-        engine = create_engine(conn_str, connect_args={"connect_timeout": 8})
+        if request.db_type in ("mssql", "sqlserver"):
+            connect_args = {"timeout": 8}
+        else:
+            connect_args = {"connect_timeout": 8}
+        engine = create_engine(conn_str, connect_args=connect_args)
         with engine.connect() as conn:
             # Basic connectivity
             conn.execute(text("SELECT 1"))
@@ -240,6 +249,8 @@ async def test_ssh_and_db(request: SSHTestRequest):
             _check = _ping_postgres_via_channel(channel, request.db_name, request.db_user, request.db_password)
         elif request.db_type == "mysql":
             _check = _ping_mysql_via_channel(channel)
+        elif request.db_type in ("mssql", "sqlserver"):
+            _check = _ping_mssql_via_channel(channel)
         else:
             # Generic: if channel opened without error, consider db_ok
             _check = True
@@ -301,8 +312,8 @@ async def supported_databases():
             id="sqlserver",
             label="SQL Server",
             default_port=1433,
-            connection_template="mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+17+for+SQL+Server",
-            notes="SQL Server 2016+ supported. Requires ODBC Driver 17.",
+            connection_template="mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes",
+            notes="SQL Server 2016+ supported. Requires ODBC Driver 18.",
         ),
         DBTypeInfo(
             id="oracle",
@@ -453,6 +464,37 @@ def _ping_mysql_via_channel(channel) -> bool:
         return False
 
 
+def _ping_mssql_via_channel(channel) -> bool:
+    """
+    Send a TDS pre-login packet to verify SQL Server is reachable.
+    Does not attempt full authentication — just checks for a valid TDS response.
+    """
+    try:
+        # TDS 7.0+ pre-login: packet type 0x12 (pre-login), status 0x01 (EOM)
+        # Minimal pre-login with VERSION token
+        version_token = b'\x00'  # VERSION token
+        version_offset = b'\x00\x06'  # offset 6
+        version_length = b'\x00\x06'  # length 6
+        terminator = b'\xff'
+        # Version data: 0.0.0.0, sub-build 0
+        version_data = b'\x00\x00\x00\x00\x00\x00'
+        payload = version_token + version_offset + version_length + terminator + version_data
+
+        # TDS header: type=0x12 (pre-login), status=0x01 (EOM), length (2 bytes big-endian), SPID=0, packet=0, window=0
+        import struct
+        total_len = 8 + len(payload)
+        header = struct.pack('!BBHHBB', 0x12, 0x01, total_len, 0, 0, 0)
+        channel.sendall(header + payload)
+
+        # Read response — any TDS response means server is alive
+        resp = channel.recv(64)
+        if len(resp) >= 8 and resp[0] == 0x04:  # 0x04 = tabular result (pre-login response)
+            return True
+        return len(resp) > 0  # Any response means reachable
+    except Exception:
+        return False
+
+
 def _detect_erp(tables: list, conn) -> dict:
     """Auto-detect ERP type from table names and metadata."""
     from sqlalchemy import text
@@ -523,7 +565,7 @@ def _detect_date_range(erp_name: str, tables: list, conn) -> tuple:
     for table, col in candidates:
         try:
             row = conn.execute(_text(
-                f"SELECT MIN({col})::date, MAX({col})::date FROM {table} WHERE {col} IS NOT NULL"
+                f"SELECT CAST(MIN({col}) AS DATE), CAST(MAX({col}) AS DATE) FROM {table} WHERE {col} IS NOT NULL"
             )).fetchone()
             if row and row[0] and row[1]:
                 d_from = str(row[0])[:7]  # "YYYY-MM"
