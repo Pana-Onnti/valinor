@@ -19,6 +19,13 @@ pytest tests/ -v
 /project:start-session → PICK issue → BRANCH (Linear name) → CODE → COMMIT → /project:end-session
 ```
 
+## Branching (no negociable)
+- `develop` es la rama de integración. TODO el código va a develop primero.
+- `master` es producción. Solo recibe PRs desde develop.
+- Feature branches (incluyendo worktrees de agentes): siempre PR con `--base develop`.
+- Al final del sprint: un PR `develop → master` con todo integrado.
+- NUNCA hacer PR de feature branch directo a master.
+
 ## Contexto on-demand
 | Qué | Dónde |
 |-----|-------|
