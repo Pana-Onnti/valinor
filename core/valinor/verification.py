@@ -666,9 +666,13 @@ class VerificationEngine:
 
         claimed = claim.claimed_value
         claim_unit = claim.claimed_unit
+        claim_dim = self._unit_to_dimension(claim_unit)
 
         # Strategy 1: Direct registry match
         for label, entry in self._registry.items():
+            # VAL-63: Skip entries with incompatible dimensions
+            if not self._dimensions_compatible(claim_dim, entry.dimension):
+                continue
             if self._values_match(claimed, entry.value, claim_unit):
                 result.status = "VERIFIED"
                 result.actual_value = entry.value
@@ -722,6 +726,9 @@ class VerificationEngine:
 
         # Strategy 5: Approximate match (within 5%)
         for label, entry in self._registry.items():
+            # VAL-63: Skip entries with incompatible dimensions
+            if not self._dimensions_compatible(claim_dim, entry.dimension):
+                continue
             dev = self._deviation_pct(claimed, entry.value)
             if dev is not None and abs(dev) < 5.0:
                 result.status = "APPROXIMATE"
@@ -744,6 +751,34 @@ class VerificationEngine:
         if deviation_pct is not None:
             base_score -= abs(deviation_pct) * 0.02
         return max(0.0, min(1.0, base_score))
+
+    # ── DIMENSION-AWARE FILTERING (VAL-63) ──────────────────────────
+
+    _UNIT_TO_DIMENSION: dict[str, str] = {
+        "EUR": Dimension.EUR,
+        "eur": Dimension.EUR,
+        "€": Dimension.EUR,
+        "count": Dimension.COUNT,
+        "percent": Dimension.PERCENT,
+        "%": Dimension.PERCENT,
+        "days": Dimension.DAYS,
+        "ratio": Dimension.RATIO,
+    }
+
+    @classmethod
+    def _unit_to_dimension(cls, unit: str) -> str:
+        """Map a claimed_unit string to a Dimension value."""
+        return cls._UNIT_TO_DIMENSION.get(unit, Dimension.UNKNOWN)
+
+    @staticmethod
+    def _dimensions_compatible(claim_dim: str, entry_dim: str) -> bool:
+        """Check if a claim dimension is compatible with a registry entry dimension.
+
+        UNKNOWN on either side is treated as compatible (permissive fallback).
+        """
+        if claim_dim == Dimension.UNKNOWN or entry_dim == Dimension.UNKNOWN:
+            return True
+        return claim_dim == entry_dim
 
     def _values_match(self, claimed: float, actual: float, claim_unit: str = "EUR") -> bool:
         """Check if two values match within tolerance (claim-type-aware)."""
@@ -821,20 +856,25 @@ class VerificationEngine:
 
     def _search_raw_results(self, claimed: float, claim_unit: str = "EUR") -> dict | None:
         """Search for the claimed value in raw query result rows."""
+        claim_dim = self._unit_to_dimension(claim_unit)
         for query_id, result in self.query_results.get("results", {}).items():
             for row_idx, row in enumerate(result.get("rows", [])):
                 for col, val in row.items():
                     try:
                         float_val = float(val)
-                        if self._values_match(claimed, float_val, claim_unit):
-                            return {
-                                "value": float_val,
-                                "query": query_id,
-                                "row": row_idx,
-                                "column": col,
-                            }
                     except (TypeError, ValueError):
                         continue
+                    # VAL-63: Infer column dimension and skip incompatible
+                    col_dim = self._DIMENSION_MAP.get(col, Dimension.UNKNOWN)
+                    if not self._dimensions_compatible(claim_dim, col_dim):
+                        continue
+                    if self._values_match(claimed, float_val, claim_unit):
+                        return {
+                            "value": float_val,
+                            "query": query_id,
+                            "row": row_idx,
+                            "column": col,
+                        }
         return None
 
     def _extract_query_ref(self, evidence: str) -> str | None:
