@@ -3,6 +3,7 @@ Valinor Adapter - Wrapper around v0 CLI functionality for SaaS.
 Preserves all original functionality while adding SaaS capabilities.
 """
 
+import copy
 import os
 import sys
 import json
@@ -59,6 +60,7 @@ from shared.memory.segmentation_engine import get_segmentation_engine  # noqa: E
 from core.valinor.quality.currency_guard import get_currency_guard  # noqa: E402
 from core.valinor.quality.data_quality_gate import DataQualityGate  # noqa: E402
 from core.valinor.quality.provenance import ProvenanceRegistry  # noqa: E402
+from shared.llm.token_tracker import TokenTracker  # noqa: E402
 
 logger = structlog.get_logger()
 
@@ -126,6 +128,9 @@ class ValinorAdapter:
             "started_at": start_time.isoformat(),
             "stages": {}
         }
+
+        # Reset token counters so this run starts from zero
+        TokenTracker.get_instance().reset()
 
         if _METRICS_AVAILABLE:
             ACTIVE_JOBS.inc()
@@ -1023,8 +1028,11 @@ RETURN ONLY THE JSON OBJECT."""
             await self.profile_store.save(profile)
 
             # ── Fire RefinementAgent in background ───────────────────────────────
+            # Deep copy profile to avoid race condition: the background task
+            # mutates and saves profile independently from the main pipeline.
+            profile_snapshot = copy.deepcopy(profile)
             asyncio.create_task(self._run_refinement_background(
-                profile, findings, entity_map, reports, period, run_delta
+                profile_snapshot, findings, entity_map, reports, period, run_delta
             ))
 
             # Update legacy memory for backward compatibility
