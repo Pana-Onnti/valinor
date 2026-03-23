@@ -174,9 +174,9 @@ Respond with valid JSON only:
 
         try:
             async for msg in agent_query(prompt=arbiter_prompt, options=arbiter_options):
-                if isinstance(msg, AssistantMessage):
+                if hasattr(msg, "content"):
                     for block in msg.content:
-                        if isinstance(block, TextBlock):
+                        if hasattr(block, "text"):
                             arbiter_output.append(block.text)
         except Exception as e:
             arbiter_output = [f'{{"error": "{e}"}}']

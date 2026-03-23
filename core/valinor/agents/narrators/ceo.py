@@ -101,9 +101,9 @@ async def narrate_ceo(
     output = []
     try:
         async for msg in query(prompt=prompt, options=options):
-            if isinstance(msg, AssistantMessage):
+            if hasattr(msg, "content"):
                 for block in msg.content:
-                    if isinstance(block, TextBlock):
+                    if hasattr(block, "text"):
                         output.append(block.text)
     except (RuntimeError, ConnectionError, TypeError, ValueError) as exc:
         logger.warning("ceo narrator query failed", exc_info=exc)

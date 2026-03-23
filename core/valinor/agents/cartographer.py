@@ -81,6 +81,7 @@ async def _prescan_filter_candidates(client_config: dict) -> dict:
     try:
         engine = create_engine(client_config["connection_string"])
         inspector = inspect(engine)
+        dialect_name = engine.dialect.name
 
         # Detect schema: prefer 'public' (PostgreSQL) fall back to first available
         available_schemas = inspector.get_schema_names()
@@ -113,24 +114,30 @@ async def _prescan_filter_candidates(client_config: dict) -> dict:
                 continue
 
             table_hints: dict = {}
-            # Batch all discriminator probes into a single UNION ALL query
-            union_parts = []
-            for col in matches:
-                union_parts.append(
-                    f"(SELECT '{col}' AS col_name, \"{col}\"::text AS val, "
-                    f'COUNT(*) AS cnt '
-                    f'FROM "{db_schema}"."{table}" '
-                    f"GROUP BY 2 ORDER BY cnt DESC LIMIT 10)"
-                )
-            batch_sql = " UNION ALL ".join(union_parts)
+
+            def _probe_rows(conn, col, tbl, schema, dialect):
+                """Build and execute a single discriminator probe."""
+                if dialect == "sqlite":
+                    sql = (
+                        f"SELECT '{col}' AS col_name, CAST(\"{col}\" AS TEXT) AS val, "
+                        f'COUNT(*) AS cnt FROM "{tbl}" GROUP BY 2 ORDER BY cnt DESC LIMIT 10'
+                    )
+                else:
+                    sql = (
+                        f"SELECT '{col}' AS col_name, \"{col}\"::text AS val, "
+                        f'COUNT(*) AS cnt FROM "{schema}"."{tbl}" '
+                        f"GROUP BY 2 ORDER BY cnt DESC LIMIT 10"
+                    )
+                return conn.execute(sa_text(sql)).fetchall()
+
             try:
                 with engine.connect() as conn:
-                    result = conn.execute(sa_text(batch_sql))
-                    for row in result.fetchall():
-                        col_name, val, cnt = row[0], row[1], row[2]
-                        table_hints.setdefault(col_name, []).append(
-                            {"value": str(val), "count": cnt}
-                        )
+                    for col in matches:
+                        for row in _probe_rows(conn, col, table, db_schema, dialect_name):
+                            col_name, val, cnt = row[0], row[1], row[2]
+                            table_hints.setdefault(col_name, []).append(
+                                {"value": str(val), "count": cnt}
+                            )
             except (OSError, TypeError, ValueError) as exc:
                 logger.warning("cartographer prescan: failed to probe table %s", table, exc_info=exc)
 
@@ -290,9 +297,9 @@ async def run_cartographer(
 
     try:
         async for message in query(prompt=prompt, options=options):
-            if isinstance(message, AssistantMessage):
+            if hasattr(message, "content"):
                 for block in message.content:
-                    if isinstance(block, TextBlock):
+                    if hasattr(block, "text"):
                         last_text = block.text
     except Exception as e:
         print(f"\n[INFO] Agent finished with SDK exit code: {str(e)}")

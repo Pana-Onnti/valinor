@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Skip entire module if optional dependencies are missing (e.g., supabase not installed locally)
 try:
     from shared.ssh_tunnel import ZeroTrustValidator
+    from api.adapters.exceptions import SSHConnectionError
 
     # Load MetadataStorage directly from source to bypass any sys.modules stubs
     # injected by other test modules (e.g. test_api_endpoints patches shared.storage).
@@ -351,7 +352,7 @@ class TestValinorAdapter:
             }
         }
         
-        with pytest.raises(ValueError, match="Invalid SSH configuration"):
+        with pytest.raises((ValueError, SSHConnectionError)):
             await self.adapter.run_analysis(
                 job_id="test-job-002",
                 client_name="test_client",

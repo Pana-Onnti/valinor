@@ -30,42 +30,49 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # ---------------------------------------------------------------------------
 # Stub claude_agent_sdk before importing agent modules
 # ---------------------------------------------------------------------------
-if "claude_agent_sdk" not in sys.modules:
-    _sdk = types.ModuleType("claude_agent_sdk")
-    _sdk.__spec__ = None
+# Always (re)set proper stubs — other test modules may have installed
+# MagicMock-based stubs that break isinstance checks.
+_sdk = sys.modules.get("claude_agent_sdk") or types.ModuleType("claude_agent_sdk")
+_sdk.__spec__ = None
 
-    def _tool_stub(*args, **kwargs):
-        if len(args) == 1 and callable(args[0]) and not kwargs:
-            return args[0]
-        return lambda f: f
 
-    async def _query_stub(*args, **kwargs):
-        return
-        yield  # async generator
+def _tool_stub(*args, **kwargs):
+    if len(args) == 1 and callable(args[0]) and not kwargs:
+        return args[0]
+    return lambda f: f
 
-    class _ClaudeAgentOptions:
-        def __init__(self, model="sonnet", system_prompt="", max_turns=20, **kwargs):
-            self.model = model
-            self.system_prompt = system_prompt
-            self.max_turns = max_turns
-            for k, v in kwargs.items():
-                setattr(self, k, v)
 
-    class _TextBlock:
-        def __init__(self, text: str = ""):
-            self.text = text
+async def _query_stub(*args, **kwargs):
+    return
+    yield  # async generator
 
-    class _AssistantMessage:
-        def __init__(self, content=None):
-            self.content = content or []
 
-    _sdk.tool = _tool_stub
-    _sdk.query = _query_stub
-    _sdk.ClaudeAgentOptions = _ClaudeAgentOptions
-    _sdk.AssistantMessage = _AssistantMessage
-    _sdk.TextBlock = _TextBlock
-    _sdk.create_sdk_mcp_server = MagicMock(return_value=MagicMock())
-    sys.modules["claude_agent_sdk"] = _sdk
+class _ClaudeAgentOptions:
+    def __init__(self, model="sonnet", system_prompt="", max_turns=20, **kwargs):
+        self.model = model
+        self.system_prompt = system_prompt
+        self.max_turns = max_turns
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+
+class _TextBlock:
+    def __init__(self, text: str = ""):
+        self.text = text
+
+
+class _AssistantMessage:
+    def __init__(self, content=None):
+        self.content = content or []
+
+
+_sdk.tool = _tool_stub
+_sdk.query = _query_stub
+_sdk.ClaudeAgentOptions = _ClaudeAgentOptions
+_sdk.AssistantMessage = _AssistantMessage
+_sdk.TextBlock = _TextBlock
+_sdk.create_sdk_mcp_server = MagicMock(return_value=MagicMock())
+sys.modules["claude_agent_sdk"] = _sdk
 
 # Stub structlog if not present
 if "structlog" not in sys.modules:

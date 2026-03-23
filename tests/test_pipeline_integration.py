@@ -1587,7 +1587,7 @@ class TestReconcileSwarmIntegration:
             "analyst": self._make_finding("analyst", "R1", "Total Revenue ingreso", 500_000.0),
             "sentinel": self._make_finding("sentinel", "R2", "Total Revenue ingreso", 50_000.0),
         }
-        with patch("valinor.pipeline.agent_query", _mock_agent_query):
+        with patch("valinor.pipeline_reconciliation.agent_query", _mock_agent_query):
             result = self._run(
                 reconcile_swarm(findings, {"data_available": False, "_provenance": {}})
             )
