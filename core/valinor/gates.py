@@ -10,24 +10,29 @@ import re
 
 def gate_cartographer(entity_map: dict) -> bool:
     """
-    PASS if: at least 2 of {customers, invoices, products, payments} mapped
-    with confidence > 0.7
+    PASS if: at least 1 key business entity mapped with confidence > 0.6
+    AND total entities >= 2
 
-    This gate ensures the Cartographer found enough structure for
-    meaningful analysis. Without at least customers + invoices,
-    the analysis agents would produce low-quality results.
+    Relaxed from requiring 2+ specific entities — non-standard schemas
+    may use different entity names but still have enough data for analysis.
     """
-    required_any_2 = ["customers", "invoices", "products", "payments"]
+    key_entities = ["customers", "invoices", "products", "payments", "orders", "sales"]
     entities = entity_map.get("entities", {})
 
-    found = [
-        e
-        for e in required_any_2
-        if e in entities
-        and entities[e].get("confidence", 0) > 0.7
+    # Count key entities with decent confidence
+    key_found = [
+        e for e in key_entities
+        if e in entities and entities[e].get("confidence", 0) > 0.6
     ]
 
-    return len(found) >= 2
+    # Count total entities regardless of name
+    total_entities = len([
+        e for e in entities.values()
+        if isinstance(e, dict) and e.get("type") in ("TRANSACTIONAL", "MASTER")
+    ])
+
+    # Pass if at least 1 key entity + at least 2 total entities
+    return len(key_found) >= 1 and total_entities >= 2
 
 
 def gate_analysis(findings: dict) -> bool:
