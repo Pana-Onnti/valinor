@@ -248,6 +248,74 @@ async def system_metrics():
     }
 
 
+@router.get("/api/v1/system/operator-stats", tags=["System"])
+async def operator_stats():
+    """Aggregated operator dashboard stats."""
+    redis_client = await get_redis()
+
+    status_counts = {"completed": 0, "failed": 0, "running": 0, "pending": 0}
+    total_jobs = 0
+    jobs_today = 0
+    execution_times: list[float] = []
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+    async for key in redis_client.scan_iter("job:*"):
+        key_str = key if isinstance(key, str) else key.decode()
+        if ":results" in key_str:
+            continue
+        total_jobs += 1
+        job_data = await redis_client.hgetall(key_str)
+        job_status = job_data.get("status", "unknown")
+        if job_status in status_counts:
+            status_counts[job_status] += 1
+
+        # Count jobs created today
+        started = job_data.get("started_at", "")
+        if isinstance(started, bytes):
+            started = started.decode()
+        if started.startswith(today_str):
+            jobs_today += 1
+
+        # Collect execution times for completed jobs
+        if job_status == "completed":
+            elapsed = job_data.get("elapsed_seconds")
+            if elapsed is not None:
+                try:
+                    if isinstance(elapsed, bytes):
+                        elapsed = elapsed.decode()
+                    execution_times.append(float(elapsed))
+                except (ValueError, TypeError):
+                    pass
+
+    finished = status_counts["completed"] + status_counts["failed"]
+    success_rate = (status_counts["completed"] / max(finished, 1)) * 100
+    avg_exec = round(sum(execution_times) / len(execution_times), 2) if execution_times else 0.0
+    active_agents = min(status_counts["running"], 5)
+
+    # Client count
+    client_count = 0
+    try:
+        from shared.memory.profile_store import get_profile_store
+        store = get_profile_store()
+        pool = await store._get_pool()
+        if pool:
+            async with pool.acquire() as conn:
+                client_count = await conn.fetchval(
+                    "SELECT COUNT(*) FROM client_profiles"
+                )
+    except Exception:
+        pass
+
+    return {
+        "total_clients": client_count,
+        "jobs_today": jobs_today,
+        "success_rate": round(success_rate, 1),
+        "avg_execution_time_s": avg_exec,
+        "active_agents": active_agents,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
 @router.get("/metrics", tags=["System"], include_in_schema=False)
 async def prometheus_metrics():
     """Prometheus text exposition."""
