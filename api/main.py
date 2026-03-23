@@ -49,6 +49,7 @@ from api.routers.clients import router as clients_router  # noqa: E402
 from api.routers.alerts import router as alerts_router  # noqa: E402
 from api.routers.reports import router as reports_router  # noqa: E402
 from api.routers.system import router as system_router  # noqa: E402
+from api.routers.portal import router as portal_router  # noqa: E402
 from api.logging_config import setup_logging  # noqa: E402
 from api.metrics import PrometheusMiddleware, metrics_response  # noqa: E402, F401
 from api.deps import set_redis_client, set_limiter  # noqa: E402
@@ -231,6 +232,11 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(RequestIDMiddleware)
+
+# Tenant context (must run after RequestID so tenant_id is bound to same context)
+from api.tenant import TenantMiddleware  # noqa: E402
+app.add_middleware(TenantMiddleware)
+
 app.add_middleware(PrometheusMiddleware)
 
 
@@ -289,6 +295,7 @@ app.include_router(reports_router)
 app.include_router(quality_router)
 app.include_router(onboarding_router)
 app.include_router(nl_query_router)
+app.include_router(portal_router)
 
 
 # ═══ MAIN ═══
