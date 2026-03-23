@@ -6,20 +6,26 @@ detects Excel sheet names, saves to tenant-isolated storage, and registers
 upload metadata in an in-memory registry (temporary until Alembic migration).
 
 Adds a /process endpoint that converts an uploaded file to SQLite for
-downstream analysis (VAL-84).
+downstream analysis (VAL-84), and preview/schema endpoints (VAL-85).
 
-Refs: VAL-83, VAL-84
+Refs: VAL-83, VAL-84, VAL-85
 """
 
 import io
 import os
+import sqlite3
 import uuid
 from pathlib import Path
+from typing import Optional
 
+import pandas as pd
 import structlog
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 
-from api.models import ProcessResponse, TableInfo, UploadResponse
+from api.models import (
+    ColumnInfo, PreviewResponse, ProcessResponse, SchemaResponse, SchemaTable,
+    TableInfo, UploadResponse,
+)
 
 logger = structlog.get_logger()
 
@@ -222,17 +228,6 @@ async def upload_file(
 async def process_upload(upload_id: str) -> ProcessResponse:
     """
     Convert a previously uploaded CSV/Excel file to a SQLite database.
-
-    Looks up the upload by *upload_id* in the in-memory registry, calls
-    FileIngestionService to parse the file and produce a .db file via
-    StorageManager, then marks the upload as 'processed'.
-
-    Returns a ProcessResponse with the db_path and table metadata.
-
-    Raises:
-        404 if upload_id is not found.
-        400 if the upload is already processed.
-        500 if conversion fails.
     """
     meta = _uploads_registry.get(upload_id)
     if meta is None:
@@ -266,7 +261,6 @@ async def process_upload(upload_id: str) -> ProcessResponse:
             detail=f"File conversion failed: {exc}",
         )
 
-    # Update registry status and persist db path
     meta["status"] = "processed"
     meta["db_path"] = result["db_path"]
 
@@ -290,3 +284,190 @@ async def process_upload(upload_id: str) -> ProcessResponse:
             for t in result["tables"]
         ],
     )
+
+
+# ── Preview endpoint (VAL-85) ─────────────────────────────────────────────────
+
+def _read_csv_with_encoding(path: Path, nrows: int) -> pd.DataFrame:
+    """Try UTF-8 first, fall back to latin-1 on encoding errors."""
+    try:
+        return pd.read_csv(path, nrows=nrows, encoding="utf-8")
+    except UnicodeDecodeError:
+        return pd.read_csv(path, nrows=nrows, encoding="latin-1")
+
+
+def _count_csv_data_rows(path: Path) -> int:
+    """Count data rows in a CSV (header not included) without loading all data."""
+    try:
+        for enc in ("utf-8", "latin-1"):
+            try:
+                with open(path, encoding=enc) as fh:
+                    count = sum(1 for line in fh if line.strip()) - 1
+                return max(count, 0)
+            except UnicodeDecodeError:
+                continue
+        return 0
+    except OSError:
+        return 0
+
+
+def _count_excel_rows(path: Path, sheet: str | int) -> int:
+    """Count data rows in an Excel sheet using openpyxl read-only mode."""
+    try:
+        import openpyxl
+
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        if isinstance(sheet, int):
+            ws = wb.worksheets[sheet]
+        else:
+            ws = wb[sheet]
+        row_count = max((ws.max_row or 1) - 1, 0)
+        wb.close()
+        return row_count
+    except Exception as exc:
+        logger.warning("upload.excel_row_count_failed", error=str(exc))
+        return 0
+
+
+def _build_column_info(df: pd.DataFrame) -> list[ColumnInfo]:
+    """Build ColumnInfo list from a DataFrame."""
+    columns: list[ColumnInfo] = []
+    for col in df.columns:
+        series = df[col]
+        null_count = int(series.isna().sum())
+        non_null = series.dropna()
+        sample = str(non_null.iloc[0]) if len(non_null) > 0 else None
+        columns.append(
+            ColumnInfo(
+                name=str(col),
+                dtype=str(series.dtype),
+                nulls=null_count,
+                sample=sample,
+            )
+        )
+    return columns
+
+
+@router.get("/{upload_id}/preview", response_model=PreviewResponse)
+async def preview_upload(
+    upload_id: str,
+    rows: int = Query(default=20, ge=1, le=100, description="Number of rows to preview (max 100)"),
+    sheet: Optional[str] = Query(default=None, description="Sheet name (Excel only)"),
+) -> PreviewResponse:
+    """
+    Preview the first N rows of an uploaded file.
+    """
+    meta = _uploads_registry.get(upload_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Upload '{upload_id}' not found")
+
+    path = Path(meta["storage_path"])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Stored file not found on disk")
+
+    file_type = meta["file_type"]
+    filename = meta["filename"]
+    sheets_available: list[str] = meta.get("sheets", [])
+    active_sheet: Optional[str] = None
+
+    if file_type == "csv":
+        df = _read_csv_with_encoding(path, nrows=rows)
+        total_rows = _count_csv_data_rows(path)
+    else:
+        if sheet is not None:
+            if sheet not in sheets_available:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Sheet '{sheet}' not found. Available sheets: {sheets_available}",
+                )
+            active_sheet = sheet
+            sheet_arg: str | int = sheet
+        else:
+            active_sheet = sheets_available[0] if sheets_available else None
+            sheet_arg = 0
+
+        df = pd.read_excel(path, sheet_name=sheet_arg, nrows=rows)
+        total_rows = _count_excel_rows(path, sheet_arg)
+
+    column_info = _build_column_info(df)
+
+    rows_data = df.where(df.notna(), other=None).to_dict(orient="records")
+    serialized_rows = [
+        {k: (str(v) if v is not None else None) for k, v in row.items()}
+        for row in rows_data
+    ]
+
+    logger.info(
+        "upload.preview",
+        upload_id=upload_id,
+        rows_requested=rows,
+        rows_returned=len(serialized_rows),
+        sheet=active_sheet,
+    )
+
+    return PreviewResponse(
+        upload_id=upload_id,
+        filename=filename,
+        sheet=active_sheet,
+        sheets_available=sheets_available,
+        total_rows=total_rows,
+        columns=column_info,
+        rows=serialized_rows,
+    )
+
+
+# ── Schema endpoint (VAL-85) ──────────────────────────────────────────────────
+
+@router.get("/{upload_id}/schema", response_model=SchemaResponse)
+async def get_upload_schema(upload_id: str) -> SchemaResponse:
+    """
+    Get schema information from a processed upload's SQLite database.
+    """
+    meta = _uploads_registry.get(upload_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Upload '{upload_id}' not found")
+
+    status = meta.get("status", "pending")
+    if status != "processed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Upload is not yet processed (current status: '{status}'). "
+                   "Schema is only available after processing completes.",
+        )
+
+    sqlite_path = Path(meta.get("sqlite_path", ""))
+    if not sqlite_path or not sqlite_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Processed SQLite file not found. Re-process the upload.",
+        )
+
+    tables: list[SchemaTable] = []
+    try:
+        con = sqlite3.connect(str(sqlite_path))
+        cur = con.cursor()
+
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        table_names = [row[0] for row in cur.fetchall()]
+
+        for table_name in table_names:
+            cur.execute(f"PRAGMA table_info([{table_name}])")
+            pragma_rows = cur.fetchall()
+            col_info = [
+                ColumnInfo(name=row[1], dtype=row[2] or "TEXT")
+                for row in pragma_rows
+            ]
+
+            cur.execute(f"SELECT COUNT(*) FROM [{table_name}]")
+            row_count = cur.fetchone()[0]
+
+            tables.append(SchemaTable(name=table_name, row_count=row_count, columns=col_info))
+
+        con.close()
+    except sqlite3.Error as exc:
+        logger.error("upload.schema_sqlite_error", upload_id=upload_id, error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to read SQLite schema: {exc}")
+
+    logger.info("upload.schema", upload_id=upload_id, tables=[t.name for t in tables])
+
+    return SchemaResponse(upload_id=upload_id, tables=tables)

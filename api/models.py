@@ -138,3 +138,35 @@ class ProcessResponse(BaseModel):
     status: str  # "processed"
     db_path: str
     tables: List[TableInfo]
+
+
+class ColumnInfo(BaseModel):
+    """Metadata for a single column."""
+    name: str
+    dtype: str
+    nulls: int = 0
+    sample: Optional[str] = None
+
+
+class PreviewResponse(BaseModel):
+    """Response model for upload preview endpoint."""
+    upload_id: str
+    filename: str
+    sheet: Optional[str] = None
+    sheets_available: List[str] = []
+    total_rows: int
+    columns: List[ColumnInfo]
+    rows: List[Dict[str, Any]]
+
+
+class SchemaTable(BaseModel):
+    """Schema information for a single SQLite table."""
+    name: str
+    row_count: int
+    columns: List[ColumnInfo]
+
+
+class SchemaResponse(BaseModel):
+    """Response model for upload schema endpoint."""
+    upload_id: str
+    tables: List[SchemaTable]
