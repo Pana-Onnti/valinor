@@ -520,7 +520,7 @@ RETURN ONLY THE JSON OBJECT."""
             from sqlalchemy import create_engine as _create_engine
             _dq_engine = _create_engine(config["connection_string"])
             try:
-                dq_gate = DataQualityGate(_dq_engine, period_config.get("start", ""), period_config.get("end", ""), erp=config.get("erp"))
+                dq_gate = DataQualityGate(_dq_engine, period_config.get("start", ""), period_config.get("end", ""), erp=config.get("erp"), db_schema=config.get("db_schema", "public"))
                 dq_report = dq_gate.run()
             except Exception as _dq_err:
                 logger.warning("DataQualityGate failed, proceeding without DQ check", error=str(_dq_err))
@@ -1111,7 +1111,10 @@ RETURN ONLY THE JSON OBJECT."""
         Maps SaaS config to v0 config format.
         """
         safe_name = client_name or "unknown"
-        return {
+        overrides = original_config.get("overrides", {})
+        # Extract explicit schema from overrides (e.g. playground tests)
+        db_schema = overrides.get("search_path", None)
+        config = {
             "name": safe_name,
             "display_name": safe_name.replace("_", " ").title(),
             "connection_string": connection_string,  # Now using tunneled connection
@@ -1121,8 +1124,11 @@ RETURN ONLY THE JSON OBJECT."""
             "language": original_config.get("language", "es"),
             "erp": original_config.get("erp", "unknown"),
             "fiscal_context": original_config.get("fiscal_context", "generic"),
-            "overrides": original_config.get("overrides", {})
+            "overrides": overrides,
         }
+        if db_schema:
+            config["db_schema"] = db_schema
+        return config
 
     def _hash_config(self, config: Dict) -> str:
         """Generate hash of configuration for tracking (no sensitive data)."""

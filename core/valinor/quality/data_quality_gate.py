@@ -130,12 +130,14 @@ class DataQualityGate:
     }
 
     def __init__(self, engine, period_start: str, period_end: str,
-                 erp: str = None, entity_map: dict | None = None):
+                 erp: str = None, entity_map: dict | None = None,
+                 db_schema: str = "public"):
         self.engine = engine
         self.period_start = period_start
         self.period_end = period_end
         self.erp = (erp or "").lower().strip()
         self.entity_map = entity_map or {}
+        self.db_schema = db_schema or "public"
 
     # -----------------------------------------------------------------------
     # Public entry point
@@ -285,21 +287,21 @@ class DataQualityGate:
         sql = """
             SELECT COUNT(*)
             FROM information_schema.tables
-            WHERE table_schema = 'public'
+            WHERE table_schema = :schema
               AND table_name = :tname
         """
-        count = self._scalar(conn, sql, {"tname": table_name})
+        count = self._scalar(conn, sql, {"schema": self.db_schema, "tname": table_name})
         return (count or 0) > 0
 
     def _column_exists(self, conn, table_name: str, column_name: str) -> bool:
         sql = """
             SELECT COUNT(*)
             FROM information_schema.columns
-            WHERE table_schema = 'public'
+            WHERE table_schema = :schema
               AND table_name   = :tname
               AND column_name  = :cname
         """
-        count = self._scalar(conn, sql, {"tname": table_name, "cname": column_name})
+        count = self._scalar(conn, sql, {"schema": self.db_schema, "tname": table_name, "cname": column_name})
         return (count or 0) > 0
 
     # -----------------------------------------------------------------------
