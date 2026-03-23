@@ -83,6 +83,10 @@ testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = "-v --tb=short --strict-markers"
 asyncio_mode = "auto"
+markers = [
+    "mandatory: tests that must pass before any merge (pipeline core)",
+    "live: tests that call real LLM agents via proxy (slow, non-deterministic)",
+]
 
 [tool.coverage.run]
 source = ["valinor_saas", "api", "worker", "shared"]
