@@ -25,6 +25,7 @@ from valinor.pipeline import (
 from valinor.deliver import deliver_reports, build_memory
 from valinor.gates import gate_cartographer, gate_analysis, gate_sanity, gate_monetary_consistency
 from valinor.config import load_client_config, load_memory, parse_period
+from valinor.quality.data_quality_gate import DataQualityGate
 
 console = Console()
 
@@ -52,7 +53,54 @@ async def main(client: str, period: str, source: str | None = None):
         border_style="cyan",
     ))
 
-    # ═══ STAGE 0: INTAKE (if Excel/CSV) ═══
+    # ═══ STAGE 0a: DATA QUALITY GATE ═══
+    period_dates = parse_period(period)
+    conn_string = config.get("connection_string", "")
+    dq_report = None
+
+    if conn_string and not config.get("source_path"):
+        console.print("\n[bold]▸ Stage 0: Data Quality Gate...[/bold]")
+        t0 = time.time()
+        try:
+            from sqlalchemy import create_engine
+            dq_engine = create_engine(conn_string)
+            dq_gate = DataQualityGate(
+                engine=dq_engine,
+                period_start=period_dates["start_date"],
+                period_end=period_dates["end_date"],
+                erp=config.get("erp", ""),
+            )
+            dq_report = dq_gate.run()
+            dq_engine.dispose()
+            stage_time = time.time() - t0
+
+            run_log["stages"]["data_quality_gate"] = {
+                "duration_s": round(stage_time, 1),
+                "overall_score": dq_report.overall_score,
+                "gate_decision": dq_report.gate_decision,
+                "confidence_label": dq_report.confidence_label,
+                "data_quality_tag": dq_report.data_quality_tag,
+                "checks_passed": sum(1 for c in dq_report.checks if c.passed),
+                "checks_total": len(dq_report.checks),
+            }
+
+            if dq_report.gate_decision == "HALT":
+                console.print(f"[red]✗ Data Quality Gate HALTED — score {dq_report.overall_score:.0f}/100[/red]")
+                for issue in dq_report.blocking_issues[:3]:
+                    console.print(f"[red]  ↳ {issue}[/red]")
+                return
+            elif dq_report.gate_decision == "PROCEED_WITH_WARNINGS":
+                console.print(
+                    f"[yellow]⚠ DQ Gate: {dq_report.overall_score:.0f}/100 "
+                    f"({dq_report.confidence_label})[/yellow]"
+                )
+            else:
+                console.print(f"[green]✓ DQ Gate: {dq_report.overall_score:.0f}/100 ({dq_report.confidence_label})[/green]")
+        except Exception as e:
+            console.print(f"[yellow]⚠ DQ Gate skipped: {e}[/yellow]")
+            run_log["stages"]["data_quality_gate"] = {"skipped": True, "error": str(e)}
+
+    # ═══ STAGE 0b: INTAKE (if Excel/CSV) ═══
     if config.get("source_path"):
         console.print("\n[bold]▸ Stage 0: Intake...[/bold]")
         source_path = config["source_path"]
@@ -205,6 +253,13 @@ async def main(client: str, period: str, source: str | None = None):
         console.print("  [yellow]  ⚠ No baseline data — agents will estimate from schema only[/yellow]")
 
     # ═══ STAGE 3: PARALLEL AGENTS ═══
+    # Inject DQ context into baseline so all agents see data quality status
+    if dq_report:
+        baseline["dq_score"] = dq_report.overall_score
+        baseline["dq_confidence"] = dq_report.confidence_label
+        baseline["dq_tag"] = dq_report.data_quality_tag
+        baseline["dq_context"] = dq_report.to_prompt_context()
+
     console.print("\n[bold]▸ Stage 3: Analysis agents (parallel)...[/bold]")
     t0 = time.time()
     findings = await run_analysis_agents(query_results, entity_map, memory, baseline)
