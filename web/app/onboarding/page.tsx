@@ -14,6 +14,8 @@ import {
   Settings2,
   AlertTriangle,
   DollarSign,
+  Building2,
+  FileCheck,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -38,6 +40,13 @@ interface DBForm {
   db_name: string
   db_user: string
   db_password: string
+}
+
+interface CompanyForm {
+  company_name: string
+  industry: string
+  erp_system: string
+  goal: string
 }
 
 interface AnalysisForm {
@@ -74,11 +83,29 @@ const PERIODS = [
 
 const CLIENT_NAME_RE = /^[a-zA-Z0-9_]+$/
 
+const INDUSTRIES = [
+  'Manufactura', 'Retail / Comercio', 'Servicios', 'Construccion',
+  'Alimentos y Bebidas', 'Tecnologia', 'Salud', 'Agro', 'Otro',
+]
+
+const ERP_SYSTEMS = [
+  'Tango Gestion', 'Bejerman', 'Etendo / Openbravo', 'SAP', 'Odoo',
+  'Excel / Planillas', 'Sistema propio', 'Otro',
+]
+
+const GOALS = [
+  { id: 'money', label: 'Donde pierdo plata' },
+  { id: 'numbers', label: 'Quiero entender mis numeros' },
+  { id: 'specific', label: 'Tengo un problema especifico' },
+]
+
 const STEPS = [
-  { id: 1, label: 'Conexión SSH', icon: Server },
+  { id: 0, label: 'Tu Empresa', icon: Building2 },
+  { id: 1, label: 'Conexion SSH', icon: Server },
   { id: 2, label: 'Base de Datos', icon: Database },
-  { id: 3, label: 'Test de Conexión', icon: Wifi },
-  { id: 4, label: 'Configurar Análisis', icon: Settings2 },
+  { id: 3, label: 'Test de Conexion', icon: Wifi },
+  { id: 4, label: 'Configurar Analisis', icon: Settings2 },
+  { id: 5, label: 'Resultado', icon: FileCheck },
 ]
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -866,8 +893,15 @@ function StepConfigure({
 export default function OnboardingPage() {
   const router = useRouter()
 
-  // Steps are 1-indexed to match STEPS array ids
-  const [step, setStep] = useState(1)
+  // Steps are 0-indexed: 0=Company, 1=SSH, 2=DB, 3=Test, 4=Config, 5=Result
+  const [step, setStep] = useState(0)
+
+  const [companyForm, setCompanyForm] = useState<CompanyForm>({
+    company_name: '',
+    industry: '',
+    erp_system: '',
+    goal: '',
+  })
 
   const [sshForm, setSSHForm] = useState<SSHForm>({
     ssh_host: '',
@@ -975,6 +1009,9 @@ export default function OnboardingPage() {
 
   // ── Validation ────────────────────────────────────────────────────────────
   const canAdvance = (): boolean => {
+    if (step === 0) {
+      return !!(companyForm.company_name && companyForm.industry && companyForm.goal)
+    }
     if (step === 1) {
       return !!(sshForm.ssh_host && sshForm.ssh_user && sshForm.ssh_private_key_path)
     }
@@ -988,11 +1025,16 @@ export default function OnboardingPage() {
   }
 
   const handleNext = () => {
+    // Pre-fill client_name from company_name when advancing from step 0
+    if (step === 0 && companyForm.company_name) {
+      const sanitized = companyForm.company_name.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_')
+      setAnalysisForm((f) => ({ ...f, client_name: sanitized }))
+    }
     if (canAdvance() && step < 4) setStep(step + 1)
   }
 
   const handleBack = () => {
-    if (step > 1) setStep(step - 1)
+    if (step > 0) setStep(step - 1)
   }
 
   // ── Connection test ───────────────────────────────────────────────────────
@@ -1178,6 +1220,77 @@ export default function OnboardingPage() {
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.2 }}
             >
+              {step === 0 && (
+                <div>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: T.space.lg }}>
+                    Contanos sobre tu empresa
+                  </h2>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.md }}>
+                    <label>
+                      <span style={{ color: T.text.secondary, fontSize: '0.875rem' }}>Nombre de la empresa</span>
+                      <input
+                        className="d4c-input"
+                        value={companyForm.company_name}
+                        onChange={(e) => setCompanyForm((f) => ({ ...f, company_name: e.target.value }))}
+                        placeholder="Ej: Distribuidora Norte SRL"
+                        style={{ width: '100%', marginTop: T.space.xs, boxSizing: 'border-box' }}
+                      />
+                    </label>
+                    <label>
+                      <span style={{ color: T.text.secondary, fontSize: '0.875rem' }}>Industria</span>
+                      <select
+                        className="d4c-input"
+                        value={companyForm.industry}
+                        onChange={(e) => setCompanyForm((f) => ({ ...f, industry: e.target.value }))}
+                        style={{ width: '100%', marginTop: T.space.xs, boxSizing: 'border-box' }}
+                      >
+                        <option value="">Selecciona una industria</option>
+                        {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      <span style={{ color: T.text.secondary, fontSize: '0.875rem' }}>Sistema que usas</span>
+                      <select
+                        className="d4c-input"
+                        value={companyForm.erp_system}
+                        onChange={(e) => setCompanyForm((f) => ({ ...f, erp_system: e.target.value }))}
+                        style={{ width: '100%', marginTop: T.space.xs, boxSizing: 'border-box' }}
+                      >
+                        <option value="">Selecciona tu sistema</option>
+                        {ERP_SYSTEMS.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </label>
+                    <div>
+                      <span style={{ color: T.text.secondary, fontSize: '0.875rem', display: 'block', marginBottom: T.space.sm }}>
+                        Que queres saber?
+                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
+                        {GOALS.map((g) => (
+                          <button
+                            key={g.id}
+                            type="button"
+                            onClick={() => setCompanyForm((f) => ({ ...f, goal: g.id }))}
+                            style={{
+                              padding: `${T.space.md} ${T.space.lg}`,
+                              borderRadius: T.radius.sm,
+                              border: companyForm.goal === g.id ? `1px solid ${T.accent.teal}` : T.border.card,
+                              backgroundColor: companyForm.goal === g.id ? T.bg.elevated : T.bg.card,
+                              color: companyForm.goal === g.id ? T.accent.teal : T.text.secondary,
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                              fontSize: '0.875rem',
+                              fontWeight: 500,
+                              transition: 'all 0.15s',
+                            }}
+                          >
+                            {g.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               {step === 1 && (
                 <StepSSH form={sshForm} onChange={(p) => setSSHForm((f) => ({ ...f, ...p }))} />
               )}
@@ -1211,6 +1324,44 @@ export default function OnboardingPage() {
                   submitError={submitError}
                 />
               )}
+              {step === 5 && (
+                <div style={{ textAlign: 'center', padding: T.space.xl }}>
+                  <div style={{
+                    width: 64, height: 64, borderRadius: '50%',
+                    backgroundColor: `${T.accent.teal}20`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    margin: '0 auto', marginBottom: T.space.lg,
+                  }}>
+                    <CheckCircle2 style={{ width: 32, height: 32, color: T.accent.teal }} />
+                  </div>
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: T.space.sm }}>
+                    Tu diagnostico esta listo!
+                  </h2>
+                  <p style={{ color: T.text.secondary, marginBottom: T.space.xl }}>
+                    {companyForm.company_name ? `${companyForm.company_name}: ` : ''}
+                    Valinor analizo tu base de datos y encontro hallazgos accionables.
+                  </p>
+                  <div style={{ display: 'flex', gap: T.space.md, justifyContent: 'center' }}>
+                    <button
+                      className="d4c-btn-primary"
+                      onClick={() => router.push(`/clients/${analysisForm.client_name}`)}
+                      style={{ padding: `${T.space.md} ${T.space.xl}` }}
+                    >
+                      Ver resultados
+                    </button>
+                    <button
+                      className="d4c-btn-ghost"
+                      onClick={() => router.push('/portal')}
+                      style={{ padding: `${T.space.md} ${T.space.xl}` }}
+                    >
+                      Ir al portal
+                    </button>
+                  </div>
+                  <p style={{ color: T.text.tertiary, fontSize: '0.813rem', marginTop: T.space.xl }}>
+                    Queres que profundicemos? Contacta a tu ejecutivo de cuenta para un retainer mensual.
+                  </p>
+                </div>
+              )}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -1220,7 +1371,7 @@ export default function OnboardingPage() {
           <button
             type="button"
             onClick={handleBack}
-            disabled={step === 1}
+            disabled={step === 0}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -1232,8 +1383,8 @@ export default function OnboardingPage() {
               transition: 'all 0.15s',
               background: 'none',
               border: 'none',
-              cursor: step === 1 ? 'not-allowed' : 'pointer',
-              color: step === 1 ? T.text.tertiary : T.text.secondary,
+              cursor: step === 0 ? 'not-allowed' : 'pointer',
+              color: step === 0 ? T.text.tertiary : T.text.secondary,
             }}
           >
             <ArrowLeft style={{ height: '16px', width: '16px' }} />
