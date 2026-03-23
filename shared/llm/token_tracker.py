@@ -10,7 +10,7 @@ Usage:
     tracker = TokenTracker.get_instance()
     tracker.record(
         agent="analyst",
-        model="claude-3-5-sonnet-20241022",
+        model="claude-sonnet-4-6",
         input_tokens=1500,
         output_tokens=300,
         cache_read_tokens=1200,   # from usage.cache_read_input_tokens
@@ -28,6 +28,8 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 
 import structlog
+
+from .pricing import ANTHROPIC_PRICING, BATCH_DISCOUNT
 
 logger = structlog.get_logger()
 
@@ -57,39 +59,6 @@ if os.getenv("ENABLE_TOKEN_TRACKING", "true").lower() in ("true", "1", "yes"):
         logger.info("token_tracker: Prometheus metrics registered")
     except Exception as exc:
         logger.warning("token_tracker: Prometheus unavailable", error=str(exc))
-
-
-# ── Anthropic pricing (per 1M tokens, 2025) ──────────────────────────────────
-
-ANTHROPIC_PRICING: Dict[str, Dict[str, float]] = {
-    "claude-3-5-sonnet-20241022": {
-        "input": 3.00,
-        "output": 15.00,
-        "cache_write": 3.75,   # slightly more than input
-        "cache_read": 0.30,    # ~90% discount
-    },
-    "claude-3-opus-20240229": {
-        "input": 15.00,
-        "output": 75.00,
-        "cache_write": 18.75,
-        "cache_read": 1.50,
-    },
-    "claude-3-haiku-20240307": {
-        "input": 0.25,
-        "output": 1.25,
-        "cache_write": 0.30,
-        "cache_read": 0.03,
-    },
-    "default": {
-        "input": 3.00,
-        "output": 15.00,
-        "cache_write": 3.75,
-        "cache_read": 0.30,
-    },
-}
-
-
-BATCH_DISCOUNT = 0.5  # 50 % off input tokens for Batch API
 
 
 def estimate_cost(
