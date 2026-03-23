@@ -23,3 +23,11 @@ export { KPITrendChart } from './KPITrendChart'
 
 // DemoMode — multiple named exports
 export { DemoModeButton, DemoModeWrapper, DEMO_JOB_ID } from './DemoMode'
+
+// VAL-87 — Data preview, column mapping, sheet selector
+export { default as DataPreview } from './DataPreview'
+export type { DataPreviewProps } from './DataPreview'
+export { default as ColumnMapper } from './ColumnMapper'
+export type { ColumnMapperProps, EntityOption } from './ColumnMapper'
+export { default as SheetSelector } from './SheetSelector'
+export type { SheetSelectorProps } from './SheetSelector'
