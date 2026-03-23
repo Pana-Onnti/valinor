@@ -109,6 +109,15 @@ def get_tracer() -> Any:
 
 # ── High-level decorator ──────────────────────────────────────────────────────
 
+def _get_current_tenant_id() -> Optional[str]:
+    """Extract tenant_id from structlog contextvars (set by TenantMiddleware)."""
+    try:
+        ctx = structlog.contextvars.get_contextvars()
+        return ctx.get("tenant_id")
+    except Exception:
+        return None
+
+
 def observe_agent(agent_name: str):
     """
     Decorator that wraps an agent function with observability tracing.
@@ -118,6 +127,7 @@ def observe_agent(agent_name: str):
     - Wall-clock duration
     - Exception if raised
     - agent_name attribute for filtering in lmnr dashboard
+    - tenant_id from request context (VAL-21)
 
     Example:
         @observe_agent("cartographer")
@@ -146,6 +156,7 @@ def observe_agent(agent_name: str):
 
             @functools.wraps(fn)
             async def async_wrapper(*args, **kwargs):
+                tenant_id = _get_current_tenant_id()
                 start = time.perf_counter()
                 try:
                     result = await fn(*args, **kwargs)
@@ -153,6 +164,7 @@ def observe_agent(agent_name: str):
                     logger.info(
                         "agent.finished",
                         agent=agent_name,
+                        tenant_id=tenant_id,
                         duration_s=round(duration, 3),
                     )
                     return result
@@ -161,6 +173,7 @@ def observe_agent(agent_name: str):
                     logger.error(
                         "agent.error",
                         agent=agent_name,
+                        tenant_id=tenant_id,
                         duration_s=round(duration, 3),
                         error=str(exc),
                     )
@@ -168,6 +181,7 @@ def observe_agent(agent_name: str):
 
             @functools.wraps(fn)
             def sync_wrapper(*args, **kwargs):
+                tenant_id = _get_current_tenant_id()
                 start = time.perf_counter()
                 try:
                     result = fn(*args, **kwargs)
@@ -175,6 +189,7 @@ def observe_agent(agent_name: str):
                     logger.info(
                         "agent.finished",
                         agent=agent_name,
+                        tenant_id=tenant_id,
                         duration_s=round(duration, 3),
                     )
                     return result
@@ -183,6 +198,7 @@ def observe_agent(agent_name: str):
                     logger.error(
                         "agent.error",
                         agent=agent_name,
+                        tenant_id=tenant_id,
                         duration_s=round(duration, 3),
                         error=str(exc),
                     )
@@ -218,6 +234,9 @@ def record_token_usage(agent_name: str, input_tokens: int, output_tokens: int) -
             span = trace.get_current_span()
             span.set_attribute(f"{agent_name}.input_tokens", input_tokens)
             span.set_attribute(f"{agent_name}.output_tokens", output_tokens)
+            tenant_id = _get_current_tenant_id()
+            if tenant_id:
+                span.set_attribute("tenant_id", tenant_id)
         except (ImportError, RuntimeError, AttributeError) as exc:
             logger.warning("observability: failed to record token usage span", error=str(exc))
 
