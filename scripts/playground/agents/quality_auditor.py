@@ -121,9 +121,22 @@ class QualityAuditorAgent(PlaygroundAgent):
         # Run quality checks
         checks: Dict[str, bool] = {}
 
-        # 1. findings_exist
+        # 1. findings_exist — check if any agent produced non-empty output
         findings = results_data.get("findings", {})
-        checks["findings_exist"] = bool(findings) and len(findings) > 0
+        has_any_output = False
+        if isinstance(findings, dict):
+            for agent_name, agent_data in findings.items():
+                if isinstance(agent_data, dict):
+                    output = agent_data.get("output", "")
+                    if output and len(str(output)) > 10:
+                        has_any_output = True
+                        break
+                    # Also check for findings list format
+                    agent_findings = agent_data.get("findings", [])
+                    if agent_findings and len(agent_findings) > 0:
+                        has_any_output = True
+                        break
+        checks["findings_exist"] = has_any_output
 
         # 2. no_zero_revenue
         revenue_ok = True
