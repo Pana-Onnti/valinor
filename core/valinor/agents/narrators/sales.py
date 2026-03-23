@@ -74,6 +74,7 @@ async def narrate_sales(
     baseline: dict,
     query_results: dict,
     verification_report=None,
+    **kwargs,
 ) -> str:
     """Produce the sales report."""
     options = ClaudeAgentOptions(

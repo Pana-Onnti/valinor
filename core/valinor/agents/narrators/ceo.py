@@ -60,6 +60,7 @@ async def narrate_ceo(
     client_config: dict,
     baseline: dict,
     verification_report=None,
+    **kwargs,
 ) -> str:
     """Produce the CEO briefing."""
     options = ClaudeAgentOptions(
