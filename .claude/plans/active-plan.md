@@ -21,11 +21,11 @@
 - VAL-65, VAL-66, VAL-67 (bug fixes smoke tests)
 
 ### ⏳ Pendiente inmediato (post-sprint V3)
-1. `alembic upgrade head` — activar tabla `uploaded_files` con RLS
+1. ~~`alembic upgrade head`~~ ✅ — tabla `uploaded_files` creada con RLS, indexes, constraints
 2. Test manual del flujo upload en browser
-3. Migrar `_uploads_registry` in-memory dict a queries PostgreSQL
+3. ~~Migrar `_uploads_registry` in-memory dict a queries PostgreSQL~~ ✅ — upload.py usa DB
 4. Agregar Celery task para conversion async de archivos grandes
-5. Fix preexistente: `test_analysis_tools.py::test_passes_with_2_high_confidence`
+5. ~~Fix preexistente: `test_analysis_tools.py::test_passes_with_2_high_confidence`~~ ✅
 
 ### 🚫 Backlog no urgente
 - VAL-22: Fase 4 Scale — load testing, zero-downtime (due: julio 31)

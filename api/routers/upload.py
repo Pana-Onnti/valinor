@@ -3,7 +3,7 @@ Upload router — File upload with validation and storage.
 
 Accepts CSV and Excel files for analysis, validates extension/size/content,
 detects Excel sheet names, saves to tenant-isolated storage, and registers
-upload metadata in an in-memory registry (temporary until Alembic migration).
+upload metadata in PostgreSQL (uploaded_files table with RLS).
 
 Adds a /process endpoint that converts an uploaded file to SQLite for
 downstream analysis (VAL-84), and preview/schema endpoints (VAL-85).
@@ -21,6 +21,7 @@ from typing import Optional
 import pandas as pd
 import structlog
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from sqlalchemy import create_engine, text
 
 from api.models import (
     ColumnInfo, PreviewResponse, ProcessResponse, SchemaResponse, SchemaTable,
@@ -39,9 +40,51 @@ MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50")) * 1024 * 1024
 _DEFAULT_UPLOAD_DIR = "/tmp/valinor/uploads"
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", _DEFAULT_UPLOAD_DIR))
 
-# Temporary in-memory registry until Alembic migration provides a DB table.
-# Keys are upload_id (str UUID), values are metadata dicts.
-_uploads_registry: dict[str, dict] = {}
+_DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://valinor:valinor_secret@localhost:5450/valinor_metadata")
+_metadata_engine = create_engine(_DATABASE_URL, pool_pre_ping=True, pool_size=3)
+
+
+# ── Upload DB helpers ─────────────────────────────────────────────────────────
+
+def _db_insert_upload(upload_id: str, tenant_id: str, client_name: str,
+                      filename: str, stored_path: str, file_size: int,
+                      file_type: str) -> None:
+    with _metadata_engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO uploaded_files
+                (id, tenant_id, client_name, original_filename, stored_path, file_size, file_type)
+            VALUES
+                (:id, :tenant_id::uuid, :client_name, :filename, :stored_path, :file_size, :file_type)
+        """), {
+            "id": upload_id,
+            "tenant_id": tenant_id,
+            "client_name": client_name,
+            "filename": filename,
+            "stored_path": stored_path,
+            "file_size": file_size,
+            "file_type": file_type,
+        })
+
+
+def _db_get_upload(upload_id: str) -> Optional[dict]:
+    with _metadata_engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT id, tenant_id, client_name, original_filename, stored_path,
+                   file_size, file_type, status, uploaded_at, processed_at
+            FROM uploaded_files WHERE id = :id
+        """), {"id": upload_id}).mappings().first()
+        if row is None:
+            return None
+        return dict(row)
+
+
+def _db_mark_processed(upload_id: str, db_path: str) -> None:
+    with _metadata_engine.begin() as conn:
+        conn.execute(text("""
+            UPDATE uploaded_files
+            SET status = 'processed', processed_at = now()
+            WHERE id = :id
+        """), {"id": upload_id})
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -187,19 +230,17 @@ async def upload_file(
         )
         raise HTTPException(status_code=500, detail="Failed to save uploaded file")
 
-    # 8. Record metadata in in-memory registry
+    # 8. Record metadata in PostgreSQL
     file_type = _get_file_type(extension)
-    _uploads_registry[upload_id] = {
-        "upload_id": upload_id,
-        "tenant_id": tenant_id,
-        "client_name": client_name,
-        "filename": filename,
-        "size_bytes": len(content),
-        "file_type": file_type,
-        "sheets": sheets,
-        "storage_path": str(storage_path),
-        "status": "pending",
-    }
+    _db_insert_upload(
+        upload_id=upload_id,
+        tenant_id=tenant_id,
+        client_name=client_name,
+        filename=filename,
+        stored_path=str(storage_path),
+        file_size=len(content),
+        file_type=file_type,
+    )
 
     logger.info(
         "upload.received",
@@ -229,7 +270,7 @@ async def process_upload(upload_id: str) -> ProcessResponse:
     """
     Convert a previously uploaded CSV/Excel file to a SQLite database.
     """
-    meta = _uploads_registry.get(upload_id)
+    meta = _db_get_upload(upload_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"Upload '{upload_id}' not found")
 
@@ -245,10 +286,10 @@ async def process_upload(upload_id: str) -> ProcessResponse:
 
     try:
         result = service.convert_to_sqlite(
-            file_path=meta["storage_path"],
+            file_path=meta["stored_path"],
             file_type=meta["file_type"],
             client_name=meta["client_name"],
-            tenant_id=meta["tenant_id"],
+            tenant_id=str(meta["tenant_id"]),
             upload_id=upload_id,
         )
     except FileNotFoundError as exc:
@@ -261,8 +302,7 @@ async def process_upload(upload_id: str) -> ProcessResponse:
             detail=f"File conversion failed: {exc}",
         )
 
-    meta["status"] = "processed"
-    meta["db_path"] = result["db_path"]
+    _db_mark_processed(upload_id, result["db_path"])
 
     logger.info(
         "upload.process.done",
@@ -357,17 +397,18 @@ async def preview_upload(
     """
     Preview the first N rows of an uploaded file.
     """
-    meta = _uploads_registry.get(upload_id)
+    meta = _db_get_upload(upload_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"Upload '{upload_id}' not found")
 
-    path = Path(meta["storage_path"])
+    path = Path(meta["stored_path"])
     if not path.exists():
         raise HTTPException(status_code=404, detail="Stored file not found on disk")
 
     file_type = meta["file_type"]
-    filename = meta["filename"]
-    sheets_available: list[str] = meta.get("sheets", [])
+    filename = meta["original_filename"]
+    # Detect sheets on-the-fly for Excel files (not stored in DB)
+    sheets_available: list[str] = _detect_excel_sheets(path.read_bytes()) if file_type in ("xlsx", "xls") else []
     active_sheet: Optional[str] = None
 
     if file_type == "csv":
@@ -423,19 +464,21 @@ async def get_upload_schema(upload_id: str) -> SchemaResponse:
     """
     Get schema information from a processed upload's SQLite database.
     """
-    meta = _uploads_registry.get(upload_id)
+    meta = _db_get_upload(upload_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"Upload '{upload_id}' not found")
 
-    status = meta.get("status", "pending")
-    if status != "processed":
+    upload_status = meta.get("status", "pending")
+    if upload_status != "processed":
         raise HTTPException(
             status_code=400,
-            detail=f"Upload is not yet processed (current status: '{status}'). "
+            detail=f"Upload is not yet processed (current status: '{upload_status}'). "
                    "Schema is only available after processing completes.",
         )
 
-    sqlite_path = Path(meta.get("sqlite_path", ""))
+    # Derive SQLite path from storage convention: {tenant}/{client}/processed/{id}.db
+    stored = Path(meta["stored_path"])
+    sqlite_path = stored.parent / "processed" / f"{upload_id}.db"
     if not sqlite_path or not sqlite_path.exists():
         raise HTTPException(
             status_code=404,
