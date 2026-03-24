@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { Menu, X } from 'lucide-react';
 import { T } from '@/components/d4c/tokens';
 
 interface NavItem {
@@ -22,12 +23,39 @@ const NAV_ITEMS: NavItem[] = [
 const SIDEBAR_WIDTH_COLLAPSED = 56;
 const SIDEBAR_WIDTH_EXPANDED = 200;
 const TRANSITION = 'width 200ms cubic-bezier(0.4, 0, 0.2, 1)';
+const MOBILE_BREAKPOINT = 1024;
 
 export default function Sidebar() {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Track viewport width
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  // Close mobile sidebar on route change
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  // Prevent body scroll when mobile sidebar is open
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [mobileOpen]);
 
   const toggle = useCallback(() => setExpanded((v) => !v), []);
+  const toggleMobile = useCallback(() => setMobileOpen((v) => !v), []);
 
   const isActive = (href: string) =>
     pathname === href || (href !== '/' && pathname.startsWith(href));
@@ -37,20 +65,24 @@ export default function Sidebar() {
   // Hide sidebar on public demo pages
   if (pathname.startsWith('/demo')) return null;
 
-  return (
+  const sidebarContent = (
     <aside
+      className="d4c-sidebar"
       style={{
         display: 'flex',
         flexDirection: 'column',
         backgroundColor: T.bg.card,
-        borderRight: T.border.card,
+        borderRight: isMobile ? 'none' : T.border.card,
         height: '100vh',
-        position: 'sticky',
+        position: isMobile ? 'fixed' : 'sticky',
         top: 0,
-        width,
+        left: 0,
+        width: isMobile ? SIDEBAR_WIDTH_EXPANDED : width,
         flexShrink: 0,
-        transition: TRANSITION,
+        transition: isMobile ? 'transform 250ms cubic-bezier(0.4, 0, 0.2, 1)' : TRANSITION,
         overflow: 'hidden',
+        zIndex: isMobile ? 1001 : 'auto',
+        transform: isMobile ? (mobileOpen ? 'translateX(0)' : `translateX(-100%)`) : 'none',
       }}
     >
       {/* Brand + toggle */}
@@ -64,8 +96,8 @@ export default function Sidebar() {
           cursor: 'pointer',
           minHeight: 56,
         }}
-        onClick={toggle}
-        title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
+        onClick={isMobile ? toggleMobile : toggle}
+        title={isMobile ? 'Close menu' : (expanded ? 'Collapse sidebar' : 'Expand sidebar')}
       >
         <span
           style={{
@@ -81,7 +113,7 @@ export default function Sidebar() {
         >
           D4
         </span>
-        {expanded && (
+        {(expanded || isMobile) && (
           <span
             style={{
               fontFamily: T.font.display,
@@ -90,10 +122,14 @@ export default function Sidebar() {
               color: T.text.secondary,
               whiteSpace: 'nowrap',
               overflow: 'hidden',
+              flex: 1,
             }}
           >
             Valinor
           </span>
+        )}
+        {isMobile && (
+          <X size={20} style={{ color: T.text.secondary, flexShrink: 0 }} />
         )}
       </div>
 
@@ -110,6 +146,7 @@ export default function Sidebar() {
       >
         {NAV_ITEMS.map(({ href, label, icon }) => {
           const active = isActive(href);
+          const showLabel = expanded || isMobile;
           return (
             <Link
               key={href}
@@ -117,8 +154,9 @@ export default function Sidebar() {
               title={label}
               className={`d4c-nav-link${active ? ' active' : ''}`}
               style={{
-                justifyContent: expanded ? 'flex-start' : 'center',
-                padding: expanded ? '8px 12px' : '8px 0',
+                justifyContent: showLabel ? 'flex-start' : 'center',
+                padding: showLabel ? '8px 12px' : '8px 0',
+                minHeight: 44,
               }}
             >
               <span
@@ -132,7 +170,7 @@ export default function Sidebar() {
               >
                 {icon}
               </span>
-              {expanded && (
+              {showLabel && (
                 <span
                   style={{
                     fontSize: 13,
@@ -171,5 +209,53 @@ export default function Sidebar() {
         </p>
       </div>
     </aside>
+  );
+
+  return (
+    <>
+      {/* Mobile hamburger button */}
+      {isMobile && !mobileOpen && (
+        <button
+          onClick={toggleMobile}
+          aria-label="Open menu"
+          className="d4c-hamburger"
+          style={{
+            position: 'fixed',
+            top: 12,
+            left: 12,
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 44,
+            height: 44,
+            borderRadius: 8,
+            border: `1px solid ${T.border.card.split(' ').pop()}`,
+            backgroundColor: T.bg.card,
+            color: T.text.secondary,
+            cursor: 'pointer',
+            padding: 0,
+          }}
+        >
+          <Menu size={20} />
+        </button>
+      )}
+
+      {/* Overlay backdrop */}
+      {isMobile && mobileOpen && (
+        <div
+          className="d4c-sidebar-overlay"
+          onClick={toggleMobile}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            zIndex: 1000,
+          }}
+        />
+      )}
+
+      {sidebarContent}
+    </>
   );
 }
