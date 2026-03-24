@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { Inter, JetBrains_Mono } from 'next/font/google'
+import { Sora, DM_Mono } from 'next/font/google'
 import { Suspense } from 'react'
 import './globals.css'
 import { Providers } from './providers'
@@ -8,8 +8,8 @@ import ErrorBoundary from '@/components/ErrorBoundary'
 import Sidebar from '@/components/Sidebar'
 import { T } from '@/components/d4c/tokens'
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
-const mono  = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', weight: ['400', '600'] })
+const sora = Sora({ subsets: ['latin'], variable: '--font-sora', weight: ['300', '400', '600', '700'] })
+const mono = DM_Mono({ subsets: ['latin'], variable: '--font-mono', weight: ['300', '400', '500'] })
 
 export const metadata: Metadata = {
   title: 'Valinor — Delta 4C',
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" className={`${inter.variable} ${mono.variable}`} style={{ height: '100%' }}>
+    <html lang="es" className={`${sora.variable} ${mono.variable}`} style={{ height: '100%' }}>
       <body
         style={{
           fontFamily: T.font.display,
