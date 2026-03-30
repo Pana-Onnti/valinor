@@ -106,6 +106,10 @@ class AnalysisResults(BaseModel):
     stages: Dict[str, Any]
     findings: Optional[Dict[str, Any]] = None
     reports: Optional[Dict[str, Any]] = None
+    confidence_metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Trust score breakdown and per-finding confidence (VAL-97)",
+    )
     download_urls: Optional[Dict[str, str]] = None
 
 
