@@ -6,6 +6,7 @@ Extracted from main.py for better modularity.
 
 import json
 import asyncio
+import time as _time
 from typing import Dict, Any
 from datetime import datetime
 
@@ -13,15 +14,41 @@ import structlog
 
 from api.deps import get_redis
 from adapters.valinor_adapter import ValinorAdapter
+from shared.events.pipeline_events import (
+    PipelineEvent,
+    publish_pipeline_event,
+)
 
 logger = structlog.get_logger()
 
+# Track per-agent start times for duration calculation
+_agent_start_times: Dict[str, Dict[str, float]] = {}  # job_id -> {stage: start_ts}
+
+
+def _normalize_stage(stage: str) -> str:
+    """Map adapter stage names to canonical pipeline stage names."""
+    mapping = {
+        "validating": "data_quality_gate",
+        "connecting": "data_quality_gate",
+        "data_quality": "data_quality_gate",
+        "cartographer": "cartographer",
+        "query_builder": "query_builder",
+        "query_execution": "execute_queries",
+        "analysis_agents": "analyst",
+        "narrators": "narrators",
+        "delivery": "delivery",
+        "completed": "delivery",
+        "failed": "delivery",
+    }
+    return mapping.get(stage, stage)
+
 
 async def progress_callback(job_id: str, stage: str, progress: int, message: str):
-    """Progress callback for analysis jobs."""
+    """Progress callback for analysis jobs — emits PipelineEvents via pub/sub."""
     try:
         redis_client = await get_redis()
 
+        # Update legacy hash fields (backward compat)
         await redis_client.hset(f"job:{job_id}", mapping={
             "status": "running",
             "stage": stage,
@@ -29,6 +56,38 @@ async def progress_callback(job_id: str, stage: str, progress: int, message: str
             "message": message,
             "updated_at": datetime.utcnow().isoformat()
         })
+
+        # Emit pipeline event via pub/sub
+        canonical = _normalize_stage(stage)
+        now = _time.monotonic()
+
+        # Determine event status from progress pattern
+        if job_id not in _agent_start_times:
+            _agent_start_times[job_id] = {}
+
+        agent_times = _agent_start_times[job_id]
+
+        if canonical not in agent_times:
+            # First time we see this stage — emit started
+            agent_times[canonical] = now
+            event = PipelineEvent(
+                job_id=job_id,
+                agent=canonical,
+                status="started",
+                message=message,
+                progress=progress,
+            )
+            await publish_pipeline_event(redis_client, job_id, event)
+        else:
+            # Stage already started — update with latest message
+            event = PipelineEvent(
+                job_id=job_id,
+                agent=canonical,
+                status="started",
+                message=message,
+                progress=progress,
+            )
+            await publish_pipeline_event(redis_client, job_id, event)
 
         logger.info(
             "Analysis progress",
@@ -46,9 +105,45 @@ async def progress_callback(job_id: str, stage: str, progress: int, message: str
         )
 
 
+async def _emit_stage_completion(job_id: str, redis_client, stage: str, metadata: Dict[str, Any] | None = None):
+    """Emit a completed event for a stage, calculating duration from start time."""
+    canonical = _normalize_stage(stage)
+    agent_times = _agent_start_times.get(job_id, {})
+    start = agent_times.get(canonical)
+    duration = round(_time.monotonic() - start, 2) if start else None
+
+    event = PipelineEvent(
+        job_id=job_id,
+        agent=canonical,
+        status="completed",
+        message=f"{canonical} completed",
+        duration_seconds=duration,
+        metadata=metadata,
+    )
+    await publish_pipeline_event(redis_client, job_id, event)
+
+
+async def _emit_error_event(job_id: str, redis_client, stage: str, error_msg: str):
+    """Emit an error event for a stage."""
+    canonical = _normalize_stage(stage)
+    agent_times = _agent_start_times.get(job_id, {})
+    start = agent_times.get(canonical)
+    duration = round(_time.monotonic() - start, 2) if start else None
+
+    event = PipelineEvent(
+        job_id=job_id,
+        agent=canonical,
+        status="error",
+        message=error_msg[:500],
+        duration_seconds=duration,
+    )
+    await publish_pipeline_event(redis_client, job_id, event)
+
+
 async def run_analysis_task(job_id: str, request_data: Dict[str, Any]):
     """Background task to run Valinor analysis."""
     redis_client = None
+    _last_stage: list[str] = [""]  # mutable for closure
 
     try:
         redis_client = await get_redis()
@@ -59,10 +154,22 @@ async def run_analysis_task(job_id: str, request_data: Dict[str, Any]):
             "started_at": datetime.utcnow().isoformat()
         })
 
+        # Wrapper that detects stage transitions and emits completed events
+        async def _tracking_callback(stage: str, progress: int, message: str):
+            canonical = _normalize_stage(stage)
+            prev = _normalize_stage(_last_stage[0]) if _last_stage[0] else ""
+
+            # Detect stage transition: emit completed for previous stage
+            if prev and prev != canonical and redis_client:
+                await _emit_stage_completion(job_id, redis_client, _last_stage[0])
+
+            _last_stage[0] = stage
+            await progress_callback(job_id, stage, progress, message)
+
         # Create adapter with progress callback
         adapter = ValinorAdapter(
             progress_callback=lambda stage, progress, message:
-                progress_callback(job_id, stage, progress, message)
+                _tracking_callback(stage, progress, message)
         )
 
         # Prepare connection config

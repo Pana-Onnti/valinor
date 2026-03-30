@@ -29,6 +29,13 @@ for _p in (str(ROOT / "core"), str(ROOT / "shared"), str(ROOT)):
         sys.path.insert(0, _p)
 
 
+# ── Pre-import shared package ────────────────────────────────────────────────
+# Individual test files use _stub_missing("shared.storage") etc. which creates
+# a stub `shared` module WITHOUT __path__. This breaks `import shared.events`.
+# By importing the *real* shared package here first, it gets cached in
+# sys.modules with __path__ intact, so subsequent sub-module stubs work fine.
+import shared  # noqa: F401, E402
+
 # ── claude_agent_sdk stub ─────────────────────────────────────────────────────
 # Many core modules import from claude_agent_sdk at module level.
 # In test environments the real SDK is not installed, so we stub it.

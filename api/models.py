@@ -81,6 +81,17 @@ class AnalysisRequest(BaseModel):
         return v
 
 
+class AgentStatus(BaseModel):
+    """Per-agent status within a running pipeline."""
+    agent: str
+    status: str  # started, completed, error
+    message: str = ""
+    timestamp: Optional[str] = None
+    duration_seconds: Optional[float] = None
+    metadata: Optional[Dict[str, Any]] = None
+    progress: Optional[int] = None
+
+
 class JobStatus(BaseModel):
     """Job status response."""
     job_id: str
@@ -92,6 +103,8 @@ class JobStatus(BaseModel):
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
     error_detail: Optional[Dict[str, Any]] = None  # structured detail for DQ HALT and similar
+    agents: Optional[List[AgentStatus]] = None  # per-agent progress detail
+    estimated_remaining_seconds: Optional[float] = None
 
 
 class AnalysisResults(BaseModel):
