@@ -113,6 +113,9 @@ class _BoundedAdapterCache:
         while len(self._store) > self._maxsize:
             self._store.popitem(last=False)
 
+    def clear(self) -> None:
+        self._store.clear()
+
 
 _adapter_cache = _BoundedAdapterCache()
 
