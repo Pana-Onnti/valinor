@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { parseReport, type ParsedReport } from '@/lib/reportParser'
-import { KOReportV2 } from './KOReportV2'
+import { KOReportReveal } from '@/components/reveal/KOReportReveal'
 import { T } from '@/components/d4c/tokens'
 import type { AnalysisConfidenceMetadata } from '@/lib/confidence-types'
 
@@ -108,5 +108,5 @@ export function KOReportLoader({ jobId, onNewAnalysis }: KOReportLoaderProps) {
     )
   }
 
-  return <KOReportV2 report={report} dqScore={dqScore} confidenceMetadata={confidenceMetadata} />
+  return <KOReportReveal report={report} dqScore={dqScore} confidenceMetadata={confidenceMetadata} />
 }
