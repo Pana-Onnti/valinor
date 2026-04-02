@@ -7,6 +7,7 @@ import {
 import { type ParsedReport } from '@/lib/reportParser'
 import { T, SEV_COLOR, SEV_LABEL, CHART_THEME } from '@/components/d4c/tokens'
 import { ConfidenceBadge, MicroBadge } from '@/components/ui/ConfidenceBadge'
+import { TrustScoreHeader } from '@/components/findings/TrustScoreHeader'
 import type { AnalysisConfidenceMetadata } from '@/lib/confidence-types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -342,6 +343,11 @@ export function KOReportV2({ report, dqScore, companyName, confidenceMetadata }:
           </button>
         </div>
       </header>
+
+      {/* ── Trust Score ── */}
+      {confidenceMetadata?.trust_score && (
+        <TrustScoreHeader trustScore={confidenceMetadata.trust_score} />
+      )}
 
       {/* ── Body ── */}
       <main style={{ maxWidth: 960, margin: '0 auto', padding: `${T.space.xxl} ${T.space.xl}` }}>

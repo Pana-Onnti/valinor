@@ -14,13 +14,17 @@ export interface FindingConfidence {
   dq_score: number        // 0.0–10.0
   verification_method: string
   sql_query: string
+  degradation_applied?: boolean
+  degradation_reason?: string | null
 }
 
 export interface TrustScoreBreakdown {
-  overall: number          // 0–100
-  completeness: number
-  accuracy: number
-  consistency: number
+  overall: number                    // 0-100
+  dq_component: number               // 0-30
+  verification_component: number     // 0-25
+  null_density_component: number     // 0-15
+  schema_coverage_component: number  // 0-15
+  reconciliation_component: number   // 0-15
 }
 
 export interface AnalysisConfidenceMetadata {
