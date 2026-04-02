@@ -53,7 +53,17 @@ async def execute_queries(query_pack: dict, client_config: dict, query_timeout_m
         "snapshot_timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
+    # Apply search_path from config overrides (e.g. playground tests)
+    db_schema = client_config.get("db_schema")
+
     def _run_queries(conn: Any) -> None:
+        # Set schema search path if configured
+        if db_schema:
+            try:
+                conn.execute(text(f"SET search_path TO {db_schema}, public"))
+            except Exception:
+                pass  # Non-PostgreSQL databases ignore this
+
         for query_item in query_pack.get("queries", []):
             query_id = query_item["id"]
             sql = query_item["sql"]

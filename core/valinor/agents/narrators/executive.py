@@ -90,6 +90,7 @@ async def narrate_executive(
     client_config: dict,
     baseline: dict,
     verification_report=None,
+    **kwargs,
 ) -> str:
     """Produce the executive summary synthesizing all agents."""
     # Build enhanced system prompt with DQ context, factor model, and Output KO methodology

@@ -26,12 +26,26 @@ pytest tests/ -v
 - Al final del sprint: un PR `develop → master` con todo integrado.
 - NUNCA hacer PR de feature branch directo a master.
 
+## Testing
+```bash
+# Test producción (Gloria PG real, agentes + narrators reales, ~6 min)
+pytest tests/test_pipeline_production.py -v -s
+
+# Test por período (SQLite, 3 períodos, ~5 min)
+pytest tests/test_pipeline_periods.py -v -s
+
+# Suite completa (~3000 tests)
+pytest tests/ -v --tb=short
+```
+Ver `docs/TESTING.md` para guía completa. Skill: "correr test real" → `production-test`.
+
 ## Contexto on-demand
 | Qué | Dónde |
 |-----|-------|
 | Arquitectura técnica | `docs/ARCHITECTURE.md` |
 | Guía de dev, puertos, known issues | `docs/DEVELOPER_GUIDE.md` |
 | Domain model (Valar, pipeline, DQ) | `docs/DOMAIN_MODEL.md` |
+| Testing & production tests | `docs/TESTING.md` |
 | Issues activos | Linear MCP: list_issues |
 | Session log, decisiones | Linear Docs: "Session Log — Dev", "Decision Log" |
 
@@ -42,4 +56,4 @@ pytest tests/ -v
 `.claude/commands/` — start-session, end-session, status, plan-task, implement-feature, fix-bug, run-tests, review-code
 
 ## Skills
-`.claude/skills/d4c-linear-workflow/` · `.claude/skills/d4c-brand-skill/`
+`.claude/skills/d4c-linear-workflow/` · `.claude/skills/d4c-brand-skill/` · `.claude/skills/production-test/`

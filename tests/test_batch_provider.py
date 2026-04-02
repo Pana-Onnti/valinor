@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_mock_message(*, custom_id="req-1", text="batch result", model="claude-3-5-sonnet-20241022"):
+def _make_mock_message(*, custom_id="req-1", text="batch result", model="claude-sonnet-4-6"):
     """Create a mock Anthropic Message for batch results."""
     msg = MagicMock()
     msg.content = [MagicMock(text=text)]
@@ -237,7 +237,7 @@ class TestBatchFallback:
         # Mock the interactive query
         mock_response = LLMResponse(
             content="interactive result",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             usage={"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
         )
         provider._provider.query = AsyncMock(return_value=mock_response)
@@ -278,12 +278,12 @@ class TestBatchCostCalculation:
         from shared.llm.token_tracker import estimate_cost
 
         regular = estimate_cost(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=1_000_000,
             output_tokens=0,
         )
         batch = estimate_cost(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=1_000_000,
             output_tokens=0,
             is_batch=True,
@@ -295,12 +295,12 @@ class TestBatchCostCalculation:
         from shared.llm.token_tracker import estimate_cost
 
         regular = estimate_cost(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=0,
             output_tokens=1_000_000,
         )
         batch = estimate_cost(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=0,
             output_tokens=1_000_000,
             is_batch=True,
@@ -312,12 +312,12 @@ class TestBatchCostCalculation:
         from shared.llm.token_tracker import estimate_cost
 
         regular = estimate_cost(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=500_000,
             output_tokens=200_000,
         )
         batch = estimate_cost(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=500_000,
             output_tokens=200_000,
             is_batch=True,
@@ -338,7 +338,7 @@ class TestBatchTokenTracker:
         tracker = TokenTracker.get_instance()
         cost = tracker.record(
             agent="batch_agent",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=1_000_000,
             output_tokens=0,
             is_batch=True,
@@ -352,7 +352,7 @@ class TestBatchTokenTracker:
         tracker = TokenTracker.get_instance()
         cost = tracker.record(
             agent="interactive_agent",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             input_tokens=1_000_000,
             output_tokens=0,
             is_batch=False,

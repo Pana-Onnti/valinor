@@ -1,10 +1,14 @@
 name: Docker Build
 
-on:  # VAL-51: build on master + develop
+on:
   push:
     branches:
       - master
       - develop
+
+permissions:
+  packages: write
+  contents: read
 
 jobs:
   build:
@@ -17,18 +21,49 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build API image
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine image tags
+        id: tags
+        run: |
+          SHA="${{ github.sha }}"
+          API_TAGS="ghcr.io/pana-onnti/valinor-api:${SHA}"
+          WORKER_TAGS="ghcr.io/pana-onnti/valinor-worker:${SHA}"
+
+          if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            API_TAGS="${API_TAGS},ghcr.io/pana-onnti/valinor-api:develop-latest"
+            WORKER_TAGS="${WORKER_TAGS},ghcr.io/pana-onnti/valinor-worker:develop-latest"
+          fi
+
+          if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            API_TAGS="${API_TAGS},ghcr.io/pana-onnti/valinor-api:latest"
+            WORKER_TAGS="${WORKER_TAGS},ghcr.io/pana-onnti/valinor-worker:latest"
+          fi
+
+          echo "api_tags=${API_TAGS}" >> "$GITHUB_OUTPUT"
+          echo "worker_tags=${WORKER_TAGS}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push API image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile.api
-          push: false
-          tags: valinor-api:test
+          push: true
+          tags: ${{ steps.tags.outputs.api_tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Build Worker image
+      - name: Build and push Worker image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile.worker
-          push: false
-          tags: valinor-worker:test
+          push: true
+          tags: ${{ steps.tags.outputs.worker_tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -95,9 +95,11 @@ async def _prescan_filter_candidates(client_config: dict) -> dict:
         inspector = inspect(engine)
         dialect_name = engine.dialect.name
 
-        # Detect schema: prefer 'public' (PostgreSQL) fall back to first available
+        # Use explicit schema from config (e.g. playground tests), else detect
         available_schemas = inspector.get_schema_names()
-        db_schema = "public" if "public" in available_schemas else available_schemas[0]
+        db_schema = client_config.get("db_schema")
+        if not db_schema or db_schema not in available_schemas:
+            db_schema = "public" if "public" in available_schemas else available_schemas[0]
 
         all_tables = inspector.get_table_names(schema=db_schema)
 
@@ -272,6 +274,11 @@ async def run_cartographer(
     - Client name for artifacts: {client_config['name']}
     - Period for artifacts: discovery
     """
+
+    # If a specific schema is configured, instruct the LLM to use it
+    db_schema = client_config.get("db_schema")
+    if db_schema:
+        prompt += f"\n\n    IMPORTANT: Use schema=\"{db_schema}\" for ALL tool calls (introspect_schema, sample_table, probe_column_values). Do NOT use \"public\".\n"
 
     overrides = client_config.get("overrides", {})
     if overrides:

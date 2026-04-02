@@ -75,13 +75,6 @@ class LLMConfig:
                 "cli_path": os.getenv("CLAUDE_CLI_PATH", "claude"),
                 "timeout": int(os.getenv("CLAUDE_CLI_TIMEOUT", "300")),
             },
-            console_config={
-                "username": os.getenv("CLAUDE_USERNAME"),
-                "password": os.getenv("CLAUDE_PASSWORD"),  # Should use secure storage
-                "session_file": os.getenv("CLAUDE_SESSION_FILE", "/tmp/.claude_session"),
-                "headless": os.getenv("CLAUDE_HEADLESS", "true").lower() == "true",
-                "proxy": os.getenv("CLAUDE_PROXY")
-            },
             enable_fallback=os.getenv("LLM_ENABLE_FALLBACK", "true").lower() == "true",
             fallback_provider=ProviderType(os.getenv("LLM_FALLBACK_PROVIDER", ProviderType.ANTHROPIC_API.value)) if os.getenv("LLM_FALLBACK_PROVIDER") else None,
             enable_caching=os.getenv("LLM_ENABLE_CACHING", "true").lower() == "true",
@@ -107,7 +100,7 @@ class LLMConfig:
             provider_type=ProviderType(data.get("provider", ProviderType.ANTHROPIC_API.value)),
             feature_flag_source=FeatureFlagSource(data.get("feature_flag_source", FeatureFlagSource.FILE.value)),
             anthropic_config=data.get("anthropic", {}),
-            console_config=data.get("console", {}),
+            cli_config=data.get("console", {}),
             enable_fallback=data.get("enable_fallback", True),
             fallback_provider=ProviderType(data["fallback_provider"]) if data.get("fallback_provider") else None,
             enable_caching=data.get("enable_caching", True),
@@ -169,7 +162,7 @@ class LLMConfig:
             "provider": self.provider_type.value,
             "feature_flag_source": self.feature_flag_source.value,
             "anthropic": self.anthropic_config,
-            "console": self.console_config,
+            "console": self.cli_config,
             "enable_fallback": self.enable_fallback,
             "fallback_provider": self.fallback_provider.value if self.fallback_provider else None,
             "enable_caching": self.enable_caching,

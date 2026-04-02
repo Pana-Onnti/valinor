@@ -251,6 +251,52 @@ function StatsBar() {
   )
 }
 
+// ── Copy Link Button ────────────────────────────────────────────────────────
+
+function CopyLinkButton() {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Fallback for older browsers
+      const input = document.createElement('input')
+      input.value = window.location.href
+      document.body.appendChild(input)
+      input.select()
+      document.execCommand('copy')
+      document.body.removeChild(input)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: T.space.xs,
+        padding: `${T.space.sm} ${T.space.md}`,
+        backgroundColor: 'transparent',
+        color: T.text.secondary,
+        fontSize: 13,
+        fontFamily: T.font.mono,
+        border: `1px solid ${T.text.tertiary}40`,
+        borderRadius: T.radius.sm,
+        cursor: 'pointer',
+        transition: 'all 150ms',
+      }}
+    >
+      {copied ? '\u2713 Link copiado' : '\u{1F517} Copiar link'}
+    </button>
+  )
+}
+
 // ── CTA Section ─────────────────────────────────────────────────────────────
 
 function CTASection() {
@@ -293,33 +339,35 @@ function CTASection() {
         En 15 minutos conectamos tus datos y generamos un analisis ejecutivo completo.
         Sin instalar nada. Sin compromisos.
       </p>
-      <a
-        href="https://wa.me/5491155887741?text=Hola%2C%20vi%20el%20demo%20de%20Delta%204C%20y%20quiero%20saber%20m%C3%A1s"
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{
-          display: 'inline-block',
-          marginTop: T.space.lg,
-          padding: `${T.space.md} ${T.space.xl}`,
-          backgroundColor: T.accent.teal,
-          color: T.text.inverse,
-          fontSize: 16,
-          fontWeight: 700,
-          borderRadius: T.radius.md,
-          textDecoration: 'none',
-          transition: 'transform 150ms, box-shadow 150ms',
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.transform = 'translateY(-2px)'
-          e.currentTarget.style.boxShadow = `0 8px 24px ${T.accent.teal}40`
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = 'translateY(0)'
-          e.currentTarget.style.boxShadow = 'none'
-        }}
-      >
-        Contactar por WhatsApp
-      </a>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: T.space.md, marginTop: T.space.lg }}>
+        <a
+          href="https://wa.me/5491155887741?text=Hola%2C%20vi%20el%20demo%20de%20Delta%204C%20y%20quiero%20saber%20m%C3%A1s"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'inline-block',
+            padding: `${T.space.md} ${T.space.xl}`,
+            backgroundColor: T.accent.teal,
+            color: T.text.inverse,
+            fontSize: 16,
+            fontWeight: 700,
+            borderRadius: T.radius.md,
+            textDecoration: 'none',
+            transition: 'transform 150ms, box-shadow 150ms',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-2px)'
+            e.currentTarget.style.boxShadow = `0 8px 24px ${T.accent.teal}40`
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)'
+            e.currentTarget.style.boxShadow = 'none'
+          }}
+        >
+          Contactar por WhatsApp
+        </a>
+        <CopyLinkButton />
+      </div>
       <p style={{ margin: `${T.space.md} 0 0`, fontSize: 12, color: T.text.tertiary }}>
         O escribinos a{' '}
         <a href="mailto:lorenzo@delta4c.com" style={{ color: T.accent.teal, textDecoration: 'none' }}>
@@ -387,7 +435,7 @@ export default function DemoPage() {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
                 gap: T.space.md,
               }}
             >

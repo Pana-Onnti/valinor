@@ -4,24 +4,35 @@ Handles background processing of analysis jobs.
 """
 
 import os
-import sys
 import json
 import asyncio
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime, timedelta
 
 import structlog
 import redis
 
-# Add shared modules to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from api.adapters.valinor_adapter import ValinorAdapter, PipelineExecutor
+from api.adapters.valinor_adapter import ValinorAdapter
 from shared.storage import MetadataStorage
 from worker.celery_app import celery_app
 
 logger = structlog.get_logger()
+
+_SENSITIVE_KEYS = frozenset({"password", "ssh_key", "ssh_private_key_path"})
+
+
+def _redact_config(data: Any) -> Any:
+    """Return a deep copy of *data* with sensitive fields replaced by '***REDACTED***'."""
+    if isinstance(data, dict):
+        return {
+            k: ("***REDACTED***" if k in _SENSITIVE_KEYS else _redact_config(v))
+            for k, v in data.items()
+        }
+    if isinstance(data, list):
+        return [_redact_config(item) for item in data]
+    return data
+
 
 def _fire_webhooks_sync(job_id: str, client_name: str, status: str, results: dict):
     """Fire registered webhooks for a client synchronously (called from Celery task)."""
@@ -38,7 +49,6 @@ def _fire_webhooks_sync(job_id: str, client_name: str, status: str, results: dic
 
 async def _fire_webhooks_async(job_id: str, client_name: str, status: str, results: dict):
     """Load client profile and fire all registered webhooks."""
-    sys.path.insert(0, str(Path(__file__).parent.parent))
     from shared.memory.profile_store import get_profile_store
     from api.webhooks import fire_job_completion_webhook, build_job_summary
 
@@ -102,164 +112,7 @@ class ProgressUpdater:
                 error=str(e)
             )
 
-@celery_app.task(bind=True, name='worker.tasks.run_analysis')
-def run_analysis(self, job_id: str, request_data: Dict[str, Any]):
-    """
-    Celery task to run Valinor analysis.
-    
-    Args:
-        job_id: Unique job identifier
-        request_data: Analysis request data including connection config
-    """
-    logger.info(
-        "Starting analysis task",
-        job_id=job_id,
-        client=request_data.get("client_name"),
-        task_id=self.request.id
-    )
-    
-    redis_client = get_redis_client()
-    
-    try:
-        # Update task status
-        redis_client.hset(f"job:{job_id}", mapping={
-            "status": "running",
-            "started_at": datetime.utcnow().isoformat(),
-            "task_id": self.request.id
-        })
-        
-        # Run analysis using asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            results = loop.run_until_complete(
-                _run_analysis_async(job_id, request_data)
-            )
-        finally:
-            loop.close()
-        
-        # Store results in Redis
-        redis_client.set(
-            f"job:{job_id}:results",
-            json.dumps(results, default=str),
-            ex=86400  # 24 hours
-        )
-        
-        # Update final status
-        redis_client.hset(f"job:{job_id}", mapping={
-            "status": "completed",
-            "completed_at": datetime.utcnow().isoformat(),
-            "message": "Analysis completed successfully"
-        })
-        
-        logger.info(
-            "Analysis task completed",
-            job_id=job_id,
-            client=request_data.get("client_name"),
-            execution_time=results.get("execution_time_seconds")
-        )
-        
-        # Fire webhooks for registered clients
-        _fire_webhooks_sync(job_id, request_data.get("client_name", ""), "completed", results)
-
-        # Schedule cleanup
-        cleanup_job.apply_async(
-            args=[job_id],
-            countdown=86400  # Cleanup after 24 hours
-        )
-        
-        return {
-            "job_id": job_id,
-            "status": "completed",
-            "findings_count": len(results.get("findings", {})),
-            "execution_time": results.get("execution_time_seconds")
-        }
-        
-    except Exception as e:
-        logger.error(
-            "Analysis task failed",
-            job_id=job_id,
-            client=request_data.get("client_name"),
-            error=str(e),
-            exc_info=True
-        )
-        
-        # Update failure status
-        try:
-            redis_client.hset(f"job:{job_id}", mapping={
-                "status": "failed",
-                "error": str(e),
-                "failed_at": datetime.utcnow().isoformat()
-            })
-        except:
-            pass  # Don't fail on status update error
-        
-        # Fire failure webhook
-        _fire_webhooks_sync(job_id, request_data.get("client_name", ""), "failed", {})
-
-        # Re-raise for Celery
-        raise
-
-async def _run_analysis_async(job_id: str, request_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Async wrapper for running analysis with proper progress tracking.
-    """
-    progress_updater = ProgressUpdater(job_id)
-    
-    # Create adapter with progress callback
-    adapter = ValinorAdapter(
-        progress_callback=progress_updater.update_progress
-    )
-    
-    # Create executor for enhanced error handling
-    executor = PipelineExecutor(adapter)
-    
-    # Prepare connection config
-    connection_config = {
-        "ssh_config": request_data["ssh_config"],
-        "db_config": request_data["db_config"],
-        "sector": request_data.get("sector"),
-        "country": request_data.get("country", "US"),
-        "currency": request_data.get("currency", "USD"),
-        "language": request_data.get("language", "en"),
-        "erp": request_data.get("erp"),
-        "fiscal_context": request_data.get("fiscal_context", "generic"),
-        "overrides": request_data.get("overrides", {}),
-        "client_name": request_data["client_name"]
-    }
-    
-    # Determine execution strategy
-    retry_enabled = request_data.get("options", {}).get("retry", True)
-    fallback_enabled = request_data.get("options", {}).get("fallback", True)
-    
-    if retry_enabled:
-        # Use retry executor for transient failures
-        results = await executor.run_with_retry(
-            job_id=job_id,
-            config=connection_config,
-            period=request_data["period"],
-            max_retries=request_data.get("options", {}).get("max_retries", 2)
-        )
-    elif fallback_enabled:
-        # Use fallback executor for partial success
-        results = await executor.run_with_fallback(
-            job_id=job_id,
-            config=connection_config,
-            period=request_data["period"]
-        )
-    else:
-        # Standard execution
-        results = await adapter.run_analysis(
-            job_id=job_id,
-            client_name=request_data["client_name"],
-            connection_config=connection_config,
-            period=request_data["period"]
-        )
-    
-    return results
-
-@celery_app.task(name='worker.tasks.cleanup_job')
+@celery_app.task(name='worker.tasks.cleanup_job', queue='maintenance')
 def cleanup_job(job_id: str):
     """
     Clean up temporary files and data for completed job.
@@ -299,6 +152,7 @@ def cleanup_job(job_id: str):
     name="worker.tasks.run_analysis_task",
     max_retries=2,
     retry_backoff=True,
+    queue="analysis",
 )
 def run_analysis_task(
     self,
@@ -329,14 +183,16 @@ def run_analysis_task(
     rc = get_redis_client()
 
     try:
-        # Mark job as running
+        # Mark job as running (redact sensitive fields before writing to Redis)
+        safe_config = _redact_config(connection_config)
         rc.hset(f"job:{job_id}", mapping={
             "status": "running",
             "started_at": datetime.utcnow().isoformat(),
             "task_id": self.request.id,
+            "config": json.dumps(safe_config, default=str),
         })
 
-        # Run the async pipeline in a fresh event loop
+        # Run the async pipeline in a fresh event loop (with original, unredacted config)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -428,7 +284,7 @@ async def _run_analysis_task_async(
     return results
 
 
-@celery_app.task(name="worker.tasks.cleanup_expired_jobs")
+@celery_app.task(name="worker.tasks.cleanup_expired_jobs", queue="maintenance")
 def cleanup_expired_jobs():
     """
     Periodic task (every 6 hours) that removes Redis job keys older than 7 days.
@@ -443,7 +299,8 @@ def cleanup_expired_jobs():
 
     try:
         # Scan for all job hash keys (exclude :results sub-keys)
-        job_keys = [k for k in rc.keys("job:*") if not k.endswith(":results")]
+        # Use scan_iter instead of keys() to avoid blocking Redis (O(N) KEYS)
+        job_keys = [k for k in rc.scan_iter("job:*") if not k.endswith(":results")]
 
         for key in job_keys:
             try:
@@ -471,7 +328,7 @@ def cleanup_expired_jobs():
         return {"error": str(exc)}
 
 
-@celery_app.task(name='worker.tasks.health_check')
+@celery_app.task(name='worker.tasks.health_check', queue='maintenance')
 def health_check():
     """
     Worker health check task.
@@ -505,7 +362,7 @@ def health_check():
             "worker_id": os.getpid()
         }
 
-@celery_app.task(name='worker.tasks.monitor_jobs')
+@celery_app.task(name='worker.tasks.monitor_jobs', queue='maintenance')
 def monitor_jobs():
     """
     Periodic task to monitor job status and handle stale jobs.
@@ -516,8 +373,8 @@ def monitor_jobs():
         redis_client = get_redis_client()
         
         # Find running jobs that might be stale
-        job_keys = redis_client.keys("job:*")
-        job_keys = [key for key in job_keys if not key.endswith(":results")]
+        # Use scan_iter instead of keys() to avoid blocking Redis (O(N) KEYS)
+        job_keys = [key for key in redis_client.scan_iter("job:*") if not key.endswith(":results")]
         
         stale_cutoff = datetime.utcnow().timestamp() - 7200  # 2 hours
         stale_jobs = []

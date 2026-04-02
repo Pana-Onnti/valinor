@@ -1,6 +1,9 @@
 """
-DataQualityGate — runs 8 data quality checks against a client's PostgreSQL/Odoo DB
+DataQualityGate — runs data quality checks against a client's database
 before passing control to the analyst agents.
+
+ERP-agnostic: uses entity_map for table/column discovery when available,
+falls back to ERP_CORE_TABLES hints for backward compatibility.
 
 All queries are synchronous via SQLAlchemy engine.connect() + text().
 """
@@ -130,12 +133,14 @@ class DataQualityGate:
     }
 
     def __init__(self, engine, period_start: str, period_end: str,
-                 erp: str = None, entity_map: dict | None = None):
+                 erp: str = None, entity_map: dict | None = None,
+                 db_schema: str = "public"):
         self.engine = engine
         self.period_start = period_start
         self.period_end = period_end
         self.erp = (erp or "").lower().strip()
         self.entity_map = entity_map or {}
+        self.db_schema = db_schema or "public"
 
     # -----------------------------------------------------------------------
     # Public entry point
@@ -275,6 +280,57 @@ class DataQualityGate:
                     }
         return {}
 
+    def _find_ledger_table(self) -> Dict[str, Any]:
+        """Find the ledger-line table from entity_map.
+
+        Returns dict with table, debit_col, credit_col, date_col, account_id_col,
+        move_id_col, base_filter — or empty dict if not found.
+        """
+        entities = self.entity_map.get("entities", {})
+        for entity_name, entity in entities.items():
+            if entity.get("type") == "LEDGER":
+                key_cols = entity.get("key_columns", {})
+                debit_col = key_cols.get("debit_col") or key_cols.get("debit")
+                credit_col = key_cols.get("credit_col") or key_cols.get("credit")
+                date_col = key_cols.get("date_col") or key_cols.get("date")
+                if debit_col and credit_col and date_col:
+                    try:
+                        safe_filter = sanitize_base_filter(
+                            entity.get("base_filter", ""),
+                            context=f"dq_gate:{entity_name}",
+                        )
+                    except ValueError:
+                        safe_filter = ""
+                    return {
+                        "table": entity.get("table", ""),
+                        "debit_col": debit_col,
+                        "credit_col": credit_col,
+                        "date_col": date_col,
+                        "account_id_col": key_cols.get("account_id_col") or key_cols.get("account_id"),
+                        "move_id_col": key_cols.get("move_id_col") or key_cols.get("move_id"),
+                        "base_filter": safe_filter,
+                    }
+        return {}
+
+    def _find_account_table(self) -> Dict[str, Any]:
+        """Find the chart-of-accounts table from entity_map.
+
+        Returns dict with table, code_col, type_col — or empty dict if not found.
+        """
+        entities = self.entity_map.get("entities", {})
+        for entity_name, entity in entities.items():
+            if entity.get("type") == "ACCOUNT":
+                key_cols = entity.get("key_columns", {})
+                code_col = key_cols.get("code_col") or key_cols.get("code")
+                type_col = key_cols.get("type_col") or key_cols.get("account_type")
+                if code_col:
+                    return {
+                        "table": entity.get("table", ""),
+                        "code_col": code_col,
+                        "type_col": type_col,
+                    }
+        return {}
+
     def _scalar(self, conn, sql: str, params: dict = None) -> Any:
         """Execute a scalar SQL query and return the first column of the first row."""
         result = conn.execute(text(sql), params or {})
@@ -285,21 +341,21 @@ class DataQualityGate:
         sql = """
             SELECT COUNT(*)
             FROM information_schema.tables
-            WHERE table_schema = 'public'
+            WHERE table_schema = :schema
               AND table_name = :tname
         """
-        count = self._scalar(conn, sql, {"tname": table_name})
+        count = self._scalar(conn, sql, {"schema": self.db_schema, "tname": table_name})
         return (count or 0) > 0
 
     def _column_exists(self, conn, table_name: str, column_name: str) -> bool:
         sql = """
             SELECT COUNT(*)
             FROM information_schema.columns
-            WHERE table_schema = 'public'
+            WHERE table_schema = :schema
               AND table_name   = :tname
               AND column_name  = :cname
         """
-        count = self._scalar(conn, sql, {"tname": table_name, "cname": column_name})
+        count = self._scalar(conn, sql, {"schema": self.db_schema, "tname": table_name, "cname": column_name})
         return (count or 0) > 0
 
     # -----------------------------------------------------------------------
@@ -593,23 +649,69 @@ class DataQualityGate:
     # -----------------------------------------------------------------------
 
     def _check_accounting_balance(self) -> QualityCheckResult:
-        """Verify Assets ≈ Liabilities + Equity (accounting equation)."""
-        sql = """
-            SELECT
-                SUM(CASE WHEN aa.account_type LIKE 'asset%'
-                         THEN aml.debit - aml.credit ELSE 0 END)     AS total_assets,
-                SUM(CASE WHEN aa.account_type LIKE 'liability%'
-                         THEN aml.credit - aml.debit ELSE 0 END)     AS total_liabilities,
-                SUM(CASE WHEN aa.account_type = 'equity'
-                         THEN aml.credit - aml.debit ELSE 0 END)     AS total_equity
-            FROM account_move_line  aml
-            JOIN account_account    aa  ON aml.account_id = aa.id
-            JOIN account_move       am  ON aml.move_id    = am.id
-            WHERE am.state = 'posted'
-              AND aml.date <= :period_end
+        """Verify Assets ≈ Liabilities + Equity (accounting equation).
+
+        Uses entity_map (LEDGER + ACCOUNT entities) when available,
+        falls back to hardcoded Odoo tables for backward compatibility.
         """
+        ledger = self._find_ledger_table()
+        account = self._find_account_table()
+
+        if ledger and account and account.get("type_col"):
+            # Entity-map-driven (ERP-agnostic)
+            aml_table = ledger["table"]
+            aa_table = account["table"]
+            debit_col = ledger["debit_col"]
+            credit_col = ledger["credit_col"]
+            date_col = ledger["date_col"]
+            acct_id_col = ledger.get("account_id_col")
+            type_col = account["type_col"]
+            base_filter = ledger.get("base_filter", "")
+
+            if not acct_id_col:
+                return QualityCheckResult(
+                    check_name="accounting_balance",
+                    passed=True,
+                    score_impact=0,
+                    severity="INFO",
+                    detail="No account_id column in entity_map; balance check skipped.",
+                )
+
+            filter_clause = f"AND {base_filter}" if base_filter else ""
+            sql = f"""
+                SELECT
+                    SUM(CASE WHEN aa.{type_col} LIKE 'asset%'
+                             THEN aml.{debit_col} - aml.{credit_col} ELSE 0 END)  AS total_assets,
+                    SUM(CASE WHEN aa.{type_col} LIKE 'liability%'
+                             THEN aml.{credit_col} - aml.{debit_col} ELSE 0 END)  AS total_liabilities,
+                    SUM(CASE WHEN aa.{type_col} LIKE 'equity%'
+                             THEN aml.{credit_col} - aml.{debit_col} ELSE 0 END)  AS total_equity
+                FROM {aml_table}  aml
+                JOIN {aa_table}   aa  ON aml.{acct_id_col} = aa.id
+                WHERE aml.{date_col} <= :period_end
+                {filter_clause}
+            """
+            required_tables = [aml_table, aa_table]
+        else:
+            # Legacy Odoo fallback
+            sql = """
+                SELECT
+                    SUM(CASE WHEN aa.account_type LIKE 'asset%'
+                             THEN aml.debit - aml.credit ELSE 0 END)     AS total_assets,
+                    SUM(CASE WHEN aa.account_type LIKE 'liability%'
+                             THEN aml.credit - aml.debit ELSE 0 END)     AS total_liabilities,
+                    SUM(CASE WHEN aa.account_type = 'equity'
+                             THEN aml.credit - aml.debit ELSE 0 END)     AS total_equity
+                FROM account_move_line  aml
+                JOIN account_account    aa  ON aml.account_id = aa.id
+                JOIN account_move       am  ON aml.move_id    = am.id
+                WHERE am.state = 'posted'
+                  AND aml.date <= :period_end
+            """
+            required_tables = ["account_move_line", "account_account", "account_move"]
+
         with self.engine.connect() as conn:
-            for tbl in ("account_move_line", "account_account", "account_move"):
+            for tbl in required_tables:
                 if not self._table_exists(conn, tbl):
                     return QualityCheckResult(
                         check_name="accounting_balance",
@@ -686,27 +788,81 @@ class DataQualityGate:
     # -----------------------------------------------------------------------
 
     def _check_cross_table_reconciliation(self) -> QualityCheckResult:
-        """Compare invoice-header revenue vs. ledger-line revenue (two-path check)."""
-        sql_path1 = """
-            SELECT COALESCE(SUM(amount_untaxed), 0)
-            FROM account_move
-            WHERE move_type  = 'out_invoice'
-              AND state       = 'posted'
-              AND invoice_date BETWEEN :period_start AND :period_end
+        """Compare invoice-header revenue vs. ledger-line revenue (two-path check).
+
+        Uses entity_map (TRANSACTIONAL + LEDGER + ACCOUNT) when available,
+        falls back to hardcoded Odoo tables for backward compatibility.
         """
-        sql_path2 = """
-            SELECT COALESCE(SUM(aml.credit - aml.debit), 0)
-            FROM account_move_line  aml
-            JOIN account_account    aa  ON aml.account_id = aa.id
-            JOIN account_move       am  ON aml.move_id    = am.id
-            WHERE aa.code LIKE '7%'
-              AND am.state = 'posted'
-              AND aml.date BETWEEN :period_start AND :period_end
-        """
+        txn = self._find_transaction_table()
+        ledger = self._find_ledger_table()
+        account = self._find_account_table()
+
+        if txn and ledger and account and account.get("code_col"):
+            # Entity-map-driven (ERP-agnostic)
+            txn_table = txn["table"]
+            txn_amount = txn["amount_col"]
+            txn_date = txn["date_col"]
+            txn_filter = txn.get("base_filter", "")
+
+            aml_table = ledger["table"]
+            credit_col = ledger["credit_col"]
+            debit_col = ledger["debit_col"]
+            aml_date = ledger["date_col"]
+            acct_id_col = ledger.get("account_id_col")
+            aml_filter = ledger.get("base_filter", "")
+
+            aa_table = account["table"]
+            code_col = account["code_col"]
+
+            # Path 1: transaction header totals
+            txn_where = f"AND {txn_filter}" if txn_filter else ""
+            sql_path1 = f"""
+                SELECT COALESCE(SUM({txn_amount}), 0)
+                FROM {txn_table}
+                WHERE {txn_date} BETWEEN :period_start AND :period_end
+                {txn_where}
+            """
+
+            # Path 2: ledger lines on revenue accounts (code starts with 7)
+            if acct_id_col:
+                aml_where = f"AND {aml_filter}" if aml_filter else ""
+                sql_path2 = f"""
+                    SELECT COALESCE(SUM(aml.{credit_col} - aml.{debit_col}), 0)
+                    FROM {aml_table}  aml
+                    JOIN {aa_table}   aa  ON aml.{acct_id_col} = aa.id
+                    WHERE aa.{code_col} LIKE '7%'
+                      AND aml.{aml_date} BETWEEN :period_start AND :period_end
+                    {aml_where}
+                """
+            else:
+                # Without account_id join, skip path 2 gracefully
+                sql_path2 = None
+
+            required_tables = list({txn_table, aml_table, aa_table})
+        else:
+            # Legacy Odoo fallback
+            sql_path1 = """
+                SELECT COALESCE(SUM(amount_untaxed), 0)
+                FROM account_move
+                WHERE move_type  = 'out_invoice'
+                  AND state       = 'posted'
+                  AND invoice_date BETWEEN :period_start AND :period_end
+            """
+            sql_path2 = """
+                SELECT COALESCE(SUM(aml.credit - aml.debit), 0)
+                FROM account_move_line  aml
+                JOIN account_account    aa  ON aml.account_id = aa.id
+                JOIN account_move       am  ON aml.move_id    = am.id
+                WHERE aa.code LIKE '7%'
+                  AND am.state = 'posted'
+                  AND aml.date BETWEEN :period_start AND :period_end
+            """
+            required_tables = ["account_move", "account_move_line", "account_account"]
+
         params = {"period_start": self.period_start, "period_end": self.period_end}
 
         with self.engine.connect() as conn:
-            for tbl in ("account_move", "account_move_line", "account_account"):
+            for tbl in required_tables:
                 if not self._table_exists(conn, tbl):
                     return QualityCheckResult(
                         check_name="cross_table_reconcile",
@@ -717,6 +873,16 @@ class DataQualityGate:
                     )
 
             rev_header = float(conn.execute(text(sql_path1), params).scalar() or 0)
+
+            if sql_path2 is None:
+                return QualityCheckResult(
+                    check_name="cross_table_reconcile",
+                    passed=True,
+                    score_impact=0,
+                    severity="INFO",
+                    detail="No account_id column in ledger entity; reconciliation check skipped.",
+                )
+
             rev_ledger = float(conn.execute(text(sql_path2), params).scalar() or 0)
 
         if rev_header < 1 and rev_ledger < 1:
@@ -1160,23 +1326,72 @@ class DataQualityGate:
         b) A data quality problem — one of the series is wrong
 
         This check is WARNING only — divergence may be the actual insight.
+
+        Uses entity_map (TRANSACTIONAL + LEDGER + ACCOUNT) when available,
+        falls back to hardcoded Odoo tables for backward compatibility.
         """
-        sql_revenue = """
-            SELECT DATE_TRUNC('month', invoice_date) as month, SUM(amount_untaxed) as revenue
-            FROM account_move WHERE move_type='out_invoice' AND state='posted'
-            AND invoice_date >= CURRENT_DATE - INTERVAL '13 months'
-            GROUP BY 1 ORDER BY 1
-        """
-        sql_receivables = """
-            SELECT DATE_TRUNC('month', date) as month, SUM(debit - credit) as receivables
-            FROM account_move_line aml
-            JOIN account_account aa ON aml.account_id = aa.id
-            WHERE aa.account_type = 'asset_receivable' AND aml.date >= CURRENT_DATE - INTERVAL '13 months'
-            GROUP BY 1 ORDER BY 1
-        """
+        txn = self._find_transaction_table()
+        ledger = self._find_ledger_table()
+        account = self._find_account_table()
+
+        if txn and ledger and account and ledger.get("account_id_col") and account.get("type_col"):
+            # Entity-map-driven (ERP-agnostic)
+            txn_table = txn["table"]
+            txn_amount = txn["amount_col"]
+            txn_date = txn["date_col"]
+            txn_filter = txn.get("base_filter", "")
+
+            aml_table = ledger["table"]
+            debit_col = ledger["debit_col"]
+            credit_col = ledger["credit_col"]
+            aml_date = ledger["date_col"]
+            acct_id_col = ledger["account_id_col"]
+            aml_filter = ledger.get("base_filter", "")
+
+            aa_table = account["table"]
+            type_col = account["type_col"]
+
+            txn_where = f"AND {txn_filter}" if txn_filter else ""
+            sql_revenue = f"""
+                SELECT DATE_TRUNC('month', {txn_date}) as month,
+                       SUM({txn_amount}) as revenue
+                FROM {txn_table}
+                WHERE {txn_date} >= CURRENT_DATE - INTERVAL '13 months'
+                {txn_where}
+                GROUP BY 1 ORDER BY 1
+            """
+
+            aml_where = f"AND {aml_filter}" if aml_filter else ""
+            sql_receivables = f"""
+                SELECT DATE_TRUNC('month', aml.{aml_date}) as month,
+                       SUM(aml.{debit_col} - aml.{credit_col}) as receivables
+                FROM {aml_table} aml
+                JOIN {aa_table} aa ON aml.{acct_id_col} = aa.id
+                WHERE aa.{type_col} LIKE '%receivable%'
+                  AND aml.{aml_date} >= CURRENT_DATE - INTERVAL '13 months'
+                {aml_where}
+                GROUP BY 1 ORDER BY 1
+            """
+            required_tables = list({txn_table, aml_table, aa_table})
+        else:
+            # Legacy Odoo fallback
+            sql_revenue = """
+                SELECT DATE_TRUNC('month', invoice_date) as month, SUM(amount_untaxed) as revenue
+                FROM account_move WHERE move_type='out_invoice' AND state='posted'
+                AND invoice_date >= CURRENT_DATE - INTERVAL '13 months'
+                GROUP BY 1 ORDER BY 1
+            """
+            sql_receivables = """
+                SELECT DATE_TRUNC('month', date) as month, SUM(debit - credit) as receivables
+                FROM account_move_line aml
+                JOIN account_account aa ON aml.account_id = aa.id
+                WHERE aa.account_type = 'asset_receivable' AND aml.date >= CURRENT_DATE - INTERVAL '13 months'
+                GROUP BY 1 ORDER BY 1
+            """
+            required_tables = ["account_move", "account_move_line", "account_account"]
 
         with self.engine.connect() as conn:
-            for tbl in ("account_move", "account_move_line", "account_account"):
+            for tbl in required_tables:
                 if not self._table_exists(conn, tbl):
                     return QualityCheckResult(
                         check_name="receivables_cointegration",

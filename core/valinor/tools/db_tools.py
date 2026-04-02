@@ -52,9 +52,12 @@ async def connect_database(args):
         conn.execute(text("SELECT 1"))
 
     schemas = inspector.get_schema_names()
+    # If a specific schema is requested, only show that one
+    target_schema = args.get("schema")
+    schemas_to_scan = [target_schema] if target_schema and target_schema in schemas else schemas
     tables = {}
     total_tables = 0
-    for schema in schemas:
+    for schema in schemas_to_scan:
         schema_tables = inspector.get_table_names(schema=schema)
         tables[schema] = schema_tables
         total_tables += len(schema_tables)

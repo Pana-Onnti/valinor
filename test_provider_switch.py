@@ -109,7 +109,7 @@ async def test_provider_switching():
         config = LLMConfig(
             provider_type=provider_type,
             anthropic_config={"api_key": os.getenv("ANTHROPIC_API_KEY")},
-            console_config={
+            cli_config={
                 "username": os.getenv("CLAUDE_USERNAME"),
                 "password": os.getenv("CLAUDE_PASSWORD")
             }

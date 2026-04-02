@@ -74,6 +74,7 @@ async def narrate_controller(
     baseline: dict,
     query_results: dict,
     verification_report=None,
+    **kwargs,
 ) -> str:
     """Produce the controller report."""
     options = ClaudeAgentOptions(

@@ -20,6 +20,7 @@ import {
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { T } from '@/components/d4c/tokens'
+import { AnalysisProgress } from '@/components/AnalysisProgress'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -939,6 +940,8 @@ export default function OnboardingPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [errorBanner, setErrorBanner] = useState<string | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [analysisCompleted, setAnalysisCompleted] = useState(false)
 
   // ── Mark test stale when SSH or DB fields change after a successful test ──
   // Use a ref to track previous test result presence so we only mark stale
@@ -1126,7 +1129,10 @@ export default function OnboardingPage() {
         throw new Error(data.detail || `HTTP ${resp.status}`)
       }
 
-      router.push(`/clients/${analysisForm.client_name}`)
+      const data = await resp.json()
+      setJobId(data.job_id || data.id || null)
+      setStep(5)
+      setSubmitting(false)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
       setSubmitError(`Error al iniciar el análisis: ${message}`)
@@ -1324,7 +1330,13 @@ export default function OnboardingPage() {
                   submitError={submitError}
                 />
               )}
-              {step === 5 && (
+              {step === 5 && !analysisCompleted && jobId && (
+                <AnalysisProgress
+                  analysisId={jobId}
+                  onComplete={() => setAnalysisCompleted(true)}
+                />
+              )}
+              {step === 5 && analysisCompleted && (
                 <div style={{ textAlign: 'center', padding: T.space.xl }}>
                   <div style={{
                     width: 64, height: 64, borderRadius: '50%',
@@ -1360,6 +1372,11 @@ export default function OnboardingPage() {
                   <p style={{ color: T.text.tertiary, fontSize: '0.813rem', marginTop: T.space.xl }}>
                     Queres que profundicemos? Contacta a tu ejecutivo de cuenta para un retainer mensual.
                   </p>
+                </div>
+              )}
+              {step === 5 && !jobId && !analysisCompleted && (
+                <div style={{ textAlign: 'center', padding: T.space.xl, color: T.text.secondary }}>
+                  No se pudo iniciar el analisis. Volve al paso anterior e intenta de nuevo.
                 </div>
               )}
             </motion.div>

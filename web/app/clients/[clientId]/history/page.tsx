@@ -9,7 +9,6 @@ import Link from 'next/link'
 import { KPITrendChart } from '@/components/KPITrendChart'
 import { FindingTimeline } from '@/components/FindingTimeline'
 import { DeltaPanel } from '@/components/DeltaPanel'
-import { DQScoreBadge } from '@/components/DQScoreBadge'
 import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'

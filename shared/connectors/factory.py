@@ -32,15 +32,20 @@ def _register_connectors() -> None:
     from .postgresql import PostgreSQLConnector
     from .mysql import MySQLConnector
     from .etendo import EtendoConnector
+    from .sqlite import SQLiteConnector
 
     _CONNECTOR_REGISTRY.update({
         SourceType.POSTGRESQL.value: PostgreSQLConnector,
         SourceType.MYSQL.value: MySQLConnector,
         SourceType.ETENDO.value: EtendoConnector,
+        SourceType.SQLITE.value: SQLiteConnector,
         # Aliases
         "postgres": PostgreSQLConnector,
         "pg": PostgreSQLConnector,
         "mariadb": MySQLConnector,
+        "file": SQLiteConnector,
+        "excel": SQLiteConnector,
+        "csv": SQLiteConnector,
     })
 
 

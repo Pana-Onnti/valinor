@@ -21,19 +21,12 @@ Usage:
 from __future__ import annotations
 
 import os
-import sys
 import textwrap
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import structlog
 
 logger = structlog.get_logger()
-
-# Ensure project root on sys.path
-_ROOT = Path(__file__).parent.parent.parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 
 
 # ── In-memory vector store (no external dependency) ──────────────────────────
@@ -111,7 +104,7 @@ class VannaAdapter:
 
     def __init__(
         self,
-        model: str = "claude-3-5-sonnet-20241022",
+        model: str = "claude-sonnet-4-6",
         api_key: Optional[str] = None,
     ):
         self.model = model

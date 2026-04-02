@@ -1,14 +1,82 @@
 name: Deploy — Valinor SaaS
 
-on:  # VAL-51: deploy only on master (production)
+on:
   push:
     branches:
       - master
+      - develop
   workflow_dispatch:
 
 jobs:
+  # ── Staging (develop) ──────────────────────────────────────────────
+  deploy-api-staging:
+    name: Deploy API → Railway Staging
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway Staging
+        run: railway up --service API --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID_STAGING }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID_STAGING }}
+
+      - name: Post-deploy health check
+        run: |
+          echo "Waiting for staging deployment to stabilize..."
+          sleep 30
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ secrets.STAGING_API_URL }}/health" || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Health check failed after 5 attempts."
+          exit 1
+
+  deploy-frontend-staging:
+    name: Deploy Frontend → Vercel Preview
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel
+
+      - name: Deploy to Vercel (preview)
+        run: |
+          vercel pull --yes --environment=preview --token=$VERCEL_TOKEN
+          vercel build --token=$VERCEL_TOKEN
+          vercel deploy --prebuilt --token=$VERCEL_TOKEN
+        working-directory: web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+  # ── Production (master) ────────────────────────────────────────────
   deploy-api:
-    name: Deploy API → Railway
+    name: Deploy API → Railway Production
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,8 +91,25 @@ jobs:
           RAILWAY_PROJECT_ID: b78babfc-1b70-45f5-a866-eb23d08e04ac
           RAILWAY_ENVIRONMENT_ID: 51136959-2c0d-4f37-aa95-754b5e86715b
 
+      - name: Post-deploy health check
+        run: |
+          echo "Waiting for production deployment to stabilize..."
+          sleep 30
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ secrets.PRODUCTION_API_URL }}/health" || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Health check failed after 5 attempts."
+          exit 1
+
   deploy-frontend:
-    name: Deploy Frontend → Vercel
+    name: Deploy Frontend → Vercel Production
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

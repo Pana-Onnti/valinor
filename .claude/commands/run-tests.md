@@ -1,16 +1,35 @@
 # /project:run-tests — Delta 4C
 
 ## Descripción
-Ejecuta la suite de tests de Valinor. Reporta resultados. Si hay fallos, diagnostica y sugiere fix.
+Ejecuta la suite de tests de Valinor. Soporta 3 niveles: rápido, completo, y producción.
 
 ## Cuándo usar
-Antes de cualquier commit importante. Después de implementar un feature o fix. En cualquier momento que se quiera verificar el estado de la suite.
+Antes de cualquier commit. Después de implementar un feature o fix. Para evaluar el estado del producto.
 
 ## Pasos
 
-### 1. Ejecutar suite completa
+### 1. Elegir nivel
+
+**Rápido (stages deterministas, <1s):**
 ```
-→ Bash: cd /home/nicolas/Documents/delta4/valinor-saas && source venv/bin/activate && pytest tests/ -v --tb=short 2>&1 | tail -50
+→ Bash: pytest tests/test_pipeline_gloria_e2e.py::TestGloriaPipelineStages -v
+```
+
+**Suite completa (~3000 tests, varios minutos):**
+```
+→ Bash: source venv/bin/activate && pytest tests/ -v --tb=short 2>&1 | tail -50
+```
+
+**Producción — agentes y narrators REALES contra Gloria PostgreSQL (~6 min):**
+```
+→ Prerequisitos: Gloria PG en localhost:5432 + proxy/CLI Claude
+→ Bash: source venv/bin/activate && pytest tests/test_pipeline_production.py -v -s
+→ Output: tests/output/production/ (JSON + reportes markdown)
+```
+
+**Por período (1 mes, 1 trimestre, 1 año, ~5 min):**
+```
+→ Bash: source venv/bin/activate && pytest tests/test_pipeline_periods.py -v -s
 ```
 
 ### 2. Si hay fallos — diagnosticar
@@ -30,29 +49,25 @@ Formato:
 
 Fallos:
   tests/[archivo.py]::[test_name] — [descripción del error]
-  ...
 
 Causa probable: [diagnóstico]
 Fix sugerido: [qué cambiar]
 ```
 
-### 4. Si hay muchos fallos similares
+### 4. Para el test de producción, además reportar:
 ```
-Verificar si hay:
-- Import errors (dependencia faltante)
-- DB no disponible (docker compose ps)
-- Fixtures rotas (conftest.py)
-```
-
-### 5. Para correr tests específicos
-```
-→ Por módulo: pytest tests/test_[módulo].py -v
-→ Por keyword: pytest tests/ -k "[keyword]" -v
-→ Con cobertura: pytest tests/ --cov=[módulo] --cov-report=term-missing
+📊 Pipeline Production:
+  DQ Score: [N]/100
+  Queries: [N]/8 succeeded
+  Revenue: €[N]
+  Agents: [N]/3 — [N] findings
+  Reports: [N]/4 generated
+  Output: tests/output/production/[file].json
 ```
 
 ## Notas
-- Suite actual: ~2481 tests (puede tardar varios minutos)
-- Para pre-commit rápido: `pytest tests/ -x --tb=short` (para en el primer fallo)
-- Si la suite tiene >100 fallos: probablemente hay un import error o la DB está caída
-- Recordar: NO mockear la DB en integration tests
+- Suite actual: ~3000 tests
+- Para pre-commit rápido: `pytest tests/ -x --tb=short`
+- Test producción necesita: Gloria PG + Claude CLI/proxy
+- NO mockear la DB en integration tests
+- Ver `docs/TESTING.md` para guía completa

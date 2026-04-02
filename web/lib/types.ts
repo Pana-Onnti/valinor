@@ -95,3 +95,41 @@ export interface AnalyzeRequest {
   db_config: DBConfig
   period: string
 }
+
+// ── File Upload ──────────────────────────────────────────────────────────────
+
+export interface UploadResult {
+  upload_id: string
+  filename: string
+  size_bytes: number
+  file_type: string
+  sheets: string[]
+  status: string
+}
+
+export interface UploadFileState {
+  file: File
+  upload_id?: string
+  progress: number  // 0-100
+  status: 'pending' | 'uploading' | 'processing' | 'ready' | 'error'
+  error?: string
+  result?: UploadResult
+}
+
+export interface PreviewData {
+  upload_id: string
+  sheet?: string
+  rows: Record<string, unknown>[]
+  total_rows: number
+  columns: string[]
+}
+
+export interface SchemaData {
+  upload_id: string
+  columns: Array<{
+    name: string
+    dtype: string
+    nullable: boolean
+    sample_values: unknown[]
+  }>
+}

@@ -14,7 +14,8 @@ import anthropic
 from anthropic import AsyncAnthropic
 from anthropic.types import Message
 
-from ..base import LLMProvider, LLMResponse, LLMOptions, ModelType
+from ..base import LLMProvider, LLMResponse, LLMOptions, ModelType, ANTHROPIC_MODEL_IDS
+from ..pricing import ANTHROPIC_PRICING
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +204,7 @@ class AnthropicProvider(LLMProvider):
         try:
             # Use a minimal request to check connectivity
             await self.client.messages.create(
-                model="claude-3-haiku-20240307",
+                model=ANTHROPIC_MODEL_IDS[ModelType.HAIKU],
                 messages=[{"role": "user", "content": "test"}],
                 max_tokens=1
             )
@@ -222,15 +223,16 @@ class AnthropicProvider(LLMProvider):
         return [ModelType.OPUS, ModelType.SONNET, ModelType.HAIKU]
 
     def estimate_cost(self, prompt_tokens: int, completion_tokens: int, model: ModelType) -> float:
-        """Estimate cost based on Anthropic pricing"""
-        # Pricing as of 2025 (per 1M tokens)
-        pricing = {
-            ModelType.OPUS: {"input": 15.00, "output": 75.00},
-            ModelType.SONNET: {"input": 3.00, "output": 15.00},
-            ModelType.HAIKU: {"input": 0.25, "output": 1.25}
+        """Estimate cost based on Anthropic pricing (from shared.llm.pricing)."""
+        # Map ModelType enum to the string keys used in ANTHROPIC_PRICING
+        _MODEL_KEY = {
+            ModelType.OPUS: "claude-opus-4-6",
+            ModelType.SONNET: "claude-sonnet-4-6",
+            ModelType.HAIKU: "claude-haiku-4-5",
         }
 
-        model_pricing = pricing.get(model, pricing[ModelType.SONNET])
+        key = _MODEL_KEY.get(model, "default")
+        model_pricing = ANTHROPIC_PRICING.get(key, ANTHROPIC_PRICING["default"])
         input_cost = (prompt_tokens / 1_000_000) * model_pricing["input"]
         output_cost = (completion_tokens / 1_000_000) * model_pricing["output"]
 

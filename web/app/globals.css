@@ -2,22 +2,109 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── D4C Design System — CSS vars ─────────────────────────────────────────── */
-/* Token lightening: backgrounds raised ~1 stop for better contrast ratios.
-   bg-primary: #0A0A0F -> #0E0E14 (less pitch-black)
-   bg-card:    #111116 -> #15151C (better card separation)
-   text-secondary: #8A8A9A -> #9A9AAA (WCAG AA on bg-card)            */
+/* ── D4C Design System — CSS custom properties (theme-aware) ─────────────── */
+/* Dark mode is the default. Light mode via [data-theme="light"] on <html>.  */
 :root {
-  --d4c-bg-primary:    #0E0E14;
-  --d4c-bg-card:       #15151C;
-  --d4c-bg-elevated:   #1E1E28;
-  --d4c-bg-hover:      #282838;
-  --d4c-text-primary:  #F0F0F5;
-  --d4c-text-secondary:#9A9AAA;
-  --d4c-text-tertiary: #6A6A7A;
-  --d4c-accent-teal:   #2A9D8F;
-  --d4c-accent-red:    #E63946;
-  --d4c-border:        #282838;
+  /* Backgrounds */
+  --color-bg-base:        #0A0C0F;
+  --color-bg-surface:     #111318;
+  --color-bg-elevated:    #1A1D24;
+  --color-bg-hover:       #282838;
+
+  /* Text */
+  --color-text-primary:   #F0F0F5;
+  --color-text-secondary: #9A9AAA;
+  --color-text-tertiary:  #6A6A7A;
+  --color-text-inverse:   #0E0E14;
+
+  /* Accents */
+  --color-accent-teal:    #00C896;
+  --color-accent-red:     #E63946;
+  --color-accent-yellow:  #E9C46A;
+  --color-accent-orange:  #F4845F;
+  --color-accent-blue:    #85B7EB;
+  --color-accent-purple:  #9B5DE5;
+
+  /* Borders */
+  --color-border-subtle:  #1A1D24;
+  --color-border-card:    #282838;
+
+  /* Chart */
+  --color-chart-grid:     #1A1D2440;
+
+  /* ── Shadows & Glows ──────────────────────────────────────────────────── */
+  --shadow-card:          0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-elevated:      0 8px 24px rgba(0, 0, 0, 0.45);
+  --glow-accent:          0 0 20px rgba(0, 200, 150, 0.15);
+
+  /* ── Type Scale ───────────────────────────────────────────────────────── */
+  --text-xs:    0.6875rem;   /* 11px */
+  --text-sm:    0.8125rem;   /* 13px */
+  --text-base:  0.875rem;    /* 14px */
+  --text-md:    1rem;        /* 16px */
+  --text-lg:    1.125rem;    /* 18px */
+  --text-xl:    1.375rem;    /* 22px */
+  --text-2xl:   1.75rem;     /* 28px */
+  --text-3xl:   2.25rem;     /* 36px */
+  --text-hero:  3rem;        /* 48px */
+
+  /* ── Spacing ──────────────────────────────────────────────────────────── */
+  --space-xs:   4px;
+  --space-sm:   8px;
+  --space-md:   16px;
+  --space-lg:   24px;
+  --space-xl:   32px;
+  --space-2xl:  48px;
+  --space-3xl:  64px;
+
+  /* ── Radius ───────────────────────────────────────────────────────────── */
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-xl:  20px;
+  --radius-full: 9999px;
+
+  /* ── Legacy aliases (consumed by globals.css helpers) ──────────────────── */
+  --d4c-bg-primary:       var(--color-bg-base);
+  --d4c-bg-card:          var(--color-bg-surface);
+  --d4c-bg-elevated:      var(--color-bg-elevated);
+  --d4c-bg-hover:         var(--color-bg-hover);
+  --d4c-text-primary:     var(--color-text-primary);
+  --d4c-text-secondary:   var(--color-text-secondary);
+  --d4c-text-tertiary:    var(--color-text-tertiary);
+  --d4c-accent-teal:      var(--color-accent-teal);
+  --d4c-accent-red:       var(--color-accent-red);
+  --d4c-border:           var(--color-border-card);
+}
+
+/* ── Light mode ──────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  /* Backgrounds */
+  --color-bg-base:        #F5F6F8;
+  --color-bg-surface:     #FFFFFF;
+  --color-bg-elevated:    #EDEEF1;
+  --color-bg-hover:       #E2E4E9;
+
+  /* Text */
+  --color-text-primary:   #1A1D24;
+  --color-text-secondary: #5A5F6D;
+  --color-text-tertiary:  #8B91A0;
+  --color-text-inverse:   #F0F0F5;
+
+  /* Accents — slightly adjusted for light bg contrast */
+  --color-accent-teal:    #00A87D;
+  --color-accent-red:     #D42E3B;
+  --color-accent-yellow:  #C9A235;
+  --color-accent-orange:  #E06B45;
+  --color-accent-blue:    #4A8FD4;
+  --color-accent-purple:  #7B3FCC;
+
+  /* Borders */
+  --color-border-subtle:  #E2E4E9;
+  --color-border-card:    #D1D4DB;
+
+  /* Chart */
+  --color-chart-grid:     #D1D4DB40;
 }
 
 html,
@@ -149,4 +236,46 @@ body {
 .d4c-card--compact {
   padding: 10px 14px;
   border-radius: 8px;
+}
+
+/* ── Responsive / Mobile ─────────────────────────────────────────────────── */
+
+/* Touch-friendly tap targets */
+.d4c-nav-link {
+  min-height: 44px;
+}
+
+.d4c-hamburger:active {
+  opacity: 0.7;
+}
+
+@media (max-width: 1024px) {
+  /* Main content takes full width when sidebar is hidden */
+  main {
+    padding-top: 56px; /* space for hamburger button */
+  }
+
+  /* Ensure nav links are touch-friendly on mobile */
+  .d4c-nav-link {
+    min-height: 48px;
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+
+  /* Buttons and inputs: min 44px touch target */
+  .d4c-btn-primary,
+  .d4c-btn-ghost,
+  .d4c-input {
+    min-height: 44px;
+  }
+
+  /* Cards get tighter horizontal padding on small screens */
+  .d4c-card {
+    padding: 14px 14px;
+  }
+
+  /* Dense layout reduces further on mobile */
+  .d4c-dense {
+    --d4c-page-pad: 10px;
+  }
 }

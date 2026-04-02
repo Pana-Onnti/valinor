@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { X, Eye } from 'lucide-react'
 import { T } from '@/components/d4c/tokens'
 

@@ -10,6 +10,9 @@ import type {
   AlertThreshold,
   SSHConfig,
   DBConfig,
+  UploadResult,
+  PreviewData,
+  SchemaData,
 } from "./types"
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -103,4 +106,103 @@ export function testConnection(config: {
     "/api/v1/test-connection",
     { method: "POST", body: JSON.stringify(config) }
   )
+}
+
+// ── File Upload ──────────────────────────────────────────────────────────────
+
+/**
+ * Upload a single file to the backend for a given client.
+ * Uses XMLHttpRequest instead of fetch to support upload progress events.
+ */
+export function uploadFile(
+  clientName: string,
+  file: File,
+  onProgress?: (percent: number) => void
+): Promise<UploadResult> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    const formData = new FormData()
+    formData.append("file", file)
+
+    xhr.open("POST", `${BASE_URL}/api/upload/${encodeURIComponent(clientName)}`)
+
+    xhr.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable && onProgress) {
+        const percent = Math.round((event.loaded / event.total) * 100)
+        onProgress(percent)
+      }
+    })
+
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText) as UploadResult
+          resolve(data)
+        } catch {
+          reject(new Error("Invalid JSON response from upload endpoint"))
+        }
+      } else {
+        let message = `Upload error ${xhr.status}`
+        try {
+          const body = JSON.parse(xhr.responseText)
+          message = body?.detail ?? body?.message ?? message
+        } catch {
+          // use default message
+        }
+        reject(new Error(message))
+      }
+    })
+
+    xhr.addEventListener("error", () => {
+      reject(new Error("Network error during upload"))
+    })
+
+    xhr.addEventListener("abort", () => {
+      reject(new Error("Upload aborted"))
+    })
+
+    xhr.send(formData)
+  })
+}
+
+/** Fetch a row preview for an uploaded file. */
+export function getPreview(
+  uploadId: string,
+  rows?: number,
+  sheet?: string
+): Promise<PreviewData> {
+  const params = new URLSearchParams()
+  if (rows !== undefined) params.set("rows", String(rows))
+  if (sheet !== undefined) params.set("sheet", sheet)
+  const qs = params.toString() ? `?${params.toString()}` : ""
+  return apiFetch<PreviewData>(`/api/upload/${encodeURIComponent(uploadId)}/preview${qs}`)
+}
+
+/** Fetch the column schema for an uploaded file. */
+export function getSchema(uploadId: string): Promise<SchemaData> {
+  return apiFetch<SchemaData>(`/api/upload/${encodeURIComponent(uploadId)}/schema`)
+}
+
+// ── File-based Analysis ───────────────────────────────────────────────────────
+
+/**
+ * Submit an analysis job backed by previously-uploaded files.
+ * Maps to the same /api/v1/analyze endpoint but uses source_type "sqlite"
+ * so the backend reads from the uploaded SQLite snapshots instead of a
+ * live database connection.
+ */
+export function startFileAnalysis(req: {
+  client_name: string
+  upload_ids: string[]
+  column_mapping: Record<string, string>
+  period: string
+}): Promise<{ job_id: string }> {
+  return apiFetch<{ job_id: string }>("/api/v1/analyze", {
+    method: "POST",
+    body: JSON.stringify({
+      ...req,
+      source_type: "sqlite",
+      db_config: { type: "sqlite", host: "local", port: 0, name: "upload" },
+    }),
+  })
 }

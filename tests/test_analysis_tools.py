@@ -352,8 +352,8 @@ class TestGateCartographer:
     def test_passes_with_2_high_confidence(self):
         entity_map = {
             "entities": {
-                "customers": {"confidence": 0.9},
-                "invoices": {"confidence": 0.85},
+                "customers": {"confidence": 0.9, "type": "MASTER"},
+                "invoices": {"confidence": 0.85, "type": "TRANSACTIONAL"},
             }
         }
         assert gate_cartographer(entity_map) is True
@@ -361,8 +361,8 @@ class TestGateCartographer:
     def test_fails_with_low_confidence(self):
         entity_map = {
             "entities": {
-                "customers": {"confidence": 0.5},
-                "invoices": {"confidence": 0.6},
+                "customers": {"confidence": 0.5, "type": "MASTER"},
+                "invoices": {"confidence": 0.6, "type": "TRANSACTIONAL"},
             }
         }
         assert gate_cartographer(entity_map) is False
@@ -370,7 +370,7 @@ class TestGateCartographer:
     def test_fails_with_only_one_entity(self):
         entity_map = {
             "entities": {
-                "invoices": {"confidence": 0.95},
+                "invoices": {"confidence": 0.95, "type": "TRANSACTIONAL"},
             }
         }
         assert gate_cartographer(entity_map) is False
@@ -378,8 +378,8 @@ class TestGateCartographer:
     def test_passes_with_payments_and_products(self):
         entity_map = {
             "entities": {
-                "payments": {"confidence": 0.95},
-                "products": {"confidence": 0.80},
+                "payments": {"confidence": 0.95, "type": "TRANSACTIONAL"},
+                "products": {"confidence": 0.80, "type": "MASTER"},
             }
         }
         assert gate_cartographer(entity_map) is True
@@ -627,12 +627,12 @@ class TestGateCartographerAdditional:
 
     def test_customers_and_invoices_high_conf_passes(self):
         """customers + invoices both at confidence > 0.7 should pass."""
-        entity_map = {"entities": {"customers": {"confidence": 0.9}, "invoices": {"confidence": 0.85}}}
+        entity_map = {"entities": {"customers": {"confidence": 0.9, "type": "MASTER"}, "invoices": {"confidence": 0.85, "type": "TRANSACTIONAL"}}}
         assert gate_cartographer(entity_map) is True
 
     def test_products_and_payments_high_conf_passes(self):
         """products + payments both above 0.7 confidence should pass."""
-        entity_map = {"entities": {"products": {"confidence": 0.8}, "payments": {"confidence": 0.75}}}
+        entity_map = {"entities": {"products": {"confidence": 0.8, "type": "MASTER"}, "payments": {"confidence": 0.75, "type": "TRANSACTIONAL"}}}
         assert gate_cartographer(entity_map) is True
 
     def test_unknown_entity_names_not_counted(self):

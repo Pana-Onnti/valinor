@@ -4,7 +4,7 @@ Valinor SaaS API — Pydantic request/response models.
 Extracted from main.py for better modularity.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
@@ -81,6 +81,17 @@ class AnalysisRequest(BaseModel):
         return v
 
 
+class AgentStatus(BaseModel):
+    """Per-agent status within a running pipeline."""
+    agent: str
+    status: str  # started, completed, error
+    message: str = ""
+    timestamp: Optional[str] = None
+    duration_seconds: Optional[float] = None
+    metadata: Optional[Dict[str, Any]] = None
+    progress: Optional[int] = None
+
+
 class JobStatus(BaseModel):
     """Job status response."""
     job_id: str
@@ -92,6 +103,8 @@ class JobStatus(BaseModel):
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
     error_detail: Optional[Dict[str, Any]] = None  # structured detail for DQ HALT and similar
+    agents: Optional[List[AgentStatus]] = None  # per-agent progress detail
+    estimated_remaining_seconds: Optional[float] = None
 
 
 class AnalysisResults(BaseModel):
@@ -106,4 +119,71 @@ class AnalysisResults(BaseModel):
     stages: Dict[str, Any]
     findings: Optional[Dict[str, Any]] = None
     reports: Optional[Dict[str, Any]] = None
+    confidence_metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Trust score breakdown and per-finding confidence (VAL-97)",
+    )
     download_urls: Optional[Dict[str, str]] = None
+
+
+class UploadResponse(BaseModel):
+    """Response model for file upload endpoint."""
+    upload_id: str
+    filename: str
+    size_bytes: int
+    file_type: str  # csv, xlsx, xls
+    sheets: List[str] = []  # only populated for Excel files
+    status: str = "pending"
+
+
+class PreviewRequest(BaseModel):
+    """Request model for file preview."""
+    rows: int = 20
+    sheet: Optional[str] = None
+
+
+class TableInfo(BaseModel):
+    """Metadata for a single table produced by file ingestion."""
+    name: str
+    row_count: int
+    columns: List[str]
+
+
+class ProcessResponse(BaseModel):
+    """Response model for the file process/ingestion endpoint (VAL-84)."""
+    upload_id: str
+    status: str  # "processed"
+    db_path: str
+    tables: List[TableInfo]
+
+
+class ColumnInfo(BaseModel):
+    """Metadata for a single column."""
+    name: str
+    dtype: str
+    nulls: int = 0
+    sample: Optional[str] = None
+
+
+class PreviewResponse(BaseModel):
+    """Response model for upload preview endpoint."""
+    upload_id: str
+    filename: str
+    sheet: Optional[str] = None
+    sheets_available: List[str] = []
+    total_rows: int
+    columns: List[ColumnInfo]
+    rows: List[Dict[str, Any]]
+
+
+class SchemaTable(BaseModel):
+    """Schema information for a single SQLite table."""
+    name: str
+    row_count: int
+    columns: List[ColumnInfo]
+
+
+class SchemaResponse(BaseModel):
+    """Response model for upload schema endpoint."""
+    upload_id: str
+    tables: List[SchemaTable]

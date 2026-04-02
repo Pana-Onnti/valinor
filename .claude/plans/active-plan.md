@@ -1,60 +1,39 @@
-# Active Plan — Sprint Nocturno Completo
+# Active Plan — Post V3, Road to YC
 
-**Ultima actualizacion:** 2026-03-23 (sprint nocturno)
+**Ultima actualizacion:** 2026-03-23
 **Branch:** develop
 
-## Estado actual
+## Estado actual — Todo cerrado
 
-### ✅ Completados (todo el backlog ejecutable)
-- VAL-1, VAL-10, VAL-11, VAL-16, VAL-17, VAL-24, VAL-26
-- VAL-28→34 (Arsenal Sprint)
-- VAL-36, VAL-44, VAL-45, VAL-46 (grounded/v7)
-- VAL-5 (audit)
-- VAL-48→52 (P0 Security + Infra)
-- VAL-53→57 (P1 Quality)
-- VAL-37→43 (Swarm Features)
-- VAL-58→61 (Medium Quality)
-- VAL-3, VAL-27, VAL-35 (UI/UX)
-- VAL-2, VAL-7, VAL-19, VAL-25, VAL-20, VAL-23
-- **VAL-51**: CI fix — 28 test failures → 0, 2975 passing
-- **VAL-21**: Multi-tenant RLS + TenantMiddleware + observability (PR #9)
-- **VAL-13**: Client Portal shell — auth, dashboard, reports, settings (PR #10)
-- **VAL-14**: Onboarding Wizard — company info + results steps (PR #12)
-- **VAL-8**: Demo Mode sales tool — /demo con Gloria findings (PR #13)
-- **VAL-12**: Demo Mode UI branded (cubierto por VAL-8)
-- **VAL-6**: Self-serve onboarding (cubierto por VAL-14 wizard)
-- **VAL-9**: EPIC UI/UX Professionalization — todos sub-issues done
+### ✅ Sesión 2026-03-23
+- **VAL-65**: Schema-aware DQ Gate (Done)
+- **VAL-66**: Schema-aware Cartographer + entity mapping (Done)
+- **VAL-89**: Alembic 003 applied + `_uploads_registry` → PostgreSQL (Done)
+- **VAL-8**: Demo mode: copy link, OG tags, mobile grid (Done)
+- **VAL-4**: Diagnósticos pagados (Done, no dev)
+- **VAL-14**: Onboarding Wizard: AnalysisProgress wired to step 5 (Done)
+- Test fix: `gate_cartographer` fixtures con `type` field (Done)
 
-### 🔄 En progreso
-- **VAL-15**: Operator Dashboard — agente trabajando, PR pendiente
+### ✅ Sprint V3 — File Ingestion (VAL-82 epic, todo Done)
+- VAL-83→89 completados
 
-### ⏳ Backlog restante (no urgente)
-- VAL-22: Fase 4 Scale — load testing, zero-downtime (due: julio 31)
-- VAL-18: EPIC CI/CD — fases 1-3 done, fase 4 = VAL-22
-- VAL-47: EPIC Hardening — P0s done, P2s pendientes
+### ✅ Sprints anteriores
+- VAL-1→61, VAL-65→67 (todo Done)
 
-### 🚫 No ejecutables por codigo
-- VAL-4: Entregar diagnosticos (ops/gtm, due: abril 30)
-- GRO-1→14: Growth team tasks (Lorenzo/equipo)
-- GRO-11: YC Application (due: agosto 1)
+## Roadmap: 4 sprints hasta YC (Aug 1)
 
-## Sprint nocturno — resumen
+| Sprint | Plan | Issues | Esfuerzo | Semana |
+|--------|------|--------|----------|--------|
+| **1. Bugs + Security** | `sprint-bugs-security.md` | VAL-68 epic (13 issues) | 5 días | Próximo |
+| **2. CI/CD Remaining** | `sprint-cicd-remaining.md` | VAL-18 gaps (5 tareas) | 3-4 días | Después de Sprint 1 |
+| **3. Product Features** | `sprint-product-features.md` | VAL-62, 63, 64 | 8-10 días | Paralelo con Sprint 2 |
+| **4. Scale + YC App** | `sprint-yc-application.md` | VAL-22 + GRO-11 | Semana 9-18 | Jun-Jul |
 
-Issues cerrados en esta sesion: **10 issues**
-PRs creados: **5 PRs** (#9, #10, #12, #13 + VAL-15 pendiente)
+### CI/CD — Estado real (auditoría 2026-03-23)
+- Phase 1 Foundation: **DONE** (tests, lint, Docker build)
+- Phase 2 Staging+CD: **50%** (prod deploy OK, falta staging)
+- Phase 3 Observability: **DONE** (Prometheus, Loki, Grafana, Sentry)
+- Phase 4 Scale: **60%** (Alembic OK, falta load testing + auto-scaling)
 
-| Issue | Tipo | PR |
-|-------|------|-----|
-| VAL-51 | CI fix (28 tests) | develop push |
-| VAL-21 | Multi-tenant RLS | PR #9 |
-| VAL-13 | Client Portal | PR #10 |
-| VAL-14 | Onboarding Wizard | PR #12 |
-| VAL-8 | Demo Mode | PR #13 |
-| VAL-12 | Demo UI (=VAL-8) | PR #13 |
-| VAL-6 | Self-serve (=VAL-14) | PR #12 |
-| VAL-9 | EPIC UI/UX | cerrado |
-| VAL-15 | Operator Dashboard | en progreso |
-
-## Proximos pasos
-1. Mergear PRs a develop
-2. VAL-22: Scale — load testing (cuando tenga 10+ clientes)
+## Próximo paso
+Arrancar Sprint 1 (Bugs + Security). P0 crashers primero (VAL-69, VAL-71).

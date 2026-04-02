@@ -18,6 +18,14 @@ class ModelType(str, Enum):
     GPT4_TURBO = "gpt-4-turbo"
 
 
+# Canonical Anthropic model IDs — single source of truth (2026 models)
+ANTHROPIC_MODEL_IDS = {
+    ModelType.OPUS:   "claude-opus-4-6",
+    ModelType.SONNET: "claude-sonnet-4-6",
+    ModelType.HAIKU:  "claude-haiku-4-5",
+}
+
+
 @dataclass
 class LLMOptions:
     """Unified options for LLM queries across all providers"""
@@ -58,12 +66,7 @@ class LLMOptions:
 
     def _map_model_to_anthropic(self) -> str:
         """Map generic model names to Anthropic-specific names"""
-        mapping = {
-            ModelType.OPUS: "claude-3-opus-20240229",
-            ModelType.SONNET: "claude-3-5-sonnet-20241022",
-            ModelType.HAIKU: "claude-3-haiku-20240307"
-        }
-        return mapping.get(self.model, "claude-3-5-sonnet-20241022")
+        return ANTHROPIC_MODEL_IDS.get(self.model, ANTHROPIC_MODEL_IDS[ModelType.SONNET])
 
 
 @dataclass

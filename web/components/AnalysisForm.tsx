@@ -12,6 +12,10 @@ import {
   ArrowRight, Loader2, Calendar
 } from 'lucide-react'
 import { T } from '@/components/d4c/tokens'
+import FileUpload from '@/components/FileUpload'
+import DataPreview from '@/components/DataPreview'
+import { startFileAnalysis } from '@/lib/api'
+import type { UploadResult } from '@/lib/types'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -65,7 +69,6 @@ const ERP_OPTIONS = [
     abbr: 'XL',
     db: 'sqlite',
     hints: [],
-    comingSoon: true,
   },
 ]
 
@@ -73,11 +76,11 @@ const ERP_OPTIONS = [
 const ConnectionSchema = z.object({
   client_name: z.string().min(2, 'Mínimo 2 caracteres'),
   erp_type: z.string().min(1, 'Seleccioná un sistema'),
-  db_host: z.string().min(1, 'Host requerido'),
+  db_host: z.string().optional().default(''),
   db_port: z.coerce.number().int().min(1).max(65535).default(5432),
-  db_name: z.string().min(1, 'Nombre de base de datos requerido'),
-  db_user: z.string().min(1, 'Usuario requerido'),
-  db_password: z.string().min(1, 'Contraseña requerida'),
+  db_name: z.string().optional().default(''),
+  db_user: z.string().optional().default(''),
+  db_password: z.string().optional().default(''),
   db_type: z.string().default('postgresql'),
   period: z.string().min(1, 'Período requerido'),
   use_ssh: z.boolean().default(false),
@@ -250,8 +253,7 @@ function Step1ERPSelection({
             <button
               key={erp.id}
               type="button"
-              onClick={() => !erp.comingSoon && onSelect(erp.id, erp.db)}
-              disabled={!!erp.comingSoon}
+              onClick={() => onSelect(erp.id, erp.db)}
               style={{
                 position: 'relative',
                 textAlign: 'left',
@@ -259,12 +261,11 @@ function Step1ERPSelection({
                 borderRadius: T.radius.sm,
                 border: isSelected ? `2px solid ${T.accent.teal}` : `2px solid ${T.bg.hover}`,
                 backgroundColor: isSelected ? T.accent.teal + '10' : T.bg.elevated,
-                cursor: erp.comingSoon ? 'not-allowed' : 'pointer',
-                opacity: erp.comingSoon ? 0.5 : 1,
+                cursor: 'pointer',
                 transition: 'border-color 150ms ease, background-color 150ms ease',
               }}
             >
-              {erp.popular && !erp.comingSoon && (
+              {erp.popular && (
                 <span style={{
                   position: 'absolute', top: 8, right: 8,
                   fontSize: 9, fontWeight: 700, fontFamily: T.font.mono,
@@ -272,15 +273,6 @@ function Step1ERPSelection({
                   padding: '2px 6px', borderRadius: 4,
                 }}>
                   Popular
-                </span>
-              )}
-              {erp.comingSoon && (
-                <span style={{
-                  position: 'absolute', top: 8, right: 8,
-                  fontSize: 9, color: T.text.tertiary, fontFamily: T.font.mono,
-                  padding: '2px 6px', borderRadius: 4, backgroundColor: T.bg.hover,
-                }}>
-                  Pronto
                 </span>
               )}
               <div style={{
@@ -507,6 +499,76 @@ function Step2Connection({
   )
 }
 
+// ── Step 2 (File mode): Upload files ─────────────────────────────────────────
+function Step2FileUpload({
+  clientName,
+  onUploadComplete,
+}: {
+  clientName: string
+  onUploadComplete: (uploads: UploadResult[]) => void
+}) {
+  return (
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+      <h2 style={{ fontSize: 22, fontWeight: 700, color: T.text.primary, marginBottom: 6 }}>
+        Subí tus archivos
+      </h2>
+      <p style={{ fontSize: 13, color: T.text.secondary, marginBottom: T.space.lg }}>
+        CSV o Excel exportados desde tu sistema · los datos no se almacenan
+      </p>
+
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        marginBottom: T.space.lg,
+        padding: `${T.space.sm} ${T.space.md}`,
+        backgroundColor: T.accent.teal + '10',
+        border: `1px solid ${T.accent.teal}30`,
+        borderRadius: T.radius.sm,
+      }}>
+        <Shield size={14} style={{ color: T.accent.teal, flexShrink: 0 }} />
+        <p style={{ fontSize: 12, color: T.accent.teal, margin: 0 }}>
+          Zero Data Storage — Valinor procesa los archivos en memoria y los descarta al terminar
+        </p>
+      </div>
+
+      <FileUpload
+        clientName={clientName}
+        onUploadComplete={onUploadComplete}
+      />
+    </motion.div>
+  )
+}
+
+// ── Step 2.5 (File mode): Preview + Column Mapping ───────────────────────────
+function Step2_5Preview({
+  uploadedFiles,
+  onConfirm,
+}: {
+  uploadedFiles: UploadResult[]
+  onConfirm: (mapping: Record<string, string>) => void
+}) {
+  const first = uploadedFiles[0]
+  if (!first) return null
+
+  return (
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+      <h2 style={{ fontSize: 22, fontWeight: 700, color: T.text.primary, marginBottom: 6 }}>
+        Verificá los datos
+      </h2>
+      <p style={{ fontSize: 13, color: T.text.secondary, marginBottom: T.space.lg }}>
+        Revisá la vista previa y mapeá las columnas a las entidades de negocio
+      </p>
+
+      <DataPreview
+        uploadId={first.upload_id}
+        sheets={first.sheets ?? []}
+        onConfirm={onConfirm}
+      />
+    </motion.div>
+  )
+}
+
 // ── Step 3: Period + Confirm ───────────────────────────────────────────────────
 type PeriodTab = 'month' | 'quarter' | 'year'
 
@@ -515,6 +577,8 @@ function Step3Confirm({
   period, onPeriod,
   isLoading, error, jobId,
   dataFrom, dataTo,
+  // File mode props
+  isFileMode, uploadedFiles, columnMapping,
 }: {
   clientName: string
   erpId: string
@@ -527,6 +591,9 @@ function Step3Confirm({
   jobId: string | null
   dataFrom?: string
   dataTo?: string
+  isFileMode?: boolean
+  uploadedFiles?: UploadResult[]
+  columnMapping?: Record<string, string>
 }) {
   const [tab, setTab] = useState<PeriodTab>('month')
   const erp = ERP_OPTIONS.find(e => e.id === erpId)
@@ -543,6 +610,31 @@ function Step3Confirm({
     { symbol: '◆', text: 'Identificación de oportunidades de mejora' },
     { symbol: '≡', text: 'Reporte ejecutivo listo para el CEO' },
   ]
+
+  // Summary rows differ between file mode and DB mode
+  const summaryRows = isFileMode && uploadedFiles && uploadedFiles.length > 0
+    ? [
+        { label: 'Cliente', value: clientName || '—' },
+        { label: 'Sistema', value: 'XL Excel / CSV' },
+        {
+          label: uploadedFiles.length === 1 ? 'Archivo' : 'Archivos',
+          value: uploadedFiles.length === 1
+            ? uploadedFiles[0].filename
+            : `${uploadedFiles.length} archivos`,
+          mono: true,
+        },
+        {
+          label: 'Columnas mapeadas',
+          value: columnMapping ? `${Object.keys(columnMapping).length} columnas` : '—',
+          mono: true,
+        },
+      ]
+    : [
+        { label: 'Cliente', value: clientName || '—' },
+        { label: 'Sistema', value: `${erp?.abbr || ''} ${erp?.name || '—'}` },
+        { label: 'Host', value: dbHost || '—', mono: true },
+        { label: 'Base de datos', value: dbName || '—', mono: true },
+      ]
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
@@ -566,12 +658,7 @@ function Step3Confirm({
         gridTemplateColumns: '1fr 1fr',
         gap: 12,
       }}>
-        {[
-          { label: 'Cliente', value: clientName || '—' },
-          { label: 'Sistema', value: `${erp?.abbr || ''} ${erp?.name || '—'}` },
-          { label: 'Host', value: dbHost || '—', mono: true },
-          { label: 'Base de datos', value: dbName || '—', mono: true },
-        ].map(({ label, value, mono }) => (
+        {summaryRows.map(({ label, value, mono }) => (
           <div key={label}>
             <p style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>{label}</p>
             <p style={{
@@ -737,6 +824,17 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testingConnection, setTestingConnection] = useState(false)
 
+  // ── File mode state ───────────────────────────────────────────────────────
+  const [uploadedFiles, setUploadedFiles] = useState<UploadResult[]>([])
+  const [columnMapping, setColumnMapping] = useState<Record<string, string>>({})
+
+  const isFileMode = selectedErp === 'excel'
+
+  // In file mode the wizard has 4 steps (0,1,2,3); DB mode has 3 steps (0,1,2)
+  const totalSteps = isFileMode ? 4 : 3
+  // Step index of the final "launch" step
+  const confirmStep = isFileMode ? 3 : 2
+
   const {
     register,
     handleSubmit,
@@ -754,6 +852,9 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
     setValue('erp_type', id)
     setValue('db_type', db)
     setValue('client_name', clientName)
+    // Reset file state when switching ERP
+    setUploadedFiles([])
+    setColumnMapping({})
   }
 
   const handleTestConnection = async () => {
@@ -784,46 +885,87 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
   const canProceed = () => {
     if (step === 0) return selectedErp !== '' && clientName.trim().length >= 2
     if (step === 1) {
+      if (isFileMode) {
+        // Need at least one successfully uploaded file
+        return uploadedFiles.length > 0
+      }
       const v = getValues()
       return !!(v.db_host && v.db_name && v.db_user && v.db_password)
     }
+    // Step 2 in file mode = preview; proceed when onConfirm has been called (mapping set)
+    if (step === 2 && isFileMode) return true
     return period !== ''
   }
 
+  const handleFileUploadComplete = (uploads: UploadResult[]) => {
+    setUploadedFiles(uploads)
+  }
+
+  const handlePreviewConfirm = (mapping: Record<string, string>) => {
+    setColumnMapping(mapping)
+    setStep(3)
+  }
+
   const onSubmit = async (data: ConnectionFormData) => {
-    if (step !== 2) return
+    if (step !== confirmStep) return
     setIsLoading(true)
     setError(null)
     try {
-      const payload: any = {
-        client_name: clientName,
-        period,
-        erp: selectedErp || null,
-        db_config: {
-          host: data.db_host,
-          port: data.db_port,
-          name: data.db_name,
-          user: data.db_user,
-          password: data.db_password,
-          type: data.db_type,
-        },
-      }
-      if (data.use_ssh && data.ssh_host) {
-        payload.ssh_config = {
-          host: data.ssh_host,
-          username: data.ssh_user,
-          private_key_path: data.ssh_key_path,
+      if (isFileMode) {
+        // File-based analysis path
+        const result = await startFileAnalysis({
+          client_name: clientName,
+          upload_ids: uploadedFiles.map(u => u.upload_id),
+          column_mapping: columnMapping,
+          period,
+        })
+        setPendingJobId(result.job_id)
+        onStartAnalysis(result.job_id)
+      } else {
+        // DB connection analysis path (unchanged)
+        const payload: any = {
+          client_name: clientName,
+          period,
+          erp: selectedErp || null,
+          db_config: {
+            host: data.db_host,
+            port: data.db_port,
+            name: data.db_name,
+            user: data.db_user,
+            password: data.db_password,
+            type: data.db_type,
+          },
         }
+        if (data.use_ssh && data.ssh_host) {
+          payload.ssh_config = {
+            host: data.ssh_host,
+            username: data.ssh_user,
+            private_key_path: data.ssh_key_path,
+          }
+        }
+        const res = await axios.post(`${API_URL}/api/analyze`, payload)
+        setPendingJobId(res.data.job_id)
+        onStartAnalysis(res.data.job_id)
       }
-      const res = await axios.post(`${API_URL}/api/analyze`, payload)
-      setPendingJobId(res.data.job_id)
-      onStartAnalysis(res.data.job_id)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Error al iniciar el análisis')
     } finally {
       setIsLoading(false)
     }
   }
+
+  const handleBack = () => {
+    if (step > 0) setStep(s => s - 1)
+  }
+
+  const handleContinue = () => {
+    if (canProceed()) setStep(s => s + 1)
+  }
+
+  // In file mode, step 2 (preview) advances via the DataPreview "Confirmar datos" button,
+  // not the regular "Continuar" button, so we hide "Continuar" on that step.
+  const isPreviewStep = isFileMode && step === 2
+  const isLastStep = step === confirmStep
 
   return (
     <div style={{
@@ -835,7 +977,7 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
       overflow: 'hidden',
     }}>
       <div style={{ padding: `${T.space.xl} ${T.space.xl} 0` }}>
-        <StepIndicator current={step} total={3} />
+        <StepIndicator current={step} total={totalSteps} />
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)}>
@@ -850,9 +992,16 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
                 onClientName={v => { setClientName(v); setValue('client_name', v) }}
               />
             )}
-            {step === 1 && (
+            {step === 1 && isFileMode && (
+              <Step2FileUpload
+                key="step2-file"
+                clientName={clientName}
+                onUploadComplete={handleFileUploadComplete}
+              />
+            )}
+            {step === 1 && !isFileMode && (
               <Step2Connection
-                key="step2"
+                key="step2-db"
                 register={register}
                 errors={errors}
                 watch={watch}
@@ -861,7 +1010,14 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
                 onTestConnection={handleTestConnection}
               />
             )}
-            {step === 2 && (
+            {step === 2 && isFileMode && (
+              <Step2_5Preview
+                key="step2-5"
+                uploadedFiles={uploadedFiles}
+                onConfirm={handlePreviewConfirm}
+              />
+            )}
+            {step === confirmStep && (
               <Step3Confirm
                 key="step3"
                 clientName={clientName}
@@ -875,6 +1031,9 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
                 jobId={pendingJobId}
                 dataFrom={testResult?.data_from}
                 dataTo={testResult?.data_to}
+                isFileMode={isFileMode}
+                uploadedFiles={uploadedFiles}
+                columnMapping={columnMapping}
               />
             )}
           </AnimatePresence>
@@ -890,23 +1049,32 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
         }}>
           <button
             type="button"
-            onClick={() => step > 0 && setStep(s => s - 1)}
+            onClick={handleBack}
             className="d4c-btn-ghost"
             style={{ visibility: step === 0 ? 'hidden' : 'visible' }}
           >
             <ChevronLeft size={14} />Atrás
           </button>
 
-          {step < 2 ? (
+          {/* Preview step: DataPreview has its own "Confirmar datos" button */}
+          {isPreviewStep && (
+            <span style={{ fontSize: 12, color: T.text.tertiary }}>
+              Confirmá los datos en la tabla para continuar →
+            </span>
+          )}
+
+          {!isPreviewStep && !isLastStep && (
             <button
               type="button"
-              onClick={() => canProceed() && setStep(s => s + 1)}
+              onClick={handleContinue}
               disabled={!canProceed()}
               className="d4c-btn-primary"
             >
               Continuar<ChevronRight size={14} />
             </button>
-          ) : (
+          )}
+
+          {isLastStep && (
             <button
               type="submit"
               disabled={isLoading || !period}
@@ -915,7 +1083,7 @@ export function AnalysisForm({ onStartAnalysis }: AnalysisFormProps) {
               {isLoading ? (
                 <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />Iniciando análisis...</>
               ) : (
-                <>Iniciar análisis<ArrowRight size={14} /></>
+                <>Lanzar análisis<ArrowRight size={14} /></>
               )}
             </button>
           )}

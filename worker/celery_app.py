@@ -30,10 +30,16 @@ celery_app.conf.update(
     task_soft_time_limit=3300,   # 55-minute soft limit
     worker_max_tasks_per_child=10,
     worker_prefetch_multiplier=1,
-    # Routes — all tasks go to the "valinor" queue
+    # Routes — heavy analysis on dedicated queue, lightweight ops on maintenance
     task_routes={
-        "worker.tasks.*": {"queue": "valinor"},
+        "worker.tasks.run_analysis_task": {"queue": "analysis"},
+        "worker.tasks.cleanup_job": {"queue": "maintenance"},
+        "worker.tasks.cleanup_expired_jobs": {"queue": "maintenance"},
+        "worker.tasks.health_check": {"queue": "maintenance"},
+        "worker.tasks.monitor_jobs": {"queue": "maintenance"},
     },
+    # Default queue for any unrouted tasks
+    task_default_queue="maintenance",
     # Beat schedule
     beat_schedule={
         "cleanup-expired-jobs": {

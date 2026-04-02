@@ -2,49 +2,52 @@
  * tokens.ts — D4C Design System tokens
  * Fuente única de verdad para colores, tipografía y espaciado.
  * Todo output visual D4C usa estos valores. Sin excepciones.
+ *
+ * Colors reference CSS custom properties defined in globals.css,
+ * enabling dark/light mode via [data-theme] on <html>.
  */
 
 export const T = {
-  // ── Backgrounds (lightened 1 stop for better contrast ratios) ────────────
+  // ── Backgrounds ───────────────────────────────────────────────────────────
   bg: {
-    primary:  '#0E0E14',   // capa base — slightly raised from pure void
-    card:     '#15151C',   // superficie de card — visible separation
-    elevated: '#1E1E28',   // hover, tooltips, elementos anidados
-    hover:    '#282838',   // estado activo/presionado
+    primary:  'var(--color-bg-base)',
+    card:     'var(--color-bg-surface)',
+    elevated: 'var(--color-bg-elevated)',
+    hover:    'var(--color-bg-hover)',
   },
 
-  // ── Text (secondary/tertiary raised for WCAG AA compliance) ────────────
+  // ── Text ──────────────────────────────────────────────────────────────────
   text: {
-    primary:   '#F0F0F5',  // headings, hero numbers
-    secondary: '#9A9AAA',  // body text, descripciones — WCAG AA on bg-card
-    tertiary:  '#6A6A7A',  // labels, captions, metadata — improved readability
-    inverse:   '#0E0E14',  // texto sobre fondos claros/accent
+    primary:   'var(--color-text-primary)',
+    secondary: 'var(--color-text-secondary)',
+    tertiary:  'var(--color-text-tertiary)',
+    inverse:   'var(--color-text-inverse)',
   },
 
-  // ── Accents ─────────────────────────────────────────────────────────────────
+  // ── Accents ───────────────────────────────────────────────────────────────
   accent: {
-    teal:   '#2A9D8F',     // Valinor brand, success, CTA primario
-    red:    '#E63946',     // CRITICAL, loss framing, danger
-    yellow: '#E9C46A',     // WARNING, highlights secundarios
-    orange: '#F4845F',     // MEDIUM severity
-    blue:   '#85B7EB',     // INFO, datos neutros
-    purple: '#9B5DE5',     // dev/interno, epics
+    teal:   'var(--color-accent-teal)',
+    red:    'var(--color-accent-red)',
+    yellow: 'var(--color-accent-yellow)',
+    orange: 'var(--color-accent-orange)',
+    blue:   'var(--color-accent-blue)',
+    purple: 'var(--color-accent-purple)',
   },
 
-  // ── Borders (updated to match lightened bg tokens) ──────────────────────
+  // ── Borders ───────────────────────────────────────────────────────────────
   border: {
-    subtle: '1px solid #1E1E28',
-    card:   '1px solid #282838',
+    subtle: '1px solid var(--color-border-subtle)',
+    card:   '1px solid var(--color-border-card)',
   },
 
-  // ── Radius ──────────────────────────────────────────────────────────────────
+  // ── Radius ────────────────────────────────────────────────────────────────
   radius: {
     sm: '8px',
     md: '12px',
     lg: '16px',
   },
 
-  // ── Spacing ─────────────────────────────────────────────────────────────────
+  // ── Spacing ───────────────────────────────────────────────────────────────
   space: {
     xs:  '4px',
     sm:  '8px',
@@ -54,10 +57,10 @@ export const T = {
     xxl: '48px',
   },
 
-  // ── Fonts ───────────────────────────────────────────────────────────────────
+  // ── Fonts ─────────────────────────────────────────────────────────────────
   font: {
-    display: "'Inter', 'DM Sans', system-ui, sans-serif",
-    mono:    "'JetBrains Mono', 'Fira Code', monospace",
+    display: "'Sora', 'DM Sans', system-ui, sans-serif",
+    mono:    "'DM Mono', 'Fira Code', monospace",
   },
 } as const
 
@@ -85,7 +88,7 @@ export const SEV_LABEL: Record<string, string> = {
 export const CHART_THEME = {
   colors: [T.accent.teal, T.accent.red, T.accent.yellow, T.accent.orange, T.accent.blue],
   background: T.bg.card,
-  grid: '#1E1E2840',
+  grid: 'var(--color-chart-grid)',
   text: T.text.tertiary,
   tooltip: { bg: T.bg.elevated, border: T.bg.hover, text: T.text.primary },
 }

@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "core"))
 
 import pytest
-from valinor.verification import Dimension, VerificationEngine, VerificationReport
+from valinor.verification import AtomicClaim, Dimension, VerificationEngine, VerificationReport
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -452,3 +452,145 @@ class TestConfidenceScoring:
         assert ar_claims[0].status in ("FAILED", "UNVERIFIABLE", "APPROXIMATE")
         if ar_claims[0].status in ("FAILED", "UNVERIFIABLE"):
             assert ar_claims[0].confidence_score == 0.0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TEST: DIMENSION-AWARE VERIFICATION (VAL-63)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestDimensionFiltering:
+    """VAL-63: Verify that cross-dimension false positives are prevented."""
+
+    def test_eur_should_not_match_count_registry(self, engine):
+        """EUR 3139 should NOT match num_invoices=3139 (COUNT dimension)."""
+        engine._build_registry_from_queries()
+
+        claim = AtomicClaim(
+            claim_id="dim_test_eur_vs_count",
+            finding_id="DIM-001",
+            claim_text="EUR value: 3139",
+            claim_type="numeric",
+            claimed_value=3139.0,
+            claimed_unit="EUR",
+        )
+        result = engine._verify_claim(claim)
+        # Should NOT match num_invoices=3139 because dimensions are incompatible
+        if result.status == "VERIFIED":
+            # If verified, it must NOT be against num_invoices
+            assert "num_invoices" not in result.evidence
+
+    def test_count_should_not_match_eur_registry(self, engine):
+        """COUNT 1631559 should NOT match total_revenue=1631559.62 (EUR dimension)."""
+        engine._build_registry_from_queries()
+
+        claim = AtomicClaim(
+            claim_id="dim_test_count_vs_eur",
+            finding_id="DIM-002",
+            claim_text="invoice count: 1631559",
+            claim_type="numeric",
+            claimed_value=1631559.0,
+            claimed_unit="count",
+        )
+        result = engine._verify_claim(claim)
+        # Should NOT match total_revenue because dimensions are incompatible
+        if result.status in ("VERIFIED", "APPROXIMATE"):
+            assert "total_revenue" not in result.evidence
+
+    def test_percent_should_not_match_count_registry(self, engine):
+        """COUNT 47 should NOT match a percentage=47% entry."""
+        engine._build_registry_from_queries()
+
+        # Register a percentage entry
+        engine._register("top_customer_pct", 47.0,
+                          "customer_concentration", "Top customer share",
+                          dimension=Dimension.PERCENT)
+
+        claim = AtomicClaim(
+            claim_id="dim_test_count_vs_pct",
+            finding_id="DIM-003",
+            claim_text="47 invoices",
+            claim_type="numeric",
+            claimed_value=47.0,
+            claimed_unit="count",
+        )
+        result = engine._verify_claim(claim)
+        # Should NOT match the percentage entry
+        if result.status in ("VERIFIED", "APPROXIMATE"):
+            assert "top_customer_pct" not in result.evidence
+
+    def test_eur_should_match_eur_registry(self, engine):
+        """EUR 500000 SHOULD match an EUR registry entry with value 500000."""
+        engine._build_registry_from_queries()
+
+        # Register a EUR entry
+        engine._register("special_revenue", 500000.0,
+                          "test_query", "Test EUR value",
+                          dimension=Dimension.EUR)
+
+        claim = AtomicClaim(
+            claim_id="dim_test_eur_match",
+            finding_id="DIM-004",
+            claim_text="EUR value: 500000",
+            claim_type="numeric",
+            claimed_value=500000.0,
+            claimed_unit="EUR",
+        )
+        result = engine._verify_claim(claim)
+        assert result.status == "VERIFIED"
+        assert "special_revenue" in result.evidence
+
+    def test_unknown_dimension_matches_anything(self, engine):
+        """UNKNOWN dimension claims should still match any registry entry."""
+        engine._build_registry_from_queries()
+
+        claim = AtomicClaim(
+            claim_id="dim_test_unknown",
+            finding_id="DIM-005",
+            claim_text="Value: 3139",
+            claim_type="numeric",
+            claimed_value=3139.0,
+            claimed_unit="something_custom",  # Maps to UNKNOWN
+        )
+        result = engine._verify_claim(claim)
+        # UNKNOWN should be permissive — can match num_invoices
+        assert result.status == "VERIFIED"
+
+    def test_dimensions_compatible_helper(self):
+        """Test the _dimensions_compatible static method directly."""
+        assert VerificationEngine._dimensions_compatible(
+            Dimension.EUR, Dimension.EUR) is True
+        assert VerificationEngine._dimensions_compatible(
+            Dimension.EUR, Dimension.COUNT) is False
+        assert VerificationEngine._dimensions_compatible(
+            Dimension.UNKNOWN, Dimension.EUR) is True
+        assert VerificationEngine._dimensions_compatible(
+            Dimension.EUR, Dimension.UNKNOWN) is True
+        assert VerificationEngine._dimensions_compatible(
+            Dimension.PERCENT, Dimension.COUNT) is False
+
+    def test_unit_to_dimension_mapping(self):
+        """Test the _unit_to_dimension class method."""
+        assert VerificationEngine._unit_to_dimension("EUR") == Dimension.EUR
+        assert VerificationEngine._unit_to_dimension("count") == Dimension.COUNT
+        assert VerificationEngine._unit_to_dimension("percent") == Dimension.PERCENT
+        assert VerificationEngine._unit_to_dimension("days") == Dimension.DAYS
+        assert VerificationEngine._unit_to_dimension("unknown_unit") == Dimension.UNKNOWN
+
+    def test_raw_results_dimension_filtering(self, engine):
+        """EUR claim should NOT match a count column in raw results."""
+        engine._build_registry_from_queries()
+        # Clear registry so we fall through to raw results search
+        engine._registry.clear()
+
+        claim = AtomicClaim(
+            claim_id="dim_test_raw",
+            finding_id="DIM-006",
+            claim_text="EUR value: 3139",
+            claim_type="numeric",
+            claimed_value=3139.0,
+            claimed_unit="EUR",
+        )
+        result = engine._verify_claim(claim)
+        # Should NOT match num_invoices=3139 in raw results
+        if result.status == "VERIFIED":
+            assert result.evidence is None or "num_invoices" not in result.evidence

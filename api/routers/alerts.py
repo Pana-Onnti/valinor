@@ -4,19 +4,11 @@ Alerts router — Alert threshold CRUD and triggered alerts.
 Extracted from main.py for better modularity.
 """
 
-import os
-import sys
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 
 router = APIRouter(prefix="/api", tags=["Alerts"])
-
-
-def _ensure_shared_path():
-    shared_parent = os.path.join(os.path.dirname(__file__), '..', '..')
-    if shared_parent not in sys.path:
-        sys.path.insert(0, shared_parent)
 
 
 _VALID_CONDITIONS = {
@@ -31,7 +23,7 @@ _VALID_CONDITIONS = {
 @router.get("/clients/{client_name}/alerts", tags=["Alerts"])
 async def get_client_alerts(client_name: str):
     """Get alert thresholds and recent triggers for a client."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()
@@ -49,7 +41,7 @@ async def get_client_alerts(client_name: str):
 @router.post("/clients/{client_name}/alerts")
 async def add_alert_threshold(client_name: str, threshold: dict):
     """Add an alert threshold for a client."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     required = ["label", "metric", "operator", "value"]
@@ -74,7 +66,7 @@ async def add_alert_threshold(client_name: str, threshold: dict):
 @router.delete("/clients/{client_name}/alerts/{alert_label}")
 async def delete_alert_threshold(client_name: str, alert_label: str):
     """Remove an alert threshold."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()
@@ -87,7 +79,7 @@ async def delete_alert_threshold(client_name: str, alert_label: str):
 @router.get("/clients/{name}/alerts/thresholds", tags=["Alerts"])
 async def get_alert_thresholds(name: str):
     """Return the client's alert thresholds keyed by metric name."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()
@@ -102,7 +94,7 @@ async def get_alert_thresholds(name: str):
 @router.post("/clients/{name}/alerts/thresholds", tags=["Alerts"])
 async def upsert_alert_threshold(name: str, body: dict):
     """Create or update an alert threshold for a client."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     required = ["metric", "condition", "threshold_value", "severity"]
@@ -149,7 +141,7 @@ async def upsert_alert_threshold(name: str, body: dict):
 @router.delete("/clients/{name}/alerts/thresholds/{metric}", tags=["Alerts"])
 async def delete_alert_threshold_by_metric(name: str, metric: str):
     """Remove an alert threshold identified by its metric key."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()
@@ -165,7 +157,7 @@ async def delete_alert_threshold_by_metric(name: str, metric: str):
 @router.get("/clients/{name}/alerts/triggered", tags=["Alerts"])
 async def get_triggered_alerts(name: str):
     """Return triggered alerts stored from the last analysis run."""
-    _ensure_shared_path()
+
     from shared.memory.profile_store import get_profile_store
 
     store = get_profile_store()

@@ -6,16 +6,10 @@ a nuestro sistema LLM provider. Esto permite switching sin tocar el código core
 import os
 import sys
 from typing import AsyncIterator, Optional, Dict
-from pathlib import Path
 
-# Add shared to path if needed
-current_dir = Path(__file__).parent.parent.parent
-if str(current_dir) not in sys.path:
-    sys.path.insert(0, str(current_dir))
-
-from shared.llm.base import LLMOptions, ModelType  # noqa: E402
-from shared.llm.config import LLMConfig, ProviderType  # noqa: E402
-from shared.llm.factory import get_provider  # noqa: E402, F401
+from shared.llm.base import LLMOptions, ModelType
+from shared.llm.config import LLMConfig, ProviderType
+from shared.llm.factory import get_provider  # noqa: F401
 
 
 class ClaudeSDKInterceptor:
