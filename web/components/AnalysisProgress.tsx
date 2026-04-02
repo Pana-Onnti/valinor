@@ -1,17 +1,49 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { motion } from 'framer-motion'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import axios from 'axios'
-import { CheckCircle, XCircle, Clock, Loader2 } from 'lucide-react'
+import {
+  CheckCircle, XCircle, Clock, Loader2, Compass, Code,
+  BarChart3, Shield, Search, BookOpen, Zap, Package,
+} from 'lucide-react'
 import { T } from '@/components/d4c/tokens'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-interface Step {
-  name: string
-  status: 'pending' | 'running' | 'done' | 'error'
+/* ─── Pipeline stages ─────────────────────────────────────────────────────── */
+
+const PIPELINE_STAGES = [
+  'data_quality_gate', 'cartographer', 'query_builder', 'execute_queries',
+  'baseline', 'analyst', 'sentinel', 'hunter', 'reconciliation',
+  'verification', 'narrators', 'delivery',
+] as const
+
+type StageName = (typeof PIPELINE_STAGES)[number]
+
+const STAGE_META: Record<StageName, { label: string; icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }> }> = {
+  data_quality_gate: { label: 'Control de Calidad', icon: Shield },
+  cartographer:      { label: 'Cartógrafo', icon: Compass },
+  query_builder:     { label: 'Constructor de Queries', icon: Code },
+  execute_queries:   { label: 'Ejecutando Queries', icon: Zap },
+  baseline:          { label: 'Línea Base', icon: BarChart3 },
+  analyst:           { label: 'Analista', icon: BarChart3 },
+  sentinel:          { label: 'Centinela', icon: Shield },
+  hunter:            { label: 'Cazador', icon: Search },
+  reconciliation:    { label: 'Reconciliación', icon: Package },
+  verification:      { label: 'Verificación', icon: CheckCircle },
+  narrators:         { label: 'Narradores', icon: BookOpen },
+  delivery:          { label: 'Entrega', icon: Package },
+}
+
+/* ─── Types ───────────────────────────────────────────────────────────────── */
+
+type AgentStatus = 'waiting' | 'running' | 'completed' | 'error'
+
+interface AgentState {
+  status: AgentStatus
   message?: string
+  duration?: number
 }
 
 interface AnalysisProgressProps {
@@ -19,6 +51,19 @@ interface AnalysisProgressProps {
   onComplete: () => void
 }
 
+/** New PipelineEvent format from backend */
+interface PipelineEvent {
+  job_id: string
+  agent: string
+  status: 'started' | 'completed' | 'error'
+  message: string
+  duration_seconds?: number | null
+  metadata?: Record<string, unknown> | null
+  timestamp?: string
+  progress?: number | null
+}
+
+/** Legacy ProgressUpdate format (polling fallback) */
 interface ProgressUpdate {
   job_id: string
   status: string
@@ -32,30 +77,143 @@ interface ProgressUpdate {
   done?: boolean
 }
 
-const PIPELINE_STEPS = [
-  'Connecting to database',
-  'Cartographer: Mapping schema',
-  'Query Builder: Generating queries',
-  'Analyst: Running analysis',
-  'Sentinel: Security check',
-  'Hunter: Finding insights',
-  'Narrators: Generating report',
+/* ─── Educational carousel facts ──────────────────────────────────────────── */
+
+const CAROUSEL_FACTS = [
+  '\u00bfSab\u00edas que el 73% de las PyMEs LATAM tiene m\u00e1s del 20% de su cartera vencida?',
+  'El margen promedio en distribuci\u00f3n LATAM es 14%. \u00bfD\u00f3nde estar\u00e1 el tuyo?',
+  'Valinor verifica cada dato con m\u00faltiples fuentes antes de reportarlo.',
+  'En promedio, detectamos 4 hallazgos cr\u00edticos por empresa.',
+  'El costo promedio de no cobrar a tiempo: 2.3% de tu facturaci\u00f3n anual.',
 ]
 
-export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressProps) {
-  const [steps, setSteps] = useState<Step[]>(
-    PIPELINE_STEPS.map((name) => ({ name, status: 'pending' }))
-  )
-  const [status, setStatus] = useState<'running' | 'completed' | 'failed'>('running')
-  const [progress, setProgress] = useState(0)
-  const [dqScore, setDqScore] = useState<number | null>(null)
-  const [dqLabel, setDqLabel] = useState<string | null>(null)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+/* ─── Shimmer keyframes (injected once) ───────────────────────────────────── */
 
-  // Keep a stable ref to onComplete so the SSE/polling closures don't go stale
+const SHIMMER_ID = 'd4c-shimmer-keyframes'
+const PULSE_ID = 'd4c-pulse-keyframes'
+
+function injectKeyframes() {
+  if (typeof document === 'undefined') return
+  if (!document.getElementById(SHIMMER_ID)) {
+    const style = document.createElement('style')
+    style.id = SHIMMER_ID
+    style.textContent = `
+      @keyframes d4c-shimmer {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
+      }
+      @keyframes d4c-spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    `
+    document.head.appendChild(style)
+  }
+  if (!document.getElementById(PULSE_ID)) {
+    const style = document.createElement('style')
+    style.id = PULSE_ID
+    style.textContent = `
+      @keyframes d4c-pulse-glow {
+        0%, 100% { box-shadow: 0 0 0 0 var(--color-accent-teal); opacity: 1; }
+        50% { box-shadow: 0 0 12px 4px var(--color-accent-teal); opacity: 0.8; }
+      }
+    `
+    document.head.appendChild(style)
+  }
+}
+
+/* ─── Component ───────────────────────────────────────────────────────────── */
+
+export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressProps) {
+  const [agents, setAgents] = useState<Record<StageName, AgentState>>(() => {
+    const init: Partial<Record<StageName, AgentState>> = {}
+    for (const s of PIPELINE_STAGES) init[s] = { status: 'waiting' }
+    return init as Record<StageName, AgentState>
+  })
+  const [globalProgress, setGlobalProgress] = useState(0)
+  const [status, setStatus] = useState<'running' | 'completed' | 'failed'>('running')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [showCompletion, setShowCompletion] = useState(false)
+  const [carouselIdx, setCarouselIdx] = useState(0)
+
+  const startTimeRef = useRef(Date.now())
   const onCompleteRef = useRef(onComplete)
   useEffect(() => { onCompleteRef.current = onComplete }, [onComplete])
 
+  // Inject keyframes on mount
+  useEffect(() => { injectKeyframes() }, [])
+
+  // Carousel rotation
+  useEffect(() => {
+    if (status !== 'running') return
+    const iv = setInterval(() => {
+      setCarouselIdx((p) => (p + 1) % CAROUSEL_FACTS.length)
+    }, 8000)
+    return () => clearInterval(iv)
+  }, [status])
+
+  // Remaining time estimate
+  const completedCount = PIPELINE_STAGES.filter((s) => agents[s].status === 'completed').length
+  const elapsedSec = (Date.now() - startTimeRef.current) / 1000
+  const estRemainingMin = completedCount > 0
+    ? Math.ceil(((elapsedSec / completedCount) * (PIPELINE_STAGES.length - completedCount)) / 60)
+    : null
+
+  /* ── applyPipelineEvent — new format ──────────────────────────────────── */
+  const applyPipelineEvent = useCallback((evt: PipelineEvent) => {
+    const stage = evt.agent as StageName
+    if (!PIPELINE_STAGES.includes(stage)) return
+
+    setAgents((prev) => {
+      const next = { ...prev }
+      if (evt.status === 'started') {
+        next[stage] = { status: 'running', message: evt.message }
+      } else if (evt.status === 'completed') {
+        next[stage] = {
+          status: 'completed',
+          message: evt.message,
+          duration: evt.duration_seconds ?? undefined,
+        }
+      } else if (evt.status === 'error') {
+        next[stage] = { status: 'error', message: evt.message }
+      }
+      return next
+    })
+
+    if (evt.progress != null) {
+      setGlobalProgress(Math.max(0, Math.min(100, evt.progress)))
+    }
+  }, [])
+
+  /* ── applyLegacyUpdate — old polling format ───────────────────────────── */
+  const applyLegacyUpdate = useCallback((data: ProgressUpdate) => {
+    if (data.error || data.done) return
+
+    const p = data.progress ?? 0
+    setGlobalProgress(Math.max(0, p))
+
+    if (data.stage) {
+      const completedN = Math.floor((Math.max(0, p) / 100) * PIPELINE_STAGES.length)
+      setAgents((prev) => {
+        const next = { ...prev }
+        PIPELINE_STAGES.forEach((s, i) => {
+          if (i < completedN) next[s] = { ...next[s], status: 'completed' }
+          else if (i === completedN) next[s] = { ...next[s], status: 'running', message: data.message }
+          else next[s] = { ...next[s], status: 'waiting' }
+        })
+        return next
+      })
+    }
+
+    if (data.status) {
+      setStatus(data.status as 'running' | 'completed' | 'failed')
+      if (data.status === 'failed' && data.message) {
+        setErrorMessage(data.message.replace(/^Analysis failed:\s*/i, ''))
+      }
+    }
+  }, [])
+
+  /* ── 3-tier connection (WS → SSE → polling) ──────────────────────────── */
   useEffect(() => {
     if (!analysisId) return
 
@@ -70,60 +228,88 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
       if (pollInterval) clearInterval(pollInterval)
     }
 
-    const applyUpdate = (data: ProgressUpdate) => {
-      if (data.error || data.done) return
+    const isPipelineEvent = (data: Record<string, unknown>): data is PipelineEvent =>
+      'agent' in data && ('status' in data) &&
+      ['started', 'completed', 'error'].includes(data.status as string)
 
-      const p = data.progress ?? 0
-      setProgress(Math.max(0, p))
-      if (data.stage) {
-        const completedCount = Math.floor((Math.max(0, p) / 100) * PIPELINE_STEPS.length)
-        setSteps((prev) =>
-          prev.map((s, i) => ({
-            ...s,
-            status:
-              i < completedCount ? 'done' : i === completedCount ? 'running' : 'pending',
-          }))
-        )
-      }
-      if (data.status) {
-        setStatus(data.status as 'running' | 'completed' | 'failed')
-        if (data.status === 'failed' && data.message) {
-          setErrorMessage(data.message.replace(/^Analysis failed:\s*/i, ''))
+    const handleMessage = (raw: string) => {
+      try {
+        const data = JSON.parse(raw)
+
+        if (isPipelineEvent(data)) {
+          applyPipelineEvent(data)
+        } else {
+          applyLegacyUpdate(data as ProgressUpdate)
         }
-      }
 
-      if (data.dq_score !== undefined) {
-        setDqScore(data.dq_score ?? null)
-        setDqLabel(data.dq_label ?? null)
-      }
+        // Check for completion
+        if (!completed && (
+          data.final || data.status === 'completed' || data.status === 'failed' ||
+          data.done
+        )) {
+          // For PipelineEvent "completed" on delivery stage
+          if (isPipelineEvent(data) && data.agent === 'delivery' && data.status === 'completed') {
+            completed = true
+            setStatus('completed')
+            setGlobalProgress(100)
+            setAgents((prev) => {
+              const next = { ...prev }
+              for (const s of PIPELINE_STAGES) {
+                if (next[s].status !== 'completed' && next[s].status !== 'error') {
+                  next[s] = { ...next[s], status: 'completed' }
+                }
+              }
+              return next
+            })
+            setTimeout(() => setShowCompletion(true), 1500)
+            cleanup()
+            return
+          }
 
-      if (
-        !completed &&
-        (data.final || data.status === 'completed' || data.status === 'failed')
-      ) {
-        completed = true
-        if (data.status === 'completed') {
-          setProgress(100)
-          setSteps((prev) => prev.map((s) => ({ ...s, status: 'done' })))
-          setTimeout(() => onCompleteRef.current(), 1500)
+          // Legacy completion
+          if (!isPipelineEvent(data) && (data.final || data.status === 'completed')) {
+            completed = true
+            setStatus('completed')
+            setGlobalProgress(100)
+            setAgents((prev) => {
+              const next = { ...prev }
+              for (const s of PIPELINE_STAGES) next[s] = { ...next[s], status: 'completed' }
+              return next
+            })
+            setTimeout(() => setShowCompletion(true), 1500)
+            cleanup()
+            return
+          }
+
+          if (data.status === 'failed') {
+            completed = true
+            setStatus('failed')
+            if (data.message) setErrorMessage(
+              String(data.message).replace(/^Analysis failed:\s*/i, '')
+            )
+            cleanup()
+          }
         }
-        cleanup()
+      } catch {
+        // ignore parse errors
       }
     }
 
-    // Tier 3: HTTP polling fallback
+    // Tier 3: HTTP polling
     const startPolling = () => {
       const poll = async () => {
         if (completed) return
         try {
           const res = await axios.get(`${API_URL}/api/jobs/${analysisId}/status`)
-          applyUpdate({
+          handleMessage(JSON.stringify({
             job_id: analysisId,
             status: res.data.status,
             stage: res.data.stage ?? '',
             progress: res.data.progress ?? 0,
             message: res.data.message ?? '',
-          })
+            final: res.data.final,
+            done: res.data.done,
+          }))
         } catch {
           // keep polling
         }
@@ -132,26 +318,14 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
       pollInterval = setInterval(poll, 3000)
     }
 
-    // Tier 2: SSE fallback
+    // Tier 2: SSE
     const trySSE = () => {
       try {
-        eventSource = new EventSource(
-          `${API_URL}/api/jobs/${analysisId}/stream`
-        )
-
-        eventSource.onmessage = (event) => {
-          try {
-            const data: ProgressUpdate = JSON.parse(event.data)
-            applyUpdate(data)
-          } catch {
-            // ignore parse errors
-          }
-        }
-
+        eventSource = new EventSource(`${API_URL}/api/jobs/${analysisId}/stream`)
+        eventSource.onmessage = (event) => handleMessage(event.data)
         eventSource.onerror = () => {
           eventSource?.close()
           eventSource = null
-          // Fall back to polling if SSE fails
           if (!completed) startPolling()
         }
       } catch {
@@ -159,14 +333,13 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
       }
     }
 
-    // Tier 1: WebSocket (preferred)
+    // Tier 1: WebSocket
     const tryWebSocket = () => {
       try {
         const wsUrl = API_URL.replace(/^http/, 'ws')
         ws = new WebSocket(`${wsUrl}/api/jobs/${analysisId}/ws`)
 
-        // Give WS 3 s to connect; if it doesn't, fall back to SSE
-        const wsConnectTimeout = setTimeout(() => {
+        const wsTimeout = setTimeout(() => {
           if (ws && ws.readyState !== WebSocket.OPEN) {
             ws.close()
             ws = null
@@ -174,32 +347,17 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
           }
         }, 3000)
 
-        ws.onopen = () => {
-          clearTimeout(wsConnectTimeout)
-        }
-
-        ws.onmessage = (event) => {
-          try {
-            const data: ProgressUpdate = JSON.parse(event.data)
-            applyUpdate(data)
-          } catch {
-            // ignore parse errors
-          }
-        }
-
+        ws.onopen = () => clearTimeout(wsTimeout)
+        ws.onmessage = (event) => handleMessage(event.data)
         ws.onerror = () => {
-          clearTimeout(wsConnectTimeout)
+          clearTimeout(wsTimeout)
           ws?.close()
           ws = null
           if (!completed) trySSE()
         }
-
         ws.onclose = (event) => {
-          clearTimeout(wsConnectTimeout)
-          // Abnormal closure before completion → fall back to SSE
-          if (!completed && event.code !== 1000) {
-            trySSE()
-          }
+          clearTimeout(wsTimeout)
+          if (!completed && event.code !== 1000) trySSE()
         }
       } catch {
         trySSE()
@@ -207,125 +365,319 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
     }
 
     tryWebSocket()
-
     return cleanup
-  }, [analysisId])
+  }, [analysisId, applyPipelineEvent, applyLegacyUpdate])
 
-  const dqColor = dqScore === null ? T.text.tertiary
-    : dqScore >= 85 ? T.accent.teal
-    : dqScore >= 65 ? T.accent.yellow
-    : T.accent.orange
+  /* ── Render ───────────────────────────────────────────────────────────── */
+
+  // Completion screen
+  if (showCompletion) {
+    return (
+      <AnimatePresence>
+        <motion.div
+          key="completion"
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: 'easeOut' }}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: 400,
+            gap: T.space.lg,
+          }}
+        >
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 0.2, type: 'spring', stiffness: 200, damping: 15 }}
+          >
+            <CheckCircle size={56} style={{ color: T.accent.teal }} />
+          </motion.div>
+          <h2 style={{
+            fontFamily: T.font.display,
+            fontSize: 34,
+            fontWeight: 600,
+            color: T.text.primary,
+            textAlign: 'center',
+            margin: 0,
+          }}>
+            Tu diagn&oacute;stico est&aacute; listo
+          </h2>
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => onCompleteRef.current()}
+            style={{
+              marginTop: T.space.md,
+              padding: `${T.space.sm} ${T.space.xl}`,
+              backgroundColor: T.accent.teal,
+              color: T.text.inverse,
+              border: 'none',
+              borderRadius: T.radius.md,
+              fontSize: 16,
+              fontWeight: 600,
+              fontFamily: T.font.display,
+              cursor: 'pointer',
+            }}
+          >
+            Ver diagn&oacute;stico
+          </motion.button>
+        </motion.div>
+      </AnimatePresence>
+    )
+  }
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      style={{ maxWidth: 640, margin: '0 auto' }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.4 }}
+      style={{ maxWidth: 700, margin: '0 auto', width: '100%' }}
     >
+      {/* ── Global progress bar ─────────────────────────────────────────── */}
+      <div style={{ marginBottom: T.space.lg }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: T.space.sm,
+        }}>
+          <span style={{
+            fontSize: 13,
+            color: T.text.secondary,
+            fontFamily: T.font.display,
+          }}>
+            Diagn&oacute;stico en progreso
+            {estRemainingMin != null && status === 'running'
+              ? ` \u00b7 ~${estRemainingMin} min restantes`
+              : ''}
+          </span>
+          <span style={{
+            fontSize: 12,
+            fontFamily: T.font.mono,
+            color: T.text.tertiary,
+          }}>
+            {globalProgress}%
+          </span>
+        </div>
+        <div style={{
+          height: 4,
+          backgroundColor: T.bg.elevated,
+          borderRadius: 2,
+          overflow: 'hidden',
+          position: 'relative' as const,
+        }}>
+          <motion.div
+            style={{
+              height: '100%',
+              borderRadius: 2,
+              background: status === 'running'
+                ? `linear-gradient(90deg, ${T.accent.teal}, var(--color-accent-blue), ${T.accent.teal})`
+                : T.accent.teal,
+              backgroundSize: status === 'running' ? '200% 100%' : undefined,
+              animation: status === 'running' ? 'd4c-shimmer 2s linear infinite' : undefined,
+            }}
+            animate={{ width: `${globalProgress}%` }}
+            transition={{ duration: 0.5 }}
+          />
+        </div>
+      </div>
+
+      {/* ── Agent cards ─────────────────────────────────────────────────── */}
       <div style={{
         backgroundColor: T.bg.card,
         borderRadius: T.radius.lg,
         border: T.border.card,
-        padding: T.space.xl,
+        padding: T.space.lg,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: T.space.xs,
       }}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: T.text.primary, marginBottom: 8 }}>
-          Análisis en progreso
-        </h2>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginBottom: T.space.lg,
-            padding: `${T.space.xs} ${T.space.sm}`,
-            backgroundColor: T.bg.elevated,
-            border: T.border.card,
-            borderRadius: T.radius.sm,
-            cursor: 'pointer',
-          }}
-          onClick={() => navigator.clipboard.writeText(analysisId)}
-          title="Copiar Job ID"
-        >
-          <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: T.text.tertiary, flexShrink: 0, fontFamily: T.font.mono }}>
-            Job ID
-          </span>
-          <span style={{ fontFamily: T.font.mono, fontSize: 11, color: T.text.secondary, overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
-            {analysisId}
-          </span>
-          <span style={{ fontSize: 11, color: T.text.tertiary, flexShrink: 0 }}>⧉</span>
-        </div>
+        <AnimatePresence mode="sync">
+          {PIPELINE_STAGES.map((stage) => {
+            const state = agents[stage]
+            const meta = STAGE_META[stage]
+            const Icon = meta.icon
+            const isWaiting = state.status === 'waiting'
+            const isRunning = state.status === 'running'
+            const isCompleted = state.status === 'completed'
+            const isError = state.status === 'error'
 
-        {/* Progress Bar */}
-        <div style={{ marginBottom: T.space.xl }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: T.text.secondary, marginBottom: 8 }}>
-            <span>Progreso</span>
-            <span style={{ fontFamily: T.font.mono }}>{progress}%</span>
-          </div>
-          <div style={{ height: 8, backgroundColor: T.bg.elevated, borderRadius: 4, overflow: 'hidden' }}>
-            <motion.div
-              style={{ height: '100%', backgroundColor: T.accent.teal, borderRadius: 4 }}
-              animate={{ width: `${progress}%` }}
-              transition={{ duration: 0.5 }}
-            />
-          </div>
-
-          {dqScore !== null && (
-            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{
-                fontSize: 11,
-                fontWeight: 600,
-                fontFamily: T.font.mono,
-                padding: '2px 10px',
-                borderRadius: 999,
-                backgroundColor: dqColor + '15',
-                border: `1px solid ${dqColor}40`,
-                color: dqColor,
-              }}>
-                DQ {dqScore}/100{dqLabel ? ` · ${dqLabel}` : ''}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Steps */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {steps.map((step, i) => {
-            const isDone    = step.status === 'done'
-            const isRunning = step.status === 'running'
-            const isError   = step.status === 'error'
-            const color = isDone ? T.accent.teal : isRunning ? T.accent.blue : isError ? T.accent.red : T.text.tertiary
+            const accentColor = isCompleted
+              ? T.accent.teal
+              : isRunning
+                ? T.accent.teal
+                : isError
+                  ? T.accent.red
+                  : T.text.tertiary
 
             return (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ flexShrink: 0 }}>
-                  {isDone    && <CheckCircle  size={18} style={{ color: T.accent.teal }} />}
-                  {isRunning && <Loader2      size={18} style={{ color: T.accent.blue, animation: 'spin 1s linear infinite' }} />}
-                  {step.status === 'pending' && <Clock size={18} style={{ color: T.text.tertiary }} />}
-                  {isError   && <XCircle      size={18} style={{ color: T.accent.red }} />}
+              <motion.div
+                key={stage}
+                layout
+                initial={false}
+                animate={{
+                  opacity: isWaiting ? 0.5 : 1,
+                  scale: isRunning ? 1 : 1,
+                }}
+                transition={{ duration: 0.2 }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: T.space.sm,
+                  padding: `${T.space.sm} ${T.space.md}`,
+                  borderRadius: T.radius.sm,
+                  backgroundColor: isRunning
+                    ? T.bg.elevated
+                    : 'transparent',
+                  animation: isRunning ? 'd4c-pulse-glow 2.5s ease-in-out infinite' : undefined,
+                  transition: 'background-color 0.2s',
+                }}
+              >
+                {/* Icon */}
+                <div style={{ flexShrink: 0, width: 22, display: 'flex', justifyContent: 'center' }}>
+                  {isWaiting && (
+                    <Clock size={16} style={{ color: T.text.tertiary }} />
+                  )}
+                  {isRunning && (
+                    <Loader2
+                      size={18}
+                      style={{
+                        color: T.accent.teal,
+                        animation: 'd4c-spin 1s linear infinite',
+                      }}
+                    />
+                  )}
+                  {isCompleted && (
+                    <motion.div
+                      initial={{ rotate: -90, scale: 0.5 }}
+                      animate={{ rotate: 0, scale: 1 }}
+                      transition={{ duration: 0.2, type: 'spring', stiffness: 300 }}
+                    >
+                      <CheckCircle size={18} style={{ color: T.accent.teal }} />
+                    </motion.div>
+                  )}
+                  {isError && (
+                    <XCircle size={18} style={{ color: T.accent.red }} />
+                  )}
                 </div>
-                <span style={{ fontSize: 13, fontWeight: isDone || isRunning ? 500 : 400, color }}>
-                  {step.name}
-                </span>
-              </div>
+
+                {/* Stage icon */}
+                <Icon size={14} style={{ color: accentColor, flexShrink: 0 }} />
+
+                {/* Label + message */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: T.space.sm,
+                  }}>
+                    <span style={{
+                      fontSize: 13,
+                      fontWeight: isRunning || isCompleted ? 500 : 400,
+                      color: isWaiting ? T.text.tertiary : T.text.primary,
+                      fontFamily: T.font.display,
+                    }}>
+                      {meta.label}
+                    </span>
+                    {isCompleted && state.duration != null && (
+                      <span style={{
+                        fontSize: 11,
+                        fontFamily: T.font.mono,
+                        color: T.text.tertiary,
+                        flexShrink: 0,
+                      }}>
+                        {state.duration < 60
+                          ? `${Math.round(state.duration)}s`
+                          : `${Math.floor(state.duration / 60)}m ${Math.round(state.duration % 60)}s`}
+                      </span>
+                    )}
+                  </div>
+                  {(isRunning || isError) && state.message && (
+                    <motion.p
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      style={{
+                        margin: `2px 0 0`,
+                        fontSize: 11,
+                        fontFamily: T.font.mono,
+                        color: isError ? T.accent.red : T.text.secondary,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap' as const,
+                      }}
+                    >
+                      {state.message}
+                    </motion.p>
+                  )}
+                </div>
+              </motion.div>
             )
           })}
-        </div>
+        </AnimatePresence>
+      </div>
 
-        {status === 'failed' && (
-          <div style={{
+      {/* ── Error banner ────────────────────────────────────────────────── */}
+      {status === 'failed' && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
             marginTop: T.space.lg,
             padding: T.space.md,
             backgroundColor: T.accent.red + '10',
             borderRadius: T.radius.sm,
             border: `1px solid ${T.accent.red}30`,
+          }}
+        >
+          <p style={{ fontSize: 13, fontWeight: 600, color: T.accent.red, margin: '0 0 4px' }}>
+            An&aacute;lisis fallido
+          </p>
+          <p style={{
+            fontSize: 11,
+            color: T.accent.red,
+            fontFamily: T.font.mono,
+            wordBreak: 'break-all' as const,
+            margin: 0,
           }}>
-            <p style={{ fontSize: 13, fontWeight: 600, color: T.accent.red, margin: '0 0 4px' }}>Análisis fallido</p>
-            <p style={{ fontSize: 11, color: T.accent.red, fontFamily: T.font.mono, wordBreak: 'break-all', margin: 0 }}>
-              {errorMessage || 'Error desconocido. Revisá las credenciales e intentá nuevamente.'}
-            </p>
-          </div>
-        )}
-      </div>
+            {errorMessage || 'Error desconocido. Revis\u00e1 las credenciales e intent\u00e1 nuevamente.'}
+          </p>
+        </motion.div>
+      )}
+
+      {/* ── Educational carousel ────────────────────────────────────────── */}
+      {status === 'running' && (
+        <div style={{
+          marginTop: T.space.xl,
+          textAlign: 'center' as const,
+          minHeight: 40,
+          position: 'relative' as const,
+        }}>
+          <AnimatePresence mode="wait">
+            <motion.p
+              key={carouselIdx}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.5 }}
+              style={{
+                fontSize: 14,
+                fontStyle: 'italic',
+                fontFamily: "'DM Sans', sans-serif",
+                color: T.text.tertiary,
+                margin: 0,
+                padding: `0 ${T.space.md}`,
+                lineHeight: 1.5,
+              }}
+            >
+              {CAROUSEL_FACTS[carouselIdx]}
+            </motion.p>
+          </AnimatePresence>
+        </div>
+      )}
     </motion.div>
   )
 }
