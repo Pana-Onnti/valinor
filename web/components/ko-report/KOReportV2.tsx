@@ -6,6 +6,8 @@ import {
 } from 'recharts'
 import { type ParsedReport } from '@/lib/reportParser'
 import { T, SEV_COLOR, SEV_LABEL, CHART_THEME } from '@/components/d4c/tokens'
+import { ConfidenceBadge, MicroBadge } from '@/components/ui/ConfidenceBadge'
+import type { AnalysisConfidenceMetadata } from '@/lib/confidence-types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -13,6 +15,7 @@ interface KOReportV2Props {
   report: ParsedReport
   dqScore?: number       // 0–1
   companyName?: string
+  confidenceMetadata?: AnalysisConfidenceMetadata
 }
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
@@ -50,8 +53,14 @@ function StatusBadge({ severity }: { severity: string }) {
   )
 }
 
-function HeroNumber({ value, label, severity = 'INFO' }: { value: string; label: string; severity?: string }) {
+function HeroNumber({ value, label, severity = 'INFO', confidenceMetadata, index = 0 }: {
+  value: string; label: string; severity?: string;
+  confidenceMetadata?: AnalysisConfidenceMetadata; index?: number;
+}) {
   const color = SEV_COLOR[severity] ?? T.text.primary
+  const kpiConf = confidenceMetadata?.kpi_confidence?.[label]
+  const isLowConfidence = kpiConf?.level === 'low_confidence'
+
   return (
     <div style={{
       ...s.card,
@@ -59,9 +68,22 @@ function HeroNumber({ value, label, severity = 'INFO' }: { value: string; label:
       display: 'flex',
       flexDirection: 'column',
       gap: T.space.xs,
+      position: 'relative',
     }}>
-      <div style={{ ...s.mono, fontSize: 28, fontWeight: 700, color, lineHeight: 1.1 }}>
-        {value}
+      {kpiConf && (
+        <div style={{ position: 'absolute', top: T.space.sm, right: T.space.sm }}>
+          <MicroBadge
+            level={kpiConf.level}
+            tooltip={{ record_count: kpiConf.record_count, null_rate: kpiConf.null_rate, source_tables: kpiConf.source_tables }}
+            delay={index * 0.1}
+          />
+        </div>
+      )}
+      <div style={{
+        ...s.mono, fontSize: 28, fontWeight: 700, color, lineHeight: 1.1,
+        opacity: isLowConfidence ? 0.6 : 1,
+      }}>
+        {value}{isLowConfidence ? '*' : ''}
       </div>
       <div style={{ ...s.display, fontSize: 12, color: T.text.secondary, marginTop: 2 }}>
         {label}
@@ -125,7 +147,7 @@ function D4CTooltip({ active, payload, label }: { active?: boolean; payload?: { 
 
 // ── FindingCard ───────────────────────────────────────────────────────────────
 
-function FindingCard({ finding }: { finding: ParsedReport['findings'][number] }) {
+function FindingCard({ finding, confidenceMetadata, index }: { finding: ParsedReport['findings'][number]; confidenceMetadata?: AnalysisConfidenceMetadata; index: number }) {
   const [expanded, setExpanded] = useState(false)
   const color = SEV_COLOR[finding.severity] ?? T.accent.blue
 
@@ -140,8 +162,18 @@ function FindingCard({ finding }: { finding: ParsedReport['findings'][number] })
     >
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: T.space.sm, justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: T.space.sm, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: T.space.sm, flex: 1, flexWrap: 'wrap' }}>
           <StatusBadge severity={finding.severity} />
+          {(() => {
+            const fc = confidenceMetadata?.findings_confidence?.[finding.id]
+            return fc ? (
+              <ConfidenceBadge
+                level={fc.level}
+                tooltip={{ record_count: fc.record_count, null_rate: fc.null_rate, source_tables: fc.source_tables }}
+                delay={index * 0.1}
+              />
+            ) : null
+          })()}
           <div>
             <div style={{ ...s.mono, fontSize: 10, color: T.text.tertiary, marginBottom: 4 }}>
               {finding.id}
@@ -203,7 +235,7 @@ function FindingCard({ finding }: { finding: ParsedReport['findings'][number] })
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export function KOReportV2({ report, dqScore, companyName }: KOReportV2Props) {
+export function KOReportV2({ report, dqScore, companyName, confidenceMetadata }: KOReportV2Props) {
   const name = companyName ?? report.clientName
   const critical = report.findings.filter(f => f.severity === 'CRITICAL')
   const high = report.findings.filter(f => f.severity === 'HIGH')
@@ -356,6 +388,8 @@ export function KOReportV2({ report, dqScore, companyName }: KOReportV2Props) {
                   value={kpi.value}
                   label={kpi.label}
                   severity={kpi.confidence === 'MEASURED' ? 'OK' : 'INFO'}
+                  confidenceMetadata={confidenceMetadata}
+                  index={i}
                 />
               ))}
             </div>
@@ -371,7 +405,7 @@ export function KOReportV2({ report, dqScore, companyName }: KOReportV2Props) {
           />
           <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
             {report.findings.map((f, i) => (
-              <FindingCard key={i} finding={f} />
+              <FindingCard key={i} finding={f} confidenceMetadata={confidenceMetadata} index={i} />
             ))}
             {report.findings.length === 0 && (
               <div style={{ ...s.display, fontSize: 13, color: T.text.tertiary }}>

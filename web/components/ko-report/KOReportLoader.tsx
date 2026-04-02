@@ -5,6 +5,7 @@ import axios from 'axios'
 import { parseReport, type ParsedReport } from '@/lib/reportParser'
 import { KOReportV2 } from './KOReportV2'
 import { T } from '@/components/d4c/tokens'
+import type { AnalysisConfidenceMetadata } from '@/lib/confidence-types'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -16,6 +17,7 @@ interface KOReportLoaderProps {
 export function KOReportLoader({ jobId, onNewAnalysis }: KOReportLoaderProps) {
   const [report, setReport] = useState<ParsedReport | null>(null)
   const [dqScore, setDqScore] = useState<number | undefined>(undefined)
+  const [confidenceMetadata, setConfidenceMetadata] = useState<AnalysisConfidenceMetadata | undefined>(undefined)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -38,6 +40,7 @@ export function KOReportLoader({ jobId, onNewAnalysis }: KOReportLoaderProps) {
 
         setReport(parseReport(content))
         setDqScore(res.data.data_quality?.overall_score ?? undefined)
+        setConfidenceMetadata(res.data.confidence_metadata ?? undefined)
       })
       .catch(err => {
         setError(err?.response?.data?.detail ?? err?.message ?? 'Error al cargar el reporte.')
@@ -105,5 +108,5 @@ export function KOReportLoader({ jobId, onNewAnalysis }: KOReportLoaderProps) {
     )
   }
 
-  return <KOReportV2 report={report} dqScore={dqScore} />
+  return <KOReportV2 report={report} dqScore={dqScore} confidenceMetadata={confidenceMetadata} />
 }
