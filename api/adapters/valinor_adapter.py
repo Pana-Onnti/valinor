@@ -63,6 +63,7 @@ from core.valinor.schemas.agent_outputs import (  # noqa: E402
     AnalystOutput,
     SentinelOutput,
 )
+from core.valinor.confidence_collector import collect_confidence_metadata  # noqa: E402
 
 logger = structlog.get_logger()
 
@@ -225,6 +226,10 @@ class ValinorAdapter:
             results["findings"] = pipeline_results.get("findings", {})
             results["reports"] = pipeline_results.get("reports", {})
             results["run_delta"] = pipeline_results.get("run_delta", {})
+
+            # Propagate confidence metadata from pipeline (VAL-97)
+            if "confidence_metadata" in pipeline_results:
+                results["confidence_metadata"] = pipeline_results["confidence_metadata"]
 
             # Calculate execution time
             execution_time = (datetime.utcnow() - start_time).total_seconds()
@@ -1153,6 +1158,21 @@ RETURN ONLY THE JSON OBJECT."""
                     )
                 except Exception as _wh_err:
                     logger.warning("Webhook dispatch setup failed", error=str(_wh_err))
+
+            # ── Collect confidence metadata (VAL-97) ────────────────────────────
+            try:
+                _recon = findings.get("_reconciliation", {}) if isinstance(findings, dict) else {}
+                _confidence_meta = collect_confidence_metadata(
+                    dq_data=results.get("data_quality"),
+                    findings=findings,
+                    query_results=query_results,
+                    reconciliation=_recon,
+                    pipeline_start_time=tracer.start_time if hasattr(tracer, 'start_time') else None,
+                    pipeline_end_time=None,  # will use utcnow inside collector
+                )
+                results["confidence_metadata"] = _confidence_meta.model_dump(mode="json")
+            except Exception as _cm_err:
+                logger.warning("Confidence metadata collection failed", error=str(_cm_err))
 
             # Finalize pipeline trace and attach summary to results
             results["trace"] = tracer.finish()
