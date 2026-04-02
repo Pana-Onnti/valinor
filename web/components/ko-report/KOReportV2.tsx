@@ -6,6 +6,8 @@ import {
 } from 'recharts'
 import { type ParsedReport } from '@/lib/reportParser'
 import { T, SEV_COLOR, SEV_LABEL, CHART_THEME } from '@/components/d4c/tokens'
+import { TrustScoreHeader } from '@/components/findings/TrustScoreHeader'
+import type { ConfidenceMetadata } from '@/lib/confidence-types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -13,6 +15,7 @@ interface KOReportV2Props {
   report: ParsedReport
   dqScore?: number       // 0–1
   companyName?: string
+  confidenceMetadata?: ConfidenceMetadata
 }
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
@@ -203,7 +206,7 @@ function FindingCard({ finding }: { finding: ParsedReport['findings'][number] })
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export function KOReportV2({ report, dqScore, companyName }: KOReportV2Props) {
+export function KOReportV2({ report, dqScore, companyName, confidenceMetadata }: KOReportV2Props) {
   const name = companyName ?? report.clientName
   const critical = report.findings.filter(f => f.severity === 'CRITICAL')
   const high = report.findings.filter(f => f.severity === 'HIGH')
@@ -310,6 +313,11 @@ export function KOReportV2({ report, dqScore, companyName }: KOReportV2Props) {
           </button>
         </div>
       </header>
+
+      {/* ── Trust Score ── */}
+      {confidenceMetadata?.trust_score && (
+        <TrustScoreHeader trustScore={confidenceMetadata.trust_score} />
+      )}
 
       {/* ── Body ── */}
       <main style={{ maxWidth: 960, margin: '0 auto', padding: `${T.space.xxl} ${T.space.xl}` }}>
