@@ -1,0 +1,10 @@
+{
+  "dataset_name": "timewarp_industry_services_ef11478e_2",
+  "dataset_path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_industry_services_ef11478e_2.db",
+  "timestamp": "2026-03-22T02:50:27.385759",
+  "job_id": "595cc693-9c01-4e8f-b438-a04f4184ffbb",
+  "status": "failed",
+  "execution_time": 20.02,
+  "error": "Insufficient entity mapping - need at least customers + invoices",
+  "pass": false
+}

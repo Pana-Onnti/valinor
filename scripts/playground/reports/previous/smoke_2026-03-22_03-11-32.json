@@ -1,0 +1,10 @@
+{
+  "dataset_name": "timewarp_industry_services_ef11478e_5",
+  "dataset_path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_industry_services_ef11478e_5.db",
+  "timestamp": "2026-03-22T03:07:15.164522",
+  "job_id": "63a6eaa9-6adf-4b63-8a47-d6b6111f1cac",
+  "status": "completed",
+  "execution_time": 196.25,
+  "has_findings": false,
+  "pass": true
+}

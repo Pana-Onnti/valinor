@@ -1,0 +1,15 @@
+{
+  "dataset_name": "timewarp_industry_services_ef11478e_2",
+  "job_id": "595cc693-9c01-4e8f-b438-a04f4184ffbb",
+  "quality_score": 40.0,
+  "checks_detail": {
+    "findings_exist": false,
+    "no_zero_revenue": true,
+    "dq_gate_ran": false,
+    "reasonable_execution_time": true,
+    "no_crash": false
+  },
+  "timestamp": "2026-03-22T02:56:10.045804",
+  "status": "failed",
+  "execution_time": 20.02
+}

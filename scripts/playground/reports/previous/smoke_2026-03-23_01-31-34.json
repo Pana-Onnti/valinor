@@ -1,0 +1,10 @@
+{
+  "dataset_name": "sec_edgar_filings",
+  "dataset_path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/real/sec_edgar_filings.db",
+  "timestamp": "2026-03-23T01:29:31.388522",
+  "job_id": "68d54ff2-5c6c-43e4-83bd-b41c16ac472b",
+  "status": "failed",
+  "execution_time": 121.28,
+  "error": "Insufficient entity mapping - need at least customers + invoices",
+  "pass": false
+}

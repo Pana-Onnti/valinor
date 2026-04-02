@@ -1,0 +1,10 @@
+{
+  "dataset_name": "boot_sec_edgar_filings_1",
+  "dataset_path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/boot_sec_edgar_filings_1.db",
+  "timestamp": "2026-03-22T03:18:09.388053",
+  "job_id": "56e9f08a-d423-4a59-bb05-5f7c8443376a",
+  "status": "timeout",
+  "execution_time": 305.15,
+  "error": "Job stuck or timed out (status=timeout)",
+  "pass": false
+}

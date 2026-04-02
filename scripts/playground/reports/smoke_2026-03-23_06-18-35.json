@@ -1,0 +1,10 @@
+{
+  "dataset_name": "boot_industry_services_4f4153aa_1",
+  "dataset_path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/boot_industry_services_4f4153aa_1.db",
+  "timestamp": "2026-03-23T06:16:32.239298",
+  "job_id": "6427fb94-a868-4600-9612-236647784f69",
+  "status": "failed",
+  "execution_time": 120.8,
+  "error": "Insufficient entity mapping - need at least customers + invoices",
+  "pass": false
+}

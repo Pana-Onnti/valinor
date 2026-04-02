@@ -1,0 +1,10 @@
+{
+  "dataset_name": "company_jpm",
+  "dataset_path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/real/company_jpm.db",
+  "timestamp": "2026-03-22T03:24:11.949333",
+  "job_id": "8d56c4b1-d558-48ea-91fb-88cadd2fc1ee",
+  "status": "completed",
+  "execution_time": 183.78,
+  "has_findings": false,
+  "pass": true
+}

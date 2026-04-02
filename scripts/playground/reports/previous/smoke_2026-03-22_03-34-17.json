@@ -1,0 +1,10 @@
+{
+  "dataset_name": "boot_erp_etendo_20d1c347_2",
+  "dataset_path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/boot_erp_etendo_20d1c347_2.db",
+  "timestamp": "2026-03-22T03:30:57.113962",
+  "job_id": "21e3736a-d435-451a-8e40-126c2a1da2cc",
+  "status": "completed",
+  "execution_time": 191.31,
+  "has_findings": false,
+  "pass": true
+}

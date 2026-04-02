@@ -1,0 +1,10 @@
+{
+  "dataset_name": "company_wmt",
+  "dataset_path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/real/company_wmt.db",
+  "timestamp": "2026-03-22T02:50:17.351562",
+  "job_id": "323fac3c-326a-4477-823b-4cd7e4580691",
+  "status": "failed",
+  "execution_time": 10.01,
+  "error": "Insufficient entity mapping - need at least customers + invoices",
+  "pass": false
+}
