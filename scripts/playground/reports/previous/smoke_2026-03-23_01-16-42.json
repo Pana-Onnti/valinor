@@ -1,0 +1,10 @@
+{
+  "dataset_name": "boot_company_jpm_3",
+  "dataset_path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/boot_company_jpm_3.db",
+  "timestamp": "2026-03-23T01:13:41.374665",
+  "job_id": "c65151f1-d6fe-407f-bced-6966e2bf7c65",
+  "status": "completed",
+  "execution_time": 179.08,
+  "has_findings": false,
+  "pass": true
+}

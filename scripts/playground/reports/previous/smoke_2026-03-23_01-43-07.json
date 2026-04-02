@@ -1,0 +1,10 @@
+{
+  "dataset_name": "boot_erp_etendo_8ea5472b_1",
+  "dataset_path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/boot_erp_etendo_8ea5472b_1.db",
+  "timestamp": "2026-03-23T01:36:52.560498",
+  "job_id": "0abe185e-fecc-483e-9a2b-c7795bdda7a4",
+  "status": "timeout",
+  "execution_time": 371.7,
+  "error": "Job stuck or timed out (status=timeout)",
+  "pass": false
+}

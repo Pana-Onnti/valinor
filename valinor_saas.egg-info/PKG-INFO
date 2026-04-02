@@ -1,0 +1,341 @@
+Metadata-Version: 2.4
+Name: valinor-saas
+Version: 2.0.0
+Summary: Business Intelligence Pipeline SaaS with Claude Agents
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: claude-agent-sdk>=0.1.48
+Requires-Dist: anthropic>=0.45.0
+Requires-Dist: sqlalchemy>=2.0
+Requires-Dist: openpyxl>=3.1
+Requires-Dist: pandas>=2.2
+Requires-Dist: jinja2>=3.1
+Requires-Dist: python-dotenv>=1.0
+Requires-Dist: rich>=13.0
+Requires-Dist: fastapi>=0.104
+Requires-Dist: uvicorn[standard]>=0.24
+Requires-Dist: celery[redis]>=5.3
+Requires-Dist: redis>=5.0
+Requires-Dist: paramiko>=3.3
+Requires-Dist: asyncssh>=2.14
+Requires-Dist: supabase>=2.0
+Requires-Dist: pydantic>=2.5
+Requires-Dist: httpx>=0.25
+Requires-Dist: websockets>=12.0
+Requires-Dist: cryptography>=41.0
+Requires-Dist: python-multipart>=0.0.6
+Requires-Dist: sentry-sdk[fastapi]>=1.39
+Requires-Dist: structlog>=23.2
+Requires-Dist: prometheus-client>=0.19
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21; extra == "dev"
+Requires-Dist: pytest-cov>=4.1; extra == "dev"
+Requires-Dist: black>=23.12; extra == "dev"
+Requires-Dist: ruff>=0.1; extra == "dev"
+Requires-Dist: mypy>=1.7; extra == "dev"
+Requires-Dist: ipython>=8.18; extra == "dev"
+Requires-Dist: httpx>=0.25; extra == "dev"
+Requires-Dist: faker>=20.1; extra == "dev"
+Provides-Extra: mysql
+Requires-Dist: pymysql>=1.1; extra == "mysql"
+Provides-Extra: postgres
+Requires-Dist: psycopg2-binary>=2.9; extra == "postgres"
+Provides-Extra: mssql
+Requires-Dist: pyodbc>=5.0; extra == "mssql"
+Dynamic: license-file
+
+# Valinor SaaS v2
+
+**Business Intelligence 100% Agéntico** — De connection string a reportes ejecutivos en 15 minutos, sin almacenar datos del cliente.
+
+![Tests](https://img.shields.io/badge/tests-469%20passing-brightgreen)
+![Version](https://img.shields.io/badge/version-2.0.0-blue)
+![License](https://img.shields.io/badge/license-Proprietary-lightgrey)
+
+---
+
+## Quick Start
+
+**Step 1 — Clone the repository**
+```bash
+git clone https://github.com/delta4c/valinor-saas.git
+cd valinor-saas
+```
+
+**Step 2 — Create a virtual environment and install dependencies**
+```bash
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+**Step 3 — Start all services with Docker Compose**
+```bash
+cp .env.example .env       # fill in ANTHROPIC_API_KEY at minimum
+docker compose up -d
+```
+
+All services will be available within ~30 seconds:
+
+| Service    | URL                           |
+|------------|-------------------------------|
+| Frontend   | http://localhost:3000         |
+| API        | http://localhost:8000         |
+| API Docs   | http://localhost:8000/docs    |
+| Health     | http://localhost:8000/health  |
+| Prometheus | http://localhost:9090         |
+
+**Step 4 — Test a connection before running an analysis**
+```bash
+curl -s -X POST http://localhost:8000/api/onboarding/test-connection \
+  -H "Content-Type: application/json" \
+  -d '{"host":"db.client.com","port":5432,"database":"erp_prod","user":"readonly","password":"secret"}' \
+  | jq .
+```
+
+**Step 5 — Submit your first analysis**
+```bash
+curl -s -X POST http://localhost:8000/api/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_name": "acme_corp",
+    "period": "Q1-2026",
+    "db_config": {
+      "host": "db.client.com", "port": 5432,
+      "type": "postgresql", "name": "erp_prod",
+      "user": "readonly", "password": "secret"
+    }
+  }' | jq .job_id
+# → "550e8400-e29b-41d4-a716-446655440000"
+
+# Stream progress in real time
+curl -N http://localhost:8000/api/jobs/550e8400.../stream
+```
+
+---
+
+## Architecture
+
+```
+  Client Browser
+       │
+       ▼
+  Next.js Frontend (port 3000)
+       │  REST / WebSocket / SSE
+       ▼
+  FastAPI (port 8000)
+  ┌────────────────────────────────────────────┐
+  │  POST /api/analyze → job queue             │
+  │  GET  /api/jobs/{id}/stream  (SSE)         │
+  │  WS   /api/jobs/{id}/ws     (WebSocket)    │
+  └──────────────┬─────────────────────────────┘
+                 │ BackgroundTask / Celery
+                 ▼
+  ValinorAdapter (adapter pattern over v0 core)
+  ┌────────────────────────────────────────────┐
+  │  DataQualityGate (9 checks)                │
+  │    ↓                                       │
+  │  CartographerAgent  → schema map           │
+  │  QueryBuilderAgent  → optimized queries    │
+  │  AnalystAgent       → statistical analysis │
+  │  SentinelAgent      → anomaly detection    │
+  │  HunterAgent        → hidden patterns      │
+  │  NarratorAgents     → executive reports    │
+  └──────────────┬─────────────────────────────┘
+                 │ SSH Tunnel (Paramiko)
+                 ▼
+  Client Database (ephemeral connection, max 1 hour)
+  PostgreSQL / MySQL / SQL Server / Oracle
+
+  Supporting services
+  ├── Redis (job state + audit log)
+  ├── PostgreSQL :5450 (metadata + client profiles)
+  └── Prometheus :9090 (metrics scrape)
+```
+
+**Principles**
+- Zero Data Storage — no client data is persisted, only metadata and aggregated results
+- Ephemeral SSH connections — maximum 1 hour, automatic cleanup
+- Multi-agent pipeline: DataQualityGate → Cartographer → QueryBuilder → [Analyst, Sentinel, Hunter] → Narrators
+- Institutional data quality: 9 checks (accounting balance, Benford's law, STL decomposition, Engle-Granger cointegration, and more)
+- Operational cost: ~$8 per analysis
+
+---
+
+## Stack
+
+| Layer      | Technology                                |
+|------------|-------------------------------------------|
+| Backend    | FastAPI + Uvicorn                         |
+| Workers    | Celery + Redis                            |
+| Agents     | Claude Agent SDK (claude-agent-sdk)       |
+| Frontend   | Next.js 14 + Tailwind CSS                 |
+| DB Metadata| PostgreSQL (Docker, port 5450)            |
+| Cache/Queue| Redis (Docker, port 6380)                 |
+| SSH        | Paramiko                                  |
+| Monitoring | Prometheus + structured logging (structlog)|
+
+---
+
+## Project Structure
+
+```
+valinor-saas/
+├── api/                    # FastAPI — all REST endpoints
+│   ├── main.py             # Core routes (~50 endpoints)
+│   ├── routes/
+│   │   ├── quality.py      # /api/quality/* routes
+│   │   └── onboarding.py   # /api/onboarding/* routes
+│   ├── pdf_generator.py    # Branded PDF reports
+│   ├── email_digest.py     # HTML email digest builder
+│   └── webhooks.py         # Webhook fire logic
+├── core/                   # Valinor v0 code (preserved, not modified)
+│   └── valinor/
+│       └── agents/         # Cartographer, Analyst, Sentinel, Hunter, Narrators
+├── web/                    # Next.js frontend
+│   ├── app/                # App Router (layout, page, providers)
+│   └── components/         # AnalysisForm, AnalysisProgress, ResultsDisplay
+├── worker/                 # Celery workers
+│   └── tasks.py            # run_analysis_task
+├── shared/                 # Shared utilities
+│   ├── ssh_tunnel.py       # SSH tunnel manager
+│   ├── storage.py          # MetadataStorage
+│   ├── pdf_generator.py    # Simple PDF fallback
+│   └── memory/             # ClientProfile, ProfileStore, AutoRefinement
+├── adapters/               # Bridge: API ↔ Valinor v0 core
+│   └── valinor_adapter.py
+├── deploy/
+│   └── sql/init.sql        # PostgreSQL schema (metadata only)
+├── docs/                   # Technical documentation
+│   ├── API_REFERENCE.md    # Full endpoint reference
+│   ├── ARCHITECTURE.md     # Technical architecture details
+│   └── MIGRATION_PLAN.md   # Migration from v0 to SaaS
+├── docker-compose.yml      # Complete local environment
+├── Dockerfile.api
+├── Dockerfile.worker
+├── requirements.txt
+└── setup.sh                # Interactive setup script
+```
+
+---
+
+## Environment Variables
+
+The `.env` file is generated automatically by `setup.sh`. Minimum required values:
+
+```bash
+# LLM Provider
+LLM_PROVIDER=anthropic_api
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Internal services (auto-configured in Docker)
+REDIS_URL=redis://localhost:6380
+DATABASE_URL=postgresql://valinor:valinor@localhost:5450/valinor
+SECRET_KEY=<auto-generated>
+
+# Optional: SMTP for email digests
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+```
+
+Client database credentials are provided per-request in `POST /api/analyze` and are never persisted.
+
+---
+
+## Docker Ports
+
+Host ports were adjusted to avoid conflicts with local PostgreSQL and Redis instances:
+
+| Service    | Host Port | Container Port |
+|------------|-----------|---------------|
+| API        | 8000      | 8000          |
+| Frontend   | 3000      | 3000          |
+| PostgreSQL | **5450**  | 5432          |
+| Redis      | **6380**  | 6379          |
+| Prometheus | 9090      | 9090          |
+
+---
+
+## Analysis Pipeline
+
+```
+POST /api/analyze
+    └── ValinorAdapter
+         ├── DataQualityGate    → 9 institutional checks (score 0–100)
+         ├── CartographerAgent  → maps DB schema
+         ├── QueryBuilderAgent  → generates optimized queries
+         ├── AnalystAgent       → statistical analysis
+         ├── SentinelAgent      → anomaly detection
+         ├── HunterAgent        → hidden pattern search
+         └── NarratorAgents     → executive, CEO, controller, sales reports
+
+GET /api/jobs/{job_id}/stream     → SSE real-time progress
+GET /api/jobs/{job_id}/status     → polling
+GET /api/jobs/{job_id}/results    → full results + findings
+GET /api/jobs/{job_id}/export/pdf → branded PDF download
+GET /api/jobs/{job_id}/quality    → DQ Gate report
+```
+
+---
+
+## Cost Breakdown
+
+| Concept                | Value          |
+|------------------------|----------------|
+| Infrastructure (0-10 clients) | $0/month |
+| Cost per analysis      | ~$8 (Claude API)|
+| Client price           | $200/month     |
+| Analyses included      | 25/month       |
+| Gross margin           | ~92%           |
+
+| Free Tier Service  | Limit                  |
+|--------------------|------------------------|
+| Cloudflare Workers | 100k requests/day      |
+| GitHub Actions     | Unlimited (public repo)|
+| Supabase           | 500 MB database        |
+| Vercel             | 100 GB bandwidth       |
+
+---
+
+## Management Commands
+
+```bash
+# Start all services (detached)
+docker compose up -d
+
+# View container status
+docker compose ps
+
+# Follow API logs
+docker compose logs -f api
+
+# Rebuild after requirements.txt or Dockerfile changes
+docker compose build api worker
+docker compose up -d --no-deps api worker
+
+# Full reset (deletes volumes)
+docker compose down -v
+
+# Run test suite
+pytest tests/
+
+# Verify system health
+curl http://localhost:8000/health
+```
+
+---
+
+## Key Documentation
+
+- [docs/API_REFERENCE.md](docs/API_REFERENCE.md) — Full endpoint reference (~50 endpoints)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Technical architecture details
+- [docs/MIGRATION_PLAN.md](docs/MIGRATION_PLAN.md) — Migration from v0 CLI to SaaS
+- [CLAUDE.md](CLAUDE.md) — Development agent instructions
+
+---
+
+*Valinor SaaS v2 — Delta 4C — March 2026*

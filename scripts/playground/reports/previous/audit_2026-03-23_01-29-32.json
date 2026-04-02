@@ -1,0 +1,15 @@
+{
+  "dataset_name": "boot_company_jpm_3",
+  "job_id": "c65151f1-d6fe-407f-bced-6966e2bf7c65",
+  "quality_score": 80.0,
+  "checks_detail": {
+    "findings_exist": true,
+    "no_zero_revenue": true,
+    "dq_gate_ran": false,
+    "reasonable_execution_time": true,
+    "no_crash": true
+  },
+  "timestamp": "2026-03-23T01:29:32.878604",
+  "status": "completed",
+  "execution_time": 179.08
+}

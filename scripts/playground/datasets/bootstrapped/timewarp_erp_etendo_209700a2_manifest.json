@@ -1,0 +1,80 @@
+{
+  "source": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/synthetic/erp_etendo_209700a2.db",
+  "source_name": "erp_etendo_209700a2",
+  "total_periods": 6,
+  "created_at": "2026-03-22T02:56:10.025749",
+  "periods": [
+    {
+      "period": 1,
+      "path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_erp_etendo_209700a2_1.db",
+      "row_counts": {
+        "c_bpartner": 16,
+        "m_product": 266,
+        "c_invoice": 21382,
+        "c_invoiceline": 64177,
+        "c_payment": 14877,
+        "c_order": 14487
+      }
+    },
+    {
+      "period": 2,
+      "path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_erp_etendo_209700a2_2.db",
+      "row_counts": {
+        "c_bpartner": 17,
+        "m_product": 268,
+        "c_invoice": 20922,
+        "c_invoiceline": 64177,
+        "c_payment": 14558,
+        "c_order": 14175
+      }
+    },
+    {
+      "period": 3,
+      "path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_erp_etendo_209700a2_3.db",
+      "row_counts": {
+        "c_bpartner": 16,
+        "m_product": 269,
+        "c_invoice": 19821,
+        "c_invoiceline": 64177,
+        "c_payment": 13791,
+        "c_order": 13430
+      }
+    },
+    {
+      "period": 4,
+      "path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_erp_etendo_209700a2_4.db",
+      "row_counts": {
+        "c_bpartner": 15,
+        "m_product": 268,
+        "c_invoice": 18720,
+        "c_invoiceline": 64177,
+        "c_payment": 13025,
+        "c_order": 12683
+      }
+    },
+    {
+      "period": 5,
+      "path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_erp_etendo_209700a2_5.db",
+      "row_counts": {
+        "c_bpartner": 14,
+        "m_product": 268,
+        "c_invoice": 17619,
+        "c_invoiceline": 64177,
+        "c_payment": 12259,
+        "c_order": 11937
+      }
+    },
+    {
+      "period": 6,
+      "path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_erp_etendo_209700a2_6.db",
+      "row_counts": {
+        "c_bpartner": 13,
+        "m_product": 268,
+        "c_invoice": 16518,
+        "c_invoiceline": 64177,
+        "c_payment": 11492,
+        "c_order": 11191
+      }
+    }
+  ]
+}

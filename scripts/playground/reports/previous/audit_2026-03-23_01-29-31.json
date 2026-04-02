@@ -1,0 +1,15 @@
+{
+  "dataset_name": "boot_company_tsla_1",
+  "job_id": "00265f93-0d5b-4171-a80a-5edba3fd119c",
+  "quality_score": 80.0,
+  "checks_detail": {
+    "findings_exist": true,
+    "no_zero_revenue": true,
+    "dq_gate_ran": false,
+    "reasonable_execution_time": true,
+    "no_crash": true
+  },
+  "timestamp": "2026-03-23T01:29:31.690094",
+  "status": "completed",
+  "execution_time": 221.06
+}

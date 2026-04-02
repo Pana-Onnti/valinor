@@ -1,0 +1,15 @@
+{
+  "dataset_name": "boot_erp_etendo_20d1c347_2",
+  "job_id": "21e3736a-d435-451a-8e40-126c2a1da2cc",
+  "quality_score": 80.0,
+  "checks_detail": {
+    "findings_exist": true,
+    "no_zero_revenue": true,
+    "dq_gate_ran": false,
+    "reasonable_execution_time": true,
+    "no_crash": true
+  },
+  "timestamp": "2026-03-22T03:34:17.093962",
+  "status": "completed",
+  "execution_time": 191.31
+}

@@ -1,0 +1,10 @@
+{
+  "dataset_name": "edge_empty_tables",
+  "dataset_path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/edge_cases/edge_empty_tables.db",
+  "timestamp": "2026-03-22T03:11:32.229688",
+  "job_id": "2ef7e5c6-ce7b-4335-865f-94c0565aa0c1",
+  "status": "completed",
+  "execution_time": 397.11,
+  "has_findings": false,
+  "pass": true
+}

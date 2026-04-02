@@ -1,0 +1,10 @@
+{
+  "dataset_name": "boot_company_aapl_1",
+  "dataset_path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/boot_company_aapl_1.db",
+  "timestamp": "2026-03-22T03:01:06.822429",
+  "job_id": "b6cb3738-0951-488d-be16-89690f011455",
+  "status": "timeout",
+  "execution_time": 368.06,
+  "error": "Job stuck or timed out (status=timeout)",
+  "pass": false
+}

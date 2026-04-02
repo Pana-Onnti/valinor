@@ -1,0 +1,10 @@
+{
+  "dataset_name": "perturb_company_googl_column_shuffle_fk_corruption_null_injection",
+  "dataset_path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/perturb_company_googl_column_shuffle_fk_corruption_null_injection.db",
+  "timestamp": "2026-03-22T02:58:54.758127",
+  "job_id": "57c935e6-e385-4466-8349-4cdd1ebbf8d4",
+  "status": "failed",
+  "execution_time": 20.04,
+  "error": "Insufficient entity mapping - need at least customers + invoices",
+  "pass": false
+}

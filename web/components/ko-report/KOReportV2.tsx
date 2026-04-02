@@ -8,6 +8,7 @@ import { type ParsedReport } from '@/lib/reportParser'
 import { T, SEV_COLOR, SEV_LABEL, CHART_THEME } from '@/components/d4c/tokens'
 import { ConfidenceBadge, MicroBadge } from '@/components/ui/ConfidenceBadge'
 import { TrustScoreHeader } from '@/components/findings/TrustScoreHeader'
+import { AuditTrailPanel } from '@/components/findings/AuditTrailPanel'
 import type { AnalysisConfidenceMetadata } from '@/lib/confidence-types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -148,7 +149,19 @@ function D4CTooltip({ active, payload, label }: { active?: boolean; payload?: { 
 
 // ── FindingCard ───────────────────────────────────────────────────────────────
 
-function FindingCard({ finding, confidenceMetadata, index }: { finding: ParsedReport['findings'][number]; confidenceMetadata?: AnalysisConfidenceMetadata; index: number }) {
+function FindingCard({
+  finding,
+  confidenceMetadata,
+  index,
+  auditOpen,
+  onAuditToggle,
+}: {
+  finding: ParsedReport['findings'][number]
+  confidenceMetadata?: AnalysisConfidenceMetadata
+  index: number
+  auditOpen: boolean
+  onAuditToggle: (findingId: string) => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const color = SEV_COLOR[finding.severity] ?? T.accent.blue
 
@@ -185,7 +198,7 @@ function FindingCard({ finding, confidenceMetadata, index }: { finding: ParsedRe
           </div>
         </div>
         <span style={{ ...s.mono, fontSize: 16, color: T.text.tertiary, flexShrink: 0 }}>
-          {expanded ? '▴' : '▾'}
+          {expanded ? '\u25B4' : '\u25BE'}
         </span>
       </div>
 
@@ -230,6 +243,21 @@ function FindingCard({ finding, confidenceMetadata, index }: { finding: ParsedRe
           )}
         </div>
       )}
+
+      {/* Audit trail panel */}
+      {confidenceMetadata?.findings_confidence?.[finding.id] && (
+        <div
+          style={{ marginTop: T.space.md }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <AuditTrailPanel
+            findingId={finding.id}
+            confidence={confidenceMetadata.findings_confidence[finding.id]}
+            isOpen={auditOpen}
+            onToggle={onAuditToggle}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -237,10 +265,15 @@ function FindingCard({ finding, confidenceMetadata, index }: { finding: ParsedRe
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export function KOReportV2({ report, dqScore, companyName, confidenceMetadata }: KOReportV2Props) {
+  const [openAuditId, setOpenAuditId] = useState<string | null>(null)
   const name = companyName ?? report.clientName
   const critical = report.findings.filter(f => f.severity === 'CRITICAL')
   const high = report.findings.filter(f => f.severity === 'HIGH')
   const warnings = report.findings.filter(f => ['MEDIUM', 'LOW', 'INFO'].includes(f.severity))
+
+  const handleAuditToggle = (findingId: string) => {
+    setOpenAuditId(prev => prev === findingId ? null : findingId)
+  }
 
   // Hero numbers: KPIs más relevantes (primeros 4)
   const heroKPIs = report.kpis.slice(0, 4)
@@ -411,7 +444,14 @@ export function KOReportV2({ report, dqScore, companyName, confidenceMetadata }:
           />
           <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
             {report.findings.map((f, i) => (
-              <FindingCard key={i} finding={f} confidenceMetadata={confidenceMetadata} index={i} />
+              <FindingCard
+                key={i}
+                finding={f}
+                confidenceMetadata={confidenceMetadata}
+                index={i}
+                auditOpen={openAuditId === f.id}
+                onAuditToggle={handleAuditToggle}
+              />
             ))}
             {report.findings.length === 0 && (
               <div style={{ ...s.display, fontSize: 13, color: T.text.tertiary }}>

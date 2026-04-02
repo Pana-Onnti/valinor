@@ -1,0 +1,68 @@
+{
+  "source": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/synthetic/industry_services_ef11478e.db",
+  "source_name": "industry_services_ef11478e",
+  "total_periods": 6,
+  "created_at": "2026-03-22T02:56:07.286772",
+  "periods": [
+    {
+      "period": 1,
+      "path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_industry_services_ef11478e_1.db",
+      "row_counts": {
+        "c_bpartner": 53,
+        "m_product": 5,
+        "c_invoice": 628,
+        "c_payment": 448
+      }
+    },
+    {
+      "period": 2,
+      "path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_industry_services_ef11478e_2.db",
+      "row_counts": {
+        "c_bpartner": 52,
+        "m_product": 8,
+        "c_invoice": 614,
+        "c_payment": 438
+      }
+    },
+    {
+      "period": 3,
+      "path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_industry_services_ef11478e_3.db",
+      "row_counts": {
+        "c_bpartner": 49,
+        "m_product": 7,
+        "c_invoice": 582,
+        "c_payment": 416
+      }
+    },
+    {
+      "period": 4,
+      "path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_industry_services_ef11478e_4.db",
+      "row_counts": {
+        "c_bpartner": 47,
+        "m_product": 8,
+        "c_invoice": 550,
+        "c_payment": 392
+      }
+    },
+    {
+      "period": 5,
+      "path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_industry_services_ef11478e_5.db",
+      "row_counts": {
+        "c_bpartner": 44,
+        "m_product": 8,
+        "c_invoice": 518,
+        "c_payment": 369
+      }
+    },
+    {
+      "period": 6,
+      "path": "/home/nicolas/Documents/delta4/valinor-saas/scripts/playground/datasets/bootstrapped/timewarp_industry_services_ef11478e_6.db",
+      "row_counts": {
+        "c_bpartner": 41,
+        "m_product": 8,
+        "c_invoice": 485,
+        "c_payment": 346
+      }
+    }
+  ]
+}

@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Delta 4C — Agent Infrastructure Guide</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #06080d;
+    --bg-card: #0d1117;
+    --bg-card-hover: #161b22;
+    --border: #1b2433;
+    --border-accent: #0ea5e9;
+    --text: #c9d1d9;
+    --text-dim: #6b7b8d;
+    --text-bright: #f0f6fc;
+    --accent: #0ea5e9;
+    --accent-glow: rgba(14, 165, 233, 0.1);
+    --green: #10b981;
+    --green-dim: rgba(16, 185, 129, 0.1);
+    --amber: #f59e0b;
+    --amber-dim: rgba(245, 158, 11, 0.1);
+    --red: #ef4444;
+    --red-dim: rgba(239, 68, 68, 0.1);
+    --purple: #a78bfa;
+    --purple-dim: rgba(167, 139, 250, 0.1);
+    --cyan: #22d3ee;
+    --cyan-dim: rgba(34, 211, 238, 0.1);
+    --linear: #5e6ad2;
+    --linear-dim: rgba(94, 106, 210, 0.12);
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Space Grotesk', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  .container { max-width: 920px; margin: 0 auto; padding: 0 24px; }
+
+  /* Hero */
+  .hero {
+    padding: 80px 0 60px;
+    text-align: center;
+    position: relative;
+  }
+  .hero::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 240px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    border-radius: 100px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+    margin-bottom: 24px;
+    text-transform: uppercase;
+  }
+  .hero h1 {
+    font-size: clamp(32px, 5vw, 48px);
+    font-weight: 700;
+    color: var(--text-bright);
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    margin-bottom: 16px;
+  }
+  .hero h1 span { color: var(--accent); }
+  .hero p {
+    font-size: 17px;
+    color: var(--text-dim);
+    max-width: 640px;
+    margin: 0 auto;
+    font-weight: 300;
+  }
+
+  /* Sections */
+  section { padding: 56px 0; border-top: 1px solid var(--border); }
+  .section-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  h2 {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text-bright);
+    letter-spacing: -0.02em;
+    margin-bottom: 16px;
+  }
+  h3 {
+    font-size: 19px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 12px;
+    margin-top: 32px;
+  }
+  p { margin-bottom: 16px; }
+  p.dim { color: var(--text-dim); }
+
+  /* Cards */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-top: 24px;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    transition: border-color 0.3s, background 0.3s;
+  }
+  .card:hover { border-color: var(--border-accent); background: var(--bg-card-hover); }
+  .card .icon {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    margin-bottom: 12px;
+  }
+  .card h4 { font-size: 15px; font-weight: 600; color: var(--text-bright); margin-bottom: 8px; }
+  .card p { font-size: 13px; color: var(--text-dim); margin: 0; line-height: 1.6; }
+
+  /* Component blocks */
+  .component {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    margin: 20px 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .component::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px; height: 100%;
+  }
+  .component.blue::before { background: var(--accent); }
+  .component.green::before { background: var(--green); }
+  .component.amber::before { background: var(--amber); }
+  .component.purple::before { background: var(--purple); }
+  .component.cyan::before { background: var(--cyan); }
+  .component.linear::before { background: var(--linear); }
+  .component-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .component-header .tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-weight: 500;
+  }
+  .tag-router { background: var(--accent-glow); color: var(--accent); }
+  .tag-agent { background: var(--green-dim); color: var(--green); }
+  .tag-command { background: var(--amber-dim); color: var(--amber); }
+  .tag-docs { background: var(--purple-dim); color: var(--purple); }
+  .tag-pm { background: var(--cyan-dim); color: var(--cyan); }
+  .tag-linear { background: var(--linear-dim); color: var(--linear); }
+  .tag-git { background: var(--red-dim); color: var(--red); }
+
+  .component h4 { font-size: 17px; font-weight: 700; color: var(--text-bright); }
+  .component p { font-size: 14px; color: var(--text-dim); margin-bottom: 12px; }
+  .component ul { list-style: none; padding: 0; }
+  .component li {
+    font-size: 13px; color: var(--text);
+    padding: 4px 0 4px 20px;
+    position: relative;
+  }
+  .component li::before { content: '→'; position: absolute; left: 0; color: var(--text-dim); }
+
+  /* Tables */
+  .dt {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 24px 0;
+    font-size: 14px;
+  }
+  .dt th {
+    text-align: left;
+    padding: 12px 16px;
+    border-bottom: 2px solid var(--border-accent);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+  }
+  .dt td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    vertical-align: top;
+  }
+  .dt tr:hover td { background: var(--bg-card); }
+  .dt td:first-child { font-weight: 600; color: var(--text-bright); white-space: nowrap; }
+
+  /* Code */
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: rgba(14, 165, 233, 0.08);
+    color: var(--accent);
+    padding: 2px 7px;
+    border-radius: 4px;
+  }
+  pre {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    overflow-x: auto;
+    margin: 16px 0;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+
+  /* Tree */
+  .tree { font-family: var(--mono); font-size: 13px; line-height: 1.8; }
+  .tree .folder { color: var(--accent); font-weight: 700; }
+  .tree .file { color: var(--text-dim); }
+  .tree .comment { color: var(--green); font-style: italic; }
+  .tree .highlight { color: var(--amber); }
+  .tree .linear-ref { color: var(--linear); }
+
+  /* Callout */
+  .callout {
+    background: var(--accent-glow);
+    border: 1px solid rgba(14, 165, 233, 0.2);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin: 24px 0;
+    font-size: 14px;
+  }
+  .callout strong { color: var(--accent); }
+  .callout.linear-callout {
+    background: var(--linear-dim);
+    border-color: rgba(94, 106, 210, 0.25);
+  }
+  .callout.linear-callout strong { color: var(--linear); }
+  .callout.warn {
+    background: var(--amber-dim);
+    border-color: rgba(245, 158, 11, 0.25);
+  }
+  .callout.warn strong { color: var(--amber); }
+
+  /* Comparison */
+  .comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 24px 0;
+  }
+  @media (max-width: 640px) { .comparison { grid-template-columns: 1fr; } }
+  .comparison-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .comparison-card.bad { border-color: rgba(239, 68, 68, 0.3); }
+  .comparison-card.good { border-color: rgba(16, 185, 129, 0.3); }
+  .comparison-card .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 12px;
+  }
+  .comparison-card.bad .label { color: var(--red); }
+  .comparison-card.good .label { color: var(--green); }
+  .comparison-card pre { margin: 0; border: none; background: transparent; padding: 0; font-size: 12px; }
+
+  /* Flow */
+  .flow { display: flex; flex-direction: column; gap: 0; margin: 24px 0; }
+  .flow-step { display: flex; align-items: flex-start; gap: 16px; position: relative; }
+  .flow-connector { display: flex; flex-direction: column; align-items: center; min-width: 40px; }
+  .flow-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg);
+    box-shadow: 0 0 0 2px var(--accent);
+    z-index: 1; flex-shrink: 0;
+  }
+  .flow-line { width: 2px; height: 48px; background: var(--border); }
+  .flow-content { padding-bottom: 32px; }
+  .flow-content h4 { font-size: 15px; font-weight: 600; color: var(--text-bright); margin-bottom: 4px; }
+  .flow-content p { font-size: 13px; color: var(--text-dim); margin: 0; }
+  .flow-step:last-child .flow-line { display: none; }
+  .flow-step:last-child .flow-content { padding-bottom: 0; }
+
+  /* Footer */
+  footer {
+    padding: 40px 0;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  footer strong { color: var(--text); }
+
+  html { scroll-behavior: smooth; }
+  ::selection { background: rgba(14, 165, 233, 0.3); color: var(--text-bright); }
+
+  /* Badge for source of truth indicators */
+  .sot {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    vertical-align: middle;
+  }
+  .sot-linear { background: var(--linear-dim); color: var(--linear); }
+  .sot-git { background: var(--red-dim); color: var(--red); }
+  .sot-fs { background: var(--amber-dim); color: var(--amber); }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-badge">⚡ D4C Internal — v1.0 Linear-First</div>
+    <h1>Agent <span>Infrastructure</span></h1>
+    <p>Guía para el equipo Delta 4C. Cómo trabajamos con Claude Code, integrado con Linear como source of truth y GitHub para código. Adaptado del sistema StockIA, evolucionado para un equipo de 3.</p>
+  </div>
+
+  <!-- SECTION 1: LA TESIS -->
+  <section>
+    <div class="section-label">01 — La tesis</div>
+    <h2>¿Por qué no copiamos StockIA tal cual?</h2>
+    <p>StockIA puso todo su project management en archivos markdown (<code>.stockia/ROADMAP.md</code>, <code>SESSION_LOG.md</code>, <code>tasks/</code>) porque su agente no podía hablar con APIs externas. Cada estado vivía en el filesystem.</p>
+    <p>Delta 4C tiene <strong>Linear via MCP</strong>. El agente puede leer issues, crear documentos, actualizar estado — directamente. Esto cambia la arquitectura de raíz:</p>
+
+    <div class="grid">
+      <div class="card">
+        <div class="icon" style="background: var(--linear-dim);">📋</div>
+        <h4>Linear = PM source of truth</h4>
+        <p>Roadmap, backlog, issues, ciclos, decision log, session tracking — todo vive en Linear. No duplicamos en markdown.</p>
+      </div>
+      <div class="card">
+        <div class="icon" style="background: var(--red-dim);">🔀</div>
+        <h4>GitHub = código source of truth</h4>
+        <p>Branches, commits, PRs. Cada commit referencia un issue de Linear. El código nunca se trackea fuera de git.</p>
+      </div>
+      <div class="card">
+        <div class="icon" style="background: var(--amber-dim);">📂</div>
+        <h4>Filesystem = agente context only</h4>
+        <p>CLAUDE.md, subagentes, commands, y docs de arquitectura que el agente necesita sin hacer API calls.</p>
+      </div>
+      <div class="card">
+        <div class="icon" style="background: var(--green-dim);">🔗</div>
+        <h4>Loop cerrado</h4>
+        <p>Linear → branch → code → commit (Refs: VAL-XX) → push → update Linear. Trazabilidad completa sin holes.</p>
+      </div>
+    </div>
+
+    <div class="callout linear-callout">
+      <strong>Principio fundacional:</strong> Si algo necesita ser leído por humanos Y agentes → Linear. Si algo necesita ser leído por el agente durante coding sin latencia → filesystem. Si algo necesita versionarse → git. Nunca duplicar entre capas.
+    </div>
+  </section>
+
+  <!-- SECTION 2: MAPA -->
+  <section>
+    <div class="section-label">02 — Mapa de source of truth</div>
+    <h2>Dónde vive cada cosa</h2>
+
+    <table class="dt">
+      <thead>
+        <tr>
+          <th>Info</th>
+          <th>Dónde</th>
+          <th>Por qué ahí</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Roadmap <span class="sot sot-linear">Linear</span></td>
+          <td>Linear Doc: "Roadmap — 5 meses a YC"</td>
+          <td>Humanos lo consultan en Linear. El agente lo lee vía MCP.</td>
+        </tr>
+        <tr>
+          <td>Issues / Tareas <span class="sot sot-linear">Linear</span></td>
+          <td>Linear Issues por team (VAL, NAR, GRO)</td>
+          <td>Ciclos, prioridades, assignees — todo nativo de Linear.</td>
+        </tr>
+        <tr>
+          <td>Decision Log <span class="sot sot-linear">Linear</span></td>
+          <td>Linear Doc: "Decision Log"</td>
+          <td>Registro compartido. El agente appenda decisiones vía MCP.</td>
+        </tr>
+        <tr>
+          <td>Session Log <span class="sot sot-linear">Linear</span></td>
+          <td>Linear Doc (nuevo): "Session Log — Dev"</td>
+          <td>Reemplaza .stockia/SESSION_LOG.md. Persiste entre repos.</td>
+        </tr>
+        <tr>
+          <td>Backlog <span class="sot sot-linear">Linear</span></td>
+          <td>Linear Issues con state=Backlog</td>
+          <td>Filtro nativo. No necesita archivo separado.</td>
+        </tr>
+        <tr>
+          <td>Arquitectura código <span class="sot sot-fs">Filesystem</span></td>
+          <td><code>docs/ARCHITECTURE.md</code> en repo</td>
+          <td>El agente lo necesita al implementar features. 0 latencia.</td>
+        </tr>
+        <tr>
+          <td>Guía de desarrollo <span class="sot sot-fs">Filesystem</span></td>
+          <td><code>docs/DEVELOPER_GUIDE.md</code> en repo</td>
+          <td>Flujo Domain→App→Infra. El agente lo consulta on-demand.</td>
+        </tr>
+        <tr>
+          <td>Config del agente <span class="sot sot-fs">Filesystem</span></td>
+          <td><code>.claude/</code> en repo</td>
+          <td>Agents, commands, skills, settings. Versionado en git.</td>
+        </tr>
+        <tr>
+          <td>Código fuente <span class="sot sot-git">Git</span></td>
+          <td><code>src/</code> en repo</td>
+          <td>Branches por issue. Conventional commits.</td>
+        </tr>
+        <tr>
+          <td>Playbooks, KO Design, etc. <span class="sot sot-linear">Linear</span></td>
+          <td>Linear Docs en Knowledge Base</td>
+          <td>Referencia de equipo. El agente los lee cuando necesita contexto de negocio.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- SECTION 3: ESTRUCTURA DEL REPO -->
+  <section>
+    <div class="section-label">03 — Estructura del repo</div>
+    <h2>Qué va en el filesystem</h2>
+    <p>Solo lo que el agente necesita leer durante coding sin hacer API calls. Todo lo demás vive en Linear.</p>
+
+    <div class="component blue">
+      <div class="component-header">
+        <h4>Estructura de archivos</h4>
+      </div>
+      <pre class="tree"><code><span class="folder">valinor/</span>  <span class="comment">(o narzil/, delta4c-web/, etc.)</span>
+├── <span class="highlight">CLAUDE.md</span>                    <span class="comment"># Router &lt;2KB — se lee SIEMPRE</span>
+├── <span class="folder">.claude/</span>
+│   ├── settings.json              <span class="comment"># Permisos del agente</span>
+│   ├── <span class="folder">agents/</span>                    <span class="comment"># Subagentes especializados</span>
+│   │   ├── swarm-architect.md     <span class="comment"># Diseño de agentes y pipeline</span>
+│   │   ├── backend-dev.md         <span class="comment"># FastAPI + Celery + Redis</span>
+│   │   ├── test-writer.md         <span class="comment"># Tests unitarios e integración</span>
+│   │   ├── infra-ops.md           <span class="comment"># Docker, deploy, monitoring</span>
+│   │   ├── agent-engineer.md      <span class="comment"># Harnesses, prompts, tools</span>
+│   │   └── pm-linear.md           <span class="comment"># Gestión via Linear MCP</span>
+│   ├── <span class="folder">commands/</span>                  <span class="comment"># Slash commands</span>
+│   │   ├── start-session.md       <span class="comment"># Lee Linear + active-plan</span>
+│   │   ├── end-session.md         <span class="comment"># Actualiza Linear + session log</span>
+│   │   ├── status.md              <span class="comment"># Dashboard desde Linear</span>
+│   │   ├── plan-task.md           <span class="comment"># Crea issue en Linear</span>
+│   │   ├── implement-feature.md   <span class="comment"># Flujo Domain→App→Infra</span>
+│   │   ├── fix-bug.md             <span class="comment"># Diagnóstico + fix</span>
+│   │   ├── run-tests.md           <span class="comment"># Suite de tests</span>
+│   │   └── review-code.md         <span class="comment"># Revisión dual</span>
+│   ├── <span class="folder">skills/</span>                    <span class="comment"># Skills de Claude Code</span>
+│   │   ├── <span class="folder">d4c-linear-workflow/</span>   <span class="comment"># Loop Linear→Git→Code→Linear</span>
+│   │   └── <span class="folder">d4c-brand/</span>             <span class="comment"># Design system tokens</span>
+│   └── <span class="folder">plans/</span>
+│       └── active-plan.md         <span class="comment"># Plan táctico (esta sesión)</span>
+├── <span class="folder">docs/</span>                          <span class="comment"># Docs que el agente lee on-demand</span>
+│   ├── ARCHITECTURE.md            <span class="comment"># Capas, patrones, diagramas</span>
+│   ├── DEVELOPER_GUIDE.md         <span class="comment"># Cómo implementar features</span>
+│   └── DOMAIN_MODEL.md            <span class="comment"># Entidades del swarm</span>
+├── <span class="folder">src/</span>                           <span class="comment"># Código fuente</span>
+└── <span class="folder">tests/</span>                         <span class="comment"># Tests</span></code></pre>
+    </div>
+
+    <div class="callout warn">
+      <strong>Lo que NO va en el filesystem:</strong> ROADMAP, SESSION_LOG, BACKLOG, DECISIONS, tasks/ — todo eso vive en Linear. Si lo duplicás en markdown, se desincroniza y tenés dos fuentes de verdad.
+    </div>
+  </section>
+
+  <!-- SECTION 4: CLAUDE.MD -->
+  <section>
+    <div class="section-label">04 — CLAUDE.md</div>
+    <h2>El router — &lt;2KB que se lee siempre</h2>
+
+    <div class="component blue">
+      <div class="component-header">
+        <span class="tag tag-router">Router</span>
+        <h4>Template para CLAUDE.md</h4>
+      </div>
+      <pre><code># Delta 4C — Valinor
+
+## Reglas no negociables
+1. Conventional commits: `tipo(scope): desc` + `Refs: VAL-XX` obligatorio
+2. Domain nunca importa de Infrastructure (hexagonal)
+3. Tests antes de commit: `pytest tests/ -v` debe pasar
+4. Todo issue se trackea en Linear — no crear tareas sueltas
+5. Un branch = un issue de Linear
+
+## Build & Test
+```
+docker compose up -d
+pytest tests/ -v
+```
+
+## Workflow: Linear → Git → Code → Linear
+PICK issue → BRANCH (Linear name) → CODE → COMMIT → UPDATE Linear
+
+## Contexto on-demand
+- Arquitectura: `docs/ARCHITECTURE.md`
+- Guía de dev: `docs/DEVELOPER_GUIDE.md`
+- Domain model: `docs/DOMAIN_MODEL.md`
+- Issues activos: `Linear:list_issues` (MCP)
+- Decisiones: Linear Doc "Decision Log" (MCP)
+
+## Agentes: `.claude/agents/`
+## Commands: `.claude/commands/` (start-session, end-session, etc.)
+## Skills: `.claude/skills/` (d4c-linear-workflow, d4c-brand)</code></pre>
+    </div>
+
+    <div class="callout">
+      <strong>¿Por qué &lt;2KB?</strong> Claude Code lee CLAUDE.md en CADA interacción. Cada línea compite por atención. El router solo tiene reglas + punteros. La información detallada se carga on-demand desde <code>docs/</code> o desde Linear vía MCP.
+    </div>
+  </section>
+
+  <!-- SECTION 5: SUBAGENTES -->
+  <section>
+    <div class="section-label">05 — Subagentes</div>
+    <h2>6 especialistas para Delta 4C</h2>
+    <p>Adaptados del sistema StockIA al contexto D4C. Cada uno tiene su propio contexto, tools permitidas, y modelo óptimo.</p>
+
+    <table class="dt">
+      <thead>
+        <tr>
+          <th>Agente</th>
+          <th>Rol en D4C</th>
+          <th>Tools</th>
+          <th>Model</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>swarm-architect</td>
+          <td>Diseño del pipeline multi-agente. Valida que el flujo Cartógrafo→Analista→Narrador se respete. Revisa harnesses y tools de cada Vala.</td>
+          <td>Read, Grep, Glob</td>
+          <td>Sonnet</td>
+        </tr>
+        <tr>
+          <td>backend-dev</td>
+          <td>Implementa features en FastAPI + Celery + Redis + PostgreSQL. Sigue DEVELOPER_GUIDE.md para el flujo Domain→App→Infra.</td>
+          <td>Read, Write, Edit, Bash</td>
+          <td>Sonnet</td>
+        </tr>
+        <tr>
+          <td>test-writer</td>
+          <td>Tests unitarios, de integración, y E2E. Cobertura de los agentes del swarm, API endpoints, y data pipeline.</td>
+          <td>Read, Write, Bash</td>
+          <td>Haiku</td>
+        </tr>
+        <tr>
+          <td>infra-ops</td>
+          <td>Docker Compose, Prometheus, deploy via SSH tunneling, ZeroTrust. Monitoring y alertas. Caddy reverse proxy.</td>
+          <td>Read, Write, Edit, Bash</td>
+          <td>Haiku</td>
+        </tr>
+        <tr>
+          <td>agent-engineer</td>
+          <td>Escribe y refina harnesses (system prompts), define tools para cada Vala, optimiza token usage, calibra Haiku vs Sonnet.</td>
+          <td>Read, Write, Edit, Bash</td>
+          <td>Sonnet</td>
+        </tr>
+        <tr>
+          <td>pm-linear</td>
+          <td>Lee y actualiza Linear: issues, session log, decision log. Genera dashboards de progreso. Sincroniza estado.</td>
+          <td>Read, Write, Glob, <strong>Linear MCP</strong></td>
+          <td>Haiku</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout">
+      <strong>Diferencia clave vs StockIA:</strong> Tenemos <code>agent-engineer</code> (escribe harnesses para los Valar) y <code>pm-linear</code> (opera sobre Linear via MCP). StockIA tenía <code>security-reviewer</code> y <code>data-engineer</code> — los nuestros son <code>infra-ops</code> y <code>swarm-architect</code> porque nuestro dominio es agentic AI, no fintech.
+    </div>
+  </section>
+
+  <!-- SECTION 6: COMMANDS -->
+  <section>
+    <div class="section-label">06 — Commands</div>
+    <h2>Slash commands con Linear integration</h2>
+    <p>La diferencia principal: los commands de StockIA leían/escribían markdown. Los nuestros leen/escriben Linear vía MCP.</p>
+
+    <table class="dt">
+      <thead>
+        <tr>
+          <th>Comando</th>
+          <th>Qué hace</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>/project:start-session</code></td>
+          <td>Lee issues "In Progress" de Linear + active-plan.md local. Presenta dónde quedamos y qué sigue. Si hay un plan activo, lo retoma.</td>
+          <td><span class="sot sot-linear">Linear</span> + <span class="sot sot-fs">FS</span></td>
+        </tr>
+        <tr>
+          <td><code>/project:end-session</code></td>
+          <td>Guarda resumen en Linear Doc "Session Log". Actualiza estado de issues trabajados. Actualiza active-plan.md local.</td>
+          <td><span class="sot sot-linear">Linear</span> + <span class="sot sot-fs">FS</span></td>
+        </tr>
+        <tr>
+          <td><code>/project:status</code></td>
+          <td>Dashboard: issues del cycle actual, % completado, blockers, próximas prioridades. Todo desde Linear.</td>
+          <td><span class="sot sot-linear">Linear</span></td>
+        </tr>
+        <tr>
+          <td><code>/project:plan-task [desc]</code></td>
+          <td>Investiga codebase, define scope, acceptance criteria. Crea issue en Linear con label, priority, estimate. NO crea archivos markdown.</td>
+          <td><span class="sot sot-linear">Linear</span> + <span class="sot sot-fs">FS</span></td>
+        </tr>
+        <tr>
+          <td><code>/project:implement-feature [issue]</code></td>
+          <td>Lee issue de Linear, crea branch, ejecuta Domain→App→Infra. Commits con <code>Refs: VAL-XX</code>. Al terminar, actualiza Linear.</td>
+          <td><span class="sot sot-linear">Linear</span> + <span class="sot sot-git">Git</span></td>
+        </tr>
+        <tr>
+          <td><code>/project:fix-bug [issue]</code></td>
+          <td>Lee issue, reproduce, diagnostica, fix, test, commit. Actualiza Linear al cerrar.</td>
+          <td><span class="sot sot-linear">Linear</span> + <span class="sot sot-git">Git</span></td>
+        </tr>
+        <tr>
+          <td><code>/project:run-tests</code></td>
+          <td>Ejecuta <code>pytest tests/ -v</code>. Reporta resultados. Si falla, sugiere fix.</td>
+          <td><span class="sot sot-fs">FS</span></td>
+        </tr>
+        <tr>
+          <td><code>/project:review-code</code></td>
+          <td>Delega a swarm-architect + infra-ops para revisión dual: arquitectura + seguridad/infra.</td>
+          <td><span class="sot sot-fs">FS</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- SECTION 7: START/END SESSION DETALLE -->
+  <section>
+    <div class="section-label">07 — Session lifecycle</div>
+    <h2>El "git pull/push" cognitivo</h2>
+
+    <h3><code>/project:start-session</code> — Paso a paso</h3>
+    <div class="component green">
+      <div class="component-header">
+        <span class="tag tag-command">Start</span>
+        <h4>Lo que hace el agente al arrancar</h4>
+      </div>
+      <pre><code># 1. Leer estado de Linear
+→ Linear:list_issues (assignee=me, state="In Progress")
+→ Linear:list_issues (assignee=me, state="Todo", cycle=current)
+
+# 2. Leer plan táctico local
+→ Read .claude/plans/active-plan.md
+
+# 3. Presentar resumen
+"🔵 Issues in progress: VAL-12 (QueryBuilder), VAL-16 (Narrador)
+ 📋 Next up: VAL-14 (Quality Gate polish)
+ 📝 Plan activo: Terminar VAL-12 e2e tests
+ ¿Retomamos VAL-12 o cambiamos de foco?"
+
+# 4. Si no hay plan activo → preguntar qué hacer
+# 5. Si hay plan activo → retomar desde último checkpoint</code></pre>
+    </div>
+
+    <h3><code>/project:end-session</code> — Paso a paso</h3>
+    <div class="component amber">
+      <div class="component-header">
+        <span class="tag tag-command">End</span>
+        <h4>Lo que hace el agente al cerrar</h4>
+      </div>
+      <pre><code># 1. Generar resumen de sesión
+→ Qué se hizo, decisiones tomadas, deviaciones, qué sigue
+
+# 2. Actualizar Linear
+→ Linear:save_comment en issues trabajados (resumen de progreso)
+→ Linear:save_issue para mover state si se completó
+→ Linear:update_document "Session Log — Dev" (append entrada)
+
+# 3. Actualizar plan local
+→ Write .claude/plans/active-plan.md con próximos pasos
+
+# 4. Si hubo decisiones importantes
+→ Linear:update_document "Decision Log" (append entrada)
+
+# 5. Git
+→ Confirmar que todos los commits tienen Refs: VAL-XX
+→ Push si no se hizo</code></pre>
+    </div>
+  </section>
+
+  <!-- SECTION 8: COMPARACIÓN -->
+  <section>
+    <div class="section-label">08 — StockIA vs D4C</div>
+    <h2>Qué tomamos, qué cambiamos</h2>
+
+    <div class="comparison">
+      <div class="comparison-card bad">
+        <div class="label">StockIA (markdown-only)</div>
+        <pre><code>.stockia/
+  ROADMAP.md        → checkboxes manuales
+  SESSION_LOG.md    → append manual
+  BACKLOG.md        → lista priorizada
+  tasks/
+    000-xxx/SPEC.md → contrato de tarea
+    000-xxx/LOG.md  → execution log
+
+→ Agente lee/escribe filesystem
+→ Sin integración con PM tools
+→ Funciona offline, 0 API calls
+→ Un solo repo, un solo dev</code></pre>
+      </div>
+      <div class="comparison-card good">
+        <div class="label">D4C (Linear-first)</div>
+        <pre><code>Linear/
+  Issues           → tareas con ciclos
+  Documents        → session log, decisions
+  Projects         → roadmap, milestones
+  Comments         → progress updates
+
+.claude/
+  agents/           → 6 especialistas D4C
+  commands/         → Linear-integrated
+  plans/            → solo plan táctico local
+
+→ Agente lee/escribe Linear via MCP
+→ Equipo de 3 ve todo en un lugar
+→ Git hooks para trazabilidad
+→ Multi-repo compatible</code></pre>
+      </div>
+    </div>
+
+    <h3>Qué adoptamos tal cual</h3>
+    <table class="dt">
+      <thead>
+        <tr>
+          <th>Concepto StockIA</th>
+          <th>En D4C</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>CLAUDE.md &lt;2KB router</td>
+          <td>✅ Idéntico. Router con reglas y punteros.</td>
+        </tr>
+        <tr>
+          <td>Subagentes especializados (.claude/agents/)</td>
+          <td>✅ Adaptados al contexto D4C (swarm-architect, agent-engineer, etc.)</td>
+        </tr>
+        <tr>
+          <td>Slash commands ejecutables</td>
+          <td>✅ Pero integrados con Linear MCP en vez de leer markdown.</td>
+        </tr>
+        <tr>
+          <td>start-session / end-session</td>
+          <td>✅ "Git pull/push cognitivo" — pero contra Linear, no contra archivos.</td>
+        </tr>
+        <tr>
+          <td>docs/ on-demand</td>
+          <td>✅ ARCHITECTURE, DEVELOPER_GUIDE, DOMAIN_MODEL en repo.</td>
+        </tr>
+        <tr>
+          <td>Haiku para tareas simples</td>
+          <td>✅ pm-linear, test-writer, infra-ops en Haiku.</td>
+        </tr>
+        <tr>
+          <td>active-plan.md local</td>
+          <td>✅ Plan táctico de sesión en filesystem (rápido, no necesita API).</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Qué cambiamos</h3>
+    <table class="dt">
+      <thead>
+        <tr>
+          <th>StockIA</th>
+          <th>D4C</th>
+          <th>Por qué</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>.stockia/ROADMAP.md</td>
+          <td>Linear Projects + Milestones</td>
+          <td>3 personas necesitan ver el roadmap. Linear es el lugar compartido.</td>
+        </tr>
+        <tr>
+          <td>.stockia/SESSION_LOG.md</td>
+          <td>Linear Doc "Session Log — Dev"</td>
+          <td>Persiste entre repos. Pedro y Lorenzo pueden verlo.</td>
+        </tr>
+        <tr>
+          <td>.stockia/BACKLOG.md</td>
+          <td>Linear Issues con state=Backlog</td>
+          <td>Filtros nativos, labels, prioridades. No reinventar.</td>
+        </tr>
+        <tr>
+          <td>.stockia/tasks/XXX/SPEC.md</td>
+          <td>Linear Issue description</td>
+          <td>El issue ES la spec. Acceptance criteria como checklist en el issue.</td>
+        </tr>
+        <tr>
+          <td>.stockia/tasks/XXX/LOG.md</td>
+          <td>Linear Comments en el issue</td>
+          <td>Cada sesión de trabajo = un comment con progreso.</td>
+        </tr>
+        <tr>
+          <td>docs/DECISIONS.md</td>
+          <td>Linear Doc "Decision Log"</td>
+          <td>Compartido entre los 3. El agente appenda via MCP.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- SECTION 9: FLUJO DIARIO -->
+  <section>
+    <div class="section-label">09 — Flujo diario</div>
+    <h2>Cómo es una sesión de desarrollo</h2>
+
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="flow-dot" style="background: var(--linear); box-shadow: 0 0 0 2px var(--linear);"></div>
+          <div class="flow-line"></div>
+        </div>
+        <div class="flow-content">
+          <h4>0. Pick issue en Linear</h4>
+          <p>Elegir (o que el agente sugiera) el próximo issue del cycle. Si es nuevo: <code>/project:plan-task</code> lo crea en Linear.</p>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="flow-dot" style="background: var(--green); box-shadow: 0 0 0 2px var(--green);"></div>
+          <div class="flow-line"></div>
+        </div>
+        <div class="flow-content">
+          <h4>1. <code>/project:start-session</code></h4>
+          <p>El agente lee Linear (issues in progress + cycle) + plan local. Presenta el estado y pregunta: "¿Retomamos VAL-12 o cambiamos?"</p>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="flow-dot"></div>
+          <div class="flow-line"></div>
+        </div>
+        <div class="flow-content">
+          <h4>2. Branch + Code</h4>
+          <p><code>/project:implement-feature VAL-12</code> — Crea branch con nombre de Linear, ejecuta Domain→App→Infra. Commits con <code>Refs: VAL-12</code>.</p>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="flow-dot"></div>
+          <div class="flow-line"></div>
+        </div>
+        <div class="flow-content">
+          <h4>3. Test + Review</h4>
+          <p><code>/project:run-tests</code> → <code>/project:review-code</code> → swarm-architect valida pipeline, infra-ops valida deploy safety.</p>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="flow-dot" style="background: var(--amber); box-shadow: 0 0 0 2px var(--amber);"></div>
+        </div>
+        <div class="flow-content">
+          <h4>4. <code>/project:end-session</code></h4>
+          <p>Actualiza Linear (comment en issue, estado, session log doc). Push. Plan local para próxima sesión. Done.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 10: PLAN-TASK vs STOCKIA -->
+  <section>
+    <div class="section-label">10 — Plan-task reimaginado</div>
+    <h2>De folder-per-task a issue-per-task</h2>
+    <p>StockIA creaba una carpeta <code>.stockia/tasks/003-nombre/</code> con SPEC.md + LOG.md. Nosotros creamos un <strong>issue en Linear</strong> con toda esa info estructurada.</p>
+
+    <div class="component linear">
+      <div class="component-header">
+        <span class="tag tag-linear">Linear Issue</span>
+        <h4>Anatomía de un issue bien escrito</h4>
+      </div>
+      <pre><code># [Title] — lo que se va a hacer
+
+## Objetivo
+Qué se busca lograr en 2-3 oraciones.
+
+## Contexto
+Background técnico y de negocio.
+
+## Scope
+**Incluido:** lo que SÍ entra
+**Excluido:** lo que NO entra
+
+## Acceptance Criteria
+- [ ] Criterio verificable 1
+- [ ] Criterio verificable 2
+- [ ] Criterio verificable 3
+
+## Implementation Steps
+### Fase 1: [nombre]
+- [ ] Paso 1
+- [ ] CHECKPOINT: mostrar resultado al human
+### Fase 2: [nombre]
+- [ ] Paso 2
+
+## Risks
+| Riesgo | Mitigación |
+
+## Git
+Branch: feature/VAL-XX-nombre-corto
+Commits: tipo(scope): desc — Refs: VAL-XX</code></pre>
+    </div>
+
+    <div class="callout linear-callout">
+      <strong>El issue ES la spec.</strong> Los comments son el execution log. Los attachments son los artifacts. No necesitás carpeta aparte. Y todo es visible para Pedro y Lorenzo sin clonar el repo.
+    </div>
+  </section>
+
+  <!-- SECTION 11: GOLDEN RULES -->
+  <section>
+    <div class="section-label">11 — Reglas de oro</div>
+    <h2>8 reglas que no se rompen</h2>
+
+    <div class="component blue">
+      <div class="component-header">
+        <h4>Las reglas del equipo D4C para trabajar con Claude Code</h4>
+      </div>
+      <table class="dt">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Regla</th>
+            <th>Por qué</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td><strong>Siempre empezar con <code>/project:start-session</code></strong></td>
+            <td>Es el "git pull" cognitivo. Sin esto, el agente no sabe dónde estamos.</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td><strong>Siempre terminar con <code>/project:end-session</code></strong></td>
+            <td>Es el "git push" cognitivo. Sin esto, el progreso se pierde en Linear.</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td><strong>Todo commit lleva <code>Refs: VAL-XX</code></strong></td>
+            <td>Trazabilidad código↔tarea. Sin esto, el loop Linear→Git se rompe.</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td><strong>Las tareas viven en Linear, no en markdown</strong></td>
+            <td>Única fuente de verdad. Si duplicás, se desincroniza.</td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td><strong>Un issue = una tarea = un branch</strong></td>
+            <td>No mezclar. Si crece, dividir en sub-issues con dependencias.</td>
+          </tr>
+          <tr>
+            <td>6</td>
+            <td><strong>Domain nunca importa de Infrastructure</strong></td>
+            <td>Regla #1 de hexagonal. Si se viola, el swarm se acopla al infra.</td>
+          </tr>
+          <tr>
+            <td>7</td>
+            <td><strong>Tests antes de commit</strong></td>
+            <td><code>pytest tests/ -v</code> debe pasar. Sin excepciones.</td>
+          </tr>
+          <tr>
+            <td>8</td>
+            <td><strong>Decisiones importantes → Decision Log en Linear</strong></td>
+            <td>Si no lo registrás, lo vas a re-debatir en 2 semanas.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SECTION 12: BOOTSTRAP -->
+  <section>
+    <div class="section-label">12 — Bootstrap</div>
+    <h2>Setup inicial por repo</h2>
+    <p>Esto se hace <strong>una sola vez</strong> por repositorio. Linear ya está configurado (teams, projects, docs).</p>
+
+    <h3>Paso 1: Crear estructura</h3>
+    <pre><code># En el repo (ej: valinor/)
+mkdir -p .claude/{agents,commands,skills,plans}
+mkdir -p docs/
+
+# Crear CLAUDE.md router
+# (copiar template de la sección 04)
+
+# Crear active-plan.md inicial
+echo "# Active Plan\n\nNo hay plan activo. Usar /project:start-session." > .claude/plans/active-plan.md</code></pre>
+
+    <h3>Paso 2: Crear agentes</h3>
+    <pre><code># Crear los 6 .md en .claude/agents/
+# Cada uno con: rol, context, tools permitidos, model, reglas específicas
+# Template abajo</code></pre>
+
+    <h3>Paso 3: Crear commands</h3>
+    <pre><code># Crear los 8 .md en .claude/commands/
+# Cada uno con: instrucciones paso a paso para el agente
+# Los que usan Linear incluyen las llamadas MCP explícitas</code></pre>
+
+    <h3>Paso 4: Crear Session Log doc en Linear</h3>
+    <pre><code># Via Linear UI o MCP:
+# Título: "Session Log — Dev"
+# Project: Knowledge Base
+# Contenido inicial: template con headers</code></pre>
+
+    <h3>Paso 5: Git hook</h3>
+    <pre><code># Instalar commit-msg hook que valida formato
+cp .claude/skills/d4c-linear-workflow/references/commit-msg.hook .git/hooks/commit-msg
+chmod +x .git/hooks/commit-msg</code></pre>
+
+    <div class="callout">
+      <strong>Después del bootstrap:</strong> Siempre empezar con <code>/project:start-session</code>. El agente lee Linear + plan local y te dice qué sigue. Nunca más pegar prompts largos — el issue de Linear ES el prompt.
+    </div>
+  </section>
+
+  <!-- SECTION 13: TEMPLATE DE AGENTE -->
+  <section>
+    <div class="section-label">13 — Templates</div>
+    <h2>Template de subagente</h2>
+
+    <div class="component green">
+      <div class="component-header">
+        <span class="tag tag-agent">Template</span>
+        <h4>.claude/agents/[nombre].md</h4>
+      </div>
+      <pre><code># [Nombre] — Delta 4C
+
+## Rol
+[Descripción en 2-3 oraciones de qué hace este agente]
+
+## Contexto
+- Proyecto: Delta 4C — Valinor (Business Intelligence Swarm)
+- Stack: FastAPI, Celery, Redis, PostgreSQL, Docker
+- Pipeline: Cartógrafo → QueryBuilder → [Analista + Centinela + Cazador] → Narrador
+
+## Reglas
+1. [Regla específica del rol]
+2. [Regla específica del rol]
+3. Conventional commits: `tipo(scope): desc` + `Refs: VAL-XX`
+4. Tests antes de commit
+
+## Tools permitidos
+[Read, Write, Edit, Bash, Grep, Glob — según el rol]
+
+## Model
+[Sonnet | Haiku] — [justificación]
+
+## Cuándo se activa
+[Triggers que hacen que Claude delegue a este agente]
+
+## Cuándo NO se activa
+[Explícito para evitar false positives]</code></pre>
+    </div>
+
+    <h2 style="margin-top: 40px;">Template de command</h2>
+
+    <div class="component amber">
+      <div class="component-header">
+        <span class="tag tag-command">Template</span>
+        <h4>.claude/commands/[nombre].md</h4>
+      </div>
+      <pre><code># /project:[nombre] — Delta 4C
+
+## Descripción
+[Qué hace este command en una oración]
+
+## Cuándo usar
+[En qué momento del workflow]
+
+## Pasos
+
+### 1. [Nombre del paso]
+```
+[Instrucción precisa. Si usa Linear MCP, incluir la llamada exacta]
+→ Linear:list_issues assignee=me state="In Progress"
+```
+
+### 2. [Nombre del paso]
+```
+[Siguiente instrucción]
+```
+
+### 3. Presentar resultado
+```
+Mostrar al usuario: [formato del output esperado]
+```
+
+## Notas
+- [Cualquier edge case o consideración]</code></pre>
+    </div>
+  </section>
+
+  <!-- SECTION 14: PRÓXIMOS PASOS -->
+  <section>
+    <div class="section-label">14 — Próximos pasos</div>
+    <h2>Qué falta hacer</h2>
+
+    <div class="grid">
+      <div class="card">
+        <div class="icon" style="background: var(--green-dim);">1</div>
+        <h4>Crear Session Log doc en Linear</h4>
+        <p>Doc "Session Log — Dev" en project Knowledge Base. Template con fecha + qué se hizo + qué sigue + blockers.</p>
+      </div>
+      <div class="card">
+        <div class="icon" style="background: var(--green-dim);">2</div>
+        <h4>Escribir los 6 agentes .md</h4>
+        <p>Usando el template. Empezar por backend-dev y pm-linear que son los que más se usan día a día.</p>
+      </div>
+      <div class="card">
+        <div class="icon" style="background: var(--green-dim);">3</div>
+        <h4>Escribir los 8 commands .md</h4>
+        <p>Empezar por start-session y end-session. Son el core del sistema de continuidad.</p>
+      </div>
+      <div class="card">
+        <div class="icon" style="background: var(--green-dim);">4</div>
+        <h4>Bootstrap en repo Valinor</h4>
+        <p>Crear estructura, instalar hook, hacer primer /project:start-session. Validar que el loop funciona.</p>
+      </div>
+      <div class="card">
+        <div class="icon" style="background: var(--amber-dim);">5</div>
+        <h4>Replicar en repo Narzil</h4>
+        <p>Pedro usa el mismo sistema pero con agentes adaptados a infra (Docker, n8n, SearXNG).</p>
+      </div>
+      <div class="card">
+        <div class="icon" style="background: var(--amber-dim);">6</div>
+        <h4>Crear docs/ARCHITECTURE.md</h4>
+        <p>Basado en el doc de Linear "Arquitectura técnica — Valinor (baseline)" pero optimizado para el agente.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <strong>Delta 4C</strong> — Agent Infrastructure v1.0 — Linear-First Edition<br>
+    Adaptado de StockIA Agent Infra v2.1 — Marzo 2026
+  </footer>
+
+</div>
+
+</body>
+</html>
