@@ -20,8 +20,13 @@ from fastapi.responses import FileResponse, StreamingResponse
 import structlog
 import redis.asyncio as redis
 
-from api.models import AnalysisRequest, JobStatus
+from api.models import AnalysisRequest, JobStatus, AgentStatus
 from api.deps import get_redis, get_limiter  # noqa: F401
+from shared.events.pipeline_events import (
+    subscribe_pipeline_events,
+    get_agent_statuses,
+    estimate_remaining_seconds,
+)  # PipelineEvent used internally by subscribe_pipeline_events
 
 logger = structlog.get_logger()
 
@@ -248,7 +253,7 @@ async def get_job_status(
     job_id: str,
     redis_client: redis.Redis = Depends(get_redis)
 ):
-    """Get current status of an analysis job."""
+    """Get current status of an analysis job, enriched with per-agent detail."""
     try:
         job_data = await redis_client.hgetall(f"job:{job_id}")
 
@@ -265,6 +270,16 @@ async def get_job_status(
             except Exception:
                 pass
 
+        # Fetch per-agent statuses from Redis hash (best-effort)
+        agents = None
+        remaining = None
+        try:
+            agent_statuses_raw = await get_agent_statuses(redis_client, job_id)
+            agents = [AgentStatus(**a) for a in agent_statuses_raw] if agent_statuses_raw else None
+            remaining = await estimate_remaining_seconds(redis_client, job_id)
+        except Exception:
+            pass  # Graceful degradation — agent details are optional
+
         return JobStatus(
             job_id=job_id,
             status=job_data.get("status", "unknown"),
@@ -275,6 +290,8 @@ async def get_job_status(
             completed_at=datetime.fromisoformat(job_data["completed_at"]) if job_data.get("completed_at") else None,
             error=job_data.get("error"),
             error_detail=error_detail,
+            agents=agents,
+            estimated_remaining_seconds=remaining,
         )
 
     except HTTPException:
@@ -289,76 +306,90 @@ async def get_job_status(
 
 @router.get("/jobs/{job_id}/stream", summary="Stream job progress via SSE")
 async def stream_job_progress(job_id: str):
-    """Server-Sent Events stream for real-time job progress."""
+    """
+    Server-Sent Events stream for real-time job progress.
+
+    Uses Redis pub/sub for instant event delivery (no polling).
+    On connect, sends current state snapshot so late subscribers
+    can catch up. Terminates on job completion, failure, or cancel.
+    """
     async def event_generator():
-        last_stage = None
-        last_progress = -1
-        consecutive_polls = 0
-        max_polls = 360  # 30 minutes max at 5s interval
+        try:
+            r = await get_redis()
 
-        while consecutive_polls < max_polls:
-            try:
-                r = await get_redis()
-                job_data = await r.hgetall(f"job:{job_id}")
+            # ── 1. Check if job exists ──
+            job_data = await r.hgetall(f"job:{job_id}")
+            if not job_data:
+                yield f"data: {json.dumps({'error': 'Job not found', 'job_id': job_id})}\n\n"
+                return
 
-                if not job_data:
-                    yield f"data: {json.dumps({'error': 'Job not found'})}\n\n"
-                    break
+            current_status = job_data.get("status", "unknown")
 
-                current_status = job_data.get("status", "unknown")
-                current_stage = job_data.get("stage", "")
-                current_progress = job_data.get("progress", "0")
-                current_message = job_data.get("message", "")
+            # ── 2. Send current state snapshot (reconnect support) ──
+            agent_statuses = await get_agent_statuses(r, job_id)
+            remaining = await estimate_remaining_seconds(r, job_id)
+            snapshot = {
+                "job_id": job_id,
+                "type": "snapshot",
+                "status": current_status,
+                "stage": job_data.get("stage", ""),
+                "progress": int(job_data.get("progress", 0) or 0),
+                "message": job_data.get("message", ""),
+                "agents": agent_statuses,
+                "estimated_remaining_seconds": remaining,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+            yield f"data: {json.dumps(snapshot)}\n\n"
 
-                # Only yield if something changed
-                if current_stage != last_stage or current_progress != last_progress:
-                    event_data = {
+            # ── 3. If already terminal, close immediately ──
+            if current_status in ("completed", "failed", "cancelled"):
+                yield f'data: {json.dumps({"final": True, "status": current_status})}\n\n'
+                return
+
+            # ── 4. Subscribe to pub/sub for live events ──
+            async for event in subscribe_pipeline_events(r, job_id):
+                event_data = {
+                    "job_id": job_id,
+                    "type": "agent_event",
+                    "agent": event.agent,
+                    "agent_status": event.status,
+                    "status": "running",
+                    "progress": event.progress or 0,
+                    "stage": event.agent,
+                    "message": event.message,
+                    "timestamp": event.timestamp.isoformat(),
+                }
+                if event.duration_seconds is not None:
+                    event_data["duration_seconds"] = event.duration_seconds
+                if event.metadata:
+                    event_data["metadata"] = event.metadata
+
+                yield f"data: {json.dumps(event_data)}\n\n"
+
+                if event.agent == "delivery" and event.status == "completed":
+                    final_agents = await get_agent_statuses(r, job_id)
+                    yield f"data: {json.dumps({'job_id': job_id, 'type': 'final', 'status': 'completed', 'stage': 'done', 'progress': 100, 'message': 'Analysis completed', 'agents': final_agents, 'final': True})}\n\n"
+                    return
+
+                if event.status == "error":
+                    final_agents = await get_agent_statuses(r, job_id)
+                    error_event = {
                         "job_id": job_id,
-                        "status": current_status,
-                        "stage": current_stage,
-                        "progress": int(current_progress) if current_progress else 0,
-                        "message": current_message,
-                        "timestamp": datetime.utcnow().isoformat(),
-                    }
-
-                    # Add DQ score when available
-                    if current_stage == "data_quality" or current_status == "completed":
-                        try:
-                            results_raw = await r.get(f"job:{job_id}:results")
-                            if results_raw:
-                                results = json.loads(results_raw)
-                                dq = results.get("data_quality")
-                                if dq:
-                                    event_data["dq_score"] = dq.get("score")
-                                    event_data["dq_label"] = dq.get("confidence_label")
-                        except Exception:
-                            pass
-
-                    yield f"data: {json.dumps(event_data)}\n\n"
-                    last_stage = current_stage
-                    last_progress = current_progress
-
-                # Terminal states — close stream
-                if current_status in ("completed", "failed", "cancelled"):
-                    final_event = {
-                        "job_id": job_id,
-                        "status": current_status,
-                        "stage": "done",
-                        "progress": 100 if current_status == "completed" else 0,
-                        "message": "Analisis completado" if current_status == "completed" else "Error en analisis",
+                        "type": "final",
+                        "status": "failed",
+                        "stage": event.agent,
+                        "progress": event.progress or 0,
+                        "message": event.message,
+                        "agents": final_agents,
                         "final": True,
                     }
-                    yield f"data: {json.dumps(final_event)}\n\n"
-                    break
+                    yield f"data: {json.dumps(error_event)}\n\n"
+                    return
 
-                consecutive_polls += 1
-                await asyncio.sleep(2)  # Poll Redis every 2 seconds
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
-                break
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
         yield 'data: {"done": true}\n\n'
 
@@ -375,30 +406,56 @@ async def stream_job_progress(job_id: str):
 
 @router.websocket("/jobs/{job_id}/ws")
 async def job_progress_ws(job_id: str, websocket: WebSocket):
+    """WebSocket endpoint for real-time job progress via Redis pub/sub."""
     await websocket.accept()
-    last_status = None
-    timeout_polls = 0
     try:
-        while timeout_polls < 360:  # 30 min max
-            r = await get_redis()
-            job_data = await r.hgetall(f"job:{job_id}")
-            if not job_data:
-                await websocket.send_json({"error": "job_not_found"})
-                break
-            ws_status = job_data.get("status", "unknown")
-            progress = int(job_data.get("progress", 0))
-            stage = job_data.get("stage", "")
-            if ws_status != last_status:
-                last_status = ws_status
-                payload = {"status": ws_status, "progress": progress, "stage": stage}
-                if ws_status == "completed":
-                    payload["dq_score"] = json.loads(job_data.get("data_quality", "{}") or "{}").get("score")
-                await websocket.send_json(payload)
-                if ws_status in ("completed", "failed", "cancelled"):
-                    await websocket.send_json({"final": True, "status": ws_status})
-                    break
-            await asyncio.sleep(2)
-            timeout_polls += 1
+        r = await get_redis()
+        job_data = await r.hgetall(f"job:{job_id}")
+        if not job_data:
+            await websocket.send_json({"error": "job_not_found"})
+            return
+
+        current_status = job_data.get("status", "unknown")
+
+        # Send current state snapshot
+        agent_statuses = await get_agent_statuses(r, job_id)
+        await websocket.send_json({
+            "type": "snapshot",
+            "status": current_status,
+            "progress": int(job_data.get("progress", 0) or 0),
+            "stage": job_data.get("stage", ""),
+            "agents": agent_statuses,
+        })
+
+        # If already terminal, close
+        if current_status in ("completed", "failed", "cancelled"):
+            await websocket.send_json({"final": True, "status": current_status})
+            return
+
+        # Subscribe to pub/sub for live events
+        async for event in subscribe_pipeline_events(r, job_id):
+            payload = {
+                "type": "agent_event",
+                "agent": event.agent,
+                "agent_status": event.status,
+                "status": "running",
+                "progress": event.progress or 0,
+                "stage": event.agent,
+                "message": event.message,
+            }
+            if event.duration_seconds is not None:
+                payload["duration_seconds"] = event.duration_seconds
+            if event.metadata:
+                payload["metadata"] = event.metadata
+
+            await websocket.send_json(payload)
+
+            if event.agent == "delivery" and event.status == "completed":
+                await websocket.send_json({"final": True, "status": "completed"})
+                return
+            if event.status == "error":
+                await websocket.send_json({"final": True, "status": "failed"})
+                return
     except WebSocketDisconnect:
         pass
 
