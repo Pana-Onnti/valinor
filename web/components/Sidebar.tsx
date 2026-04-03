@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, X } from 'lucide-react';
 import { T } from '@/components/d4c/tokens';
+import { ThemeToggle } from '@/components/ui/ThemeToggle';
 
 interface NavItem {
   href: string;
@@ -188,13 +189,18 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Footer */}
+      {/* Theme toggle + Footer */}
       <div
         style={{
-          padding: `${T.space.md} ${T.space.md}`,
+          padding: `${T.space.sm} ${T.space.md}`,
           borderTop: T.border.card,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: T.space.sm,
         }}
       >
+        <ThemeToggle />
         <p
           style={{
             fontFamily: T.font.mono,

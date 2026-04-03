@@ -5,6 +5,7 @@ import axios from 'axios'
 import { parseReport, type ParsedReport } from '@/lib/reportParser'
 import { KOReportReveal } from '@/components/reveal/KOReportReveal'
 import { T } from '@/components/d4c/tokens'
+import { SkeletonCard, SkeletonKPIRow, SkeletonFindingList } from '@/components/ui/Skeleton'
 import type { AnalysisConfidenceMetadata } from '@/lib/confidence-types'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -53,23 +54,23 @@ export function KOReportLoader({ jobId, onNewAnalysis }: KOReportLoaderProps) {
       <div style={{
         minHeight: '100vh',
         background: T.bg.primary,
+        padding: T.space.xl,
         display: 'flex',
         flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: T.space.md,
-        fontFamily: T.font.mono,
+        gap: T.space.lg,
+        fontFamily: T.font.display,
       }}>
-        <div style={{
-          width: 40,
-          height: 40,
-          borderRadius: '50%',
-          border: `2px solid ${T.bg.elevated}`,
-          borderTopColor: T.accent.teal,
-          animation: 'spin 0.8s linear infinite',
-        }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        <span style={{ fontSize: 12, color: T.text.tertiary }}>Cargando reporte…</span>
+        <SkeletonCard />
+        <SkeletonKPIRow />
+        <SkeletonFindingList />
+        <span style={{
+          fontSize: 12,
+          color: T.text.tertiary,
+          fontFamily: T.font.mono,
+          textAlign: 'center',
+        }}>
+          Cargando reporte…
+        </span>
       </div>
     )
   }
