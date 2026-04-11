@@ -15,6 +15,8 @@ export interface AuditTrailPanelProps {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
+type VerificationMethod = 'direct_query' | 'cross_agent' | 'interpolation'
+
 const CONFIDENCE_COLOR: Record<ConfidenceLevel, string> = {
   verified: T.accent.teal,
   estimated: T.accent.yellow,
