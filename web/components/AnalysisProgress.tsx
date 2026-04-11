@@ -21,7 +21,7 @@ const PIPELINE_STAGES = [
 
 type StageName = (typeof PIPELINE_STAGES)[number]
 
-const STAGE_META: Record<StageName, { label: string; icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }> }> = {
+const STAGE_META: Record<StageName, { label: string; icon: React.ComponentType<{ size?: string | number; style?: React.CSSProperties }> }> = {
   data_quality_gate: { label: 'Control de Calidad', icon: Shield },
   cartographer:      { label: 'Cartógrafo', icon: Compass },
   query_builder:     { label: 'Constructor de Queries', icon: Code },
@@ -228,7 +228,7 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
       if (pollInterval) clearInterval(pollInterval)
     }
 
-    const isPipelineEvent = (data: Record<string, unknown>): data is PipelineEvent =>
+    const isPipelineEvent = (data: Record<string, unknown>): boolean =>
       'agent' in data && ('status' in data) &&
       ['started', 'completed', 'error'].includes(data.status as string)
 
@@ -237,7 +237,7 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
         const data = JSON.parse(raw)
 
         if (isPipelineEvent(data)) {
-          applyPipelineEvent(data)
+          applyPipelineEvent(data as PipelineEvent)
         } else {
           applyLegacyUpdate(data as ProgressUpdate)
         }
@@ -248,7 +248,7 @@ export function AnalysisProgress({ analysisId, onComplete }: AnalysisProgressPro
           data.done
         )) {
           // For PipelineEvent "completed" on delivery stage
-          if (isPipelineEvent(data) && data.agent === 'delivery' && data.status === 'completed') {
+          if (isPipelineEvent(data) && (data as PipelineEvent).agent === 'delivery' && data.status === 'completed') {
             completed = true
             setStatus('completed')
             setGlobalProgress(100)
