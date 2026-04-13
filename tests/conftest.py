@@ -8,6 +8,7 @@ Provides:
   - Common entity_map fixtures (Gloria-like and generic)
   - Shared mock helpers (MagicMock-based client configs, baselines)
   - Async run helper
+  - Rich test progress reporter (live observability)
 
 Refs: VAL-54
 """
@@ -15,7 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
+import time
 import types
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -29,12 +32,14 @@ for _p in (str(ROOT / "core"), str(ROOT / "shared"), str(ROOT)):
         sys.path.insert(0, _p)
 
 
-# ── Pre-import shared package ────────────────────────────────────────────────
+# ── Pre-import shared package & subpackages ──────────────────────────────────
 # Individual test files use _stub_missing("shared.storage") etc. which creates
 # a stub `shared` module WITHOUT __path__. This breaks `import shared.events`.
 # By importing the *real* shared package here first, it gets cached in
 # sys.modules with __path__ intact, so subsequent sub-module stubs work fine.
+# Also pre-import shared.memory so stubs can't replace the real package.
 import shared  # noqa: F401, E402
+import shared.memory  # noqa: F401, E402
 
 # ── claude_agent_sdk stub ─────────────────────────────────────────────────────
 # Many core modules import from claude_agent_sdk at module level.
@@ -305,3 +310,214 @@ def mock_profile():
 def run_async(coro):
     """Run a coroutine synchronously. Convenience for non-asyncio test classes."""
     return asyncio.get_event_loop().run_until_complete(coro)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RICH TEST PROGRESS REPORTER
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ValinorTestReporter:
+    """Live progress reporter using rich.
+
+    Shows: current file, test count, pass/fail/skip, elapsed time, and a
+    final summary table grouped by file with durations.
+
+    Activate with:  pytest --valinor-progress
+    Disable with:   pytest (no flag) or pytest -p no:valinor-progress
+    """
+
+    def __init__(self):
+        self.passed = 0
+        self.failed = 0
+        self.skipped = 0
+        self.errors = 0
+        self.total = 0
+        self.start_time = None
+        self.current_file = ""
+        self.file_stats: dict[str, dict] = {}
+        self._file_start: float = 0.0
+        self._test_start: float = 0.0
+        self._failures: list[str] = []
+        self._console = None
+        self._live = None
+
+    def _get_console(self):
+        if self._console is None:
+            from rich.console import Console
+            self._console = Console(stderr=True)
+        return self._console
+
+    def _status_line(self) -> str:
+        elapsed = time.time() - self.start_time
+        done = self.passed + self.failed + self.skipped + self.errors
+        pct = (done / self.total * 100) if self.total else 0
+        parts = [f"[bold cyan]{done}/{self.total}[/] ({pct:.0f}%)"]
+        parts.append(f"[green]{self.passed} passed[/]")
+        if self.failed:
+            parts.append(f"[red]{self.failed} failed[/]")
+        if self.skipped:
+            parts.append(f"[yellow]{self.skipped} skipped[/]")
+        if self.errors:
+            parts.append(f"[red]{self.errors} errors[/]")
+        parts.append(f"[dim]{elapsed:.0f}s[/]")
+        short_file = self.current_file.replace("tests/", "")
+        parts.append(f"[bold white]{short_file}[/]")
+        return " | ".join(parts)
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--valinor-progress",
+        action="store_true",
+        default=False,
+        help="Enable rich live progress reporter",
+    )
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config):
+    if config.getoption("--valinor-progress", default=False):
+        reporter = ValinorTestReporter()
+        config._valinor_reporter = reporter
+        config.pluginmanager.register(reporter, "valinor-progress")
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config, items):
+    reporter = getattr(config, "_valinor_reporter", None)
+    if reporter:
+        reporter.total = len(items)
+
+
+class _ProgressPlugin:
+    """Mixin registered as the actual pytest plugin."""
+
+
+# --- Hook implementations on ValinorTestReporter ---
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtestloop(session):
+    reporter = getattr(session.config, "_valinor_reporter", None)
+    if reporter:
+        reporter.start_time = time.time()
+        console = reporter._get_console()
+        console.print(
+            f"\n[bold cyan]>>> Valinor Test Suite[/] — "
+            f"[white]{reporter.total} tests collected[/]\n"
+        )
+    yield
+    if reporter:
+        _print_summary(reporter)
+
+
+def _print_summary(r: ValinorTestReporter):
+    from rich.table import Table
+    from rich.panel import Panel
+
+    console = r._get_console()
+    elapsed = time.time() - r.start_time
+
+    # File summary table
+    table = Table(
+        title="Test Results by File",
+        show_lines=False,
+        pad_edge=False,
+        expand=False,
+    )
+    table.add_column("File", style="white", min_width=40)
+    table.add_column("Tests", justify="right", style="cyan")
+    table.add_column("Pass", justify="right", style="green")
+    table.add_column("Fail", justify="right", style="red")
+    table.add_column("Skip", justify="right", style="yellow")
+    table.add_column("Time", justify="right", style="dim")
+
+    for fname, stats in sorted(r.file_stats.items()):
+        short = fname.replace("tests/", "")
+        total = stats["passed"] + stats["failed"] + stats["skipped"]
+        dur = f"{stats['duration']:.1f}s"
+        fail_str = str(stats["failed"]) if stats["failed"] else ""
+        skip_str = str(stats["skipped"]) if stats["skipped"] else ""
+        style = "red" if stats["failed"] else None
+        table.add_row(short, str(total), str(stats["passed"]), fail_str, skip_str, dur, style=style)
+
+    console.print()
+    console.print(table)
+
+    # Failures detail
+    if r._failures:
+        console.print(f"\n[bold red]FAILURES ({len(r._failures)}):[/]")
+        for f in r._failures:
+            console.print(f"  [red]✗[/] {f}")
+
+    # Final verdict
+    status = "[bold green]ALL PASSED[/]" if r.failed == 0 and r.errors == 0 else "[bold red]FAILURES DETECTED[/]"
+    console.print(
+        Panel(
+            f"{status} — "
+            f"[green]{r.passed} passed[/], "
+            f"[red]{r.failed} failed[/], "
+            f"[yellow]{r.skipped} skipped[/] "
+            f"in [bold]{elapsed:.1f}s[/]",
+            title="[bold]Valinor Test Summary[/]",
+            border_style="green" if r.failed == 0 else "red",
+        )
+    )
+
+
+# Register hooks directly on ValinorTestReporter so they fire when it's registered
+
+def _reporter_pytest_runtest_logstart(self, nodeid, location):
+    fpath = location[0] if location else nodeid.split("::")[0]
+    if fpath != self.current_file:
+        # New file started — finalize previous
+        if self.current_file and self.current_file in self.file_stats:
+            self.file_stats[self.current_file]["duration"] = time.time() - self._file_start
+        self.current_file = fpath
+        self._file_start = time.time()
+        if fpath not in self.file_stats:
+            self.file_stats[fpath] = {"passed": 0, "failed": 0, "skipped": 0, "duration": 0}
+        console = self._get_console()
+        short = fpath.replace("tests/", "")
+        console.print(f"  [dim]►[/] [white]{short}[/]", highlight=False)
+    self._test_start = time.time()
+
+
+def _reporter_pytest_runtest_logreport(self, report):
+    if report.when != "call" and not (report.when == "setup" and report.skipped):
+        return
+    fpath = self.current_file
+    if fpath not in self.file_stats:
+        self.file_stats[fpath] = {"passed": 0, "failed": 0, "skipped": 0, "duration": 0}
+
+    if report.passed:
+        self.passed += 1
+        self.file_stats[fpath]["passed"] += 1
+    elif report.failed:
+        self.failed += 1
+        self.file_stats[fpath]["failed"] += 1
+        self._failures.append(report.nodeid)
+        console = self._get_console()
+        console.print(f"    [red]✗ FAIL:[/] {report.nodeid.split('::')[-1]}")
+    elif report.skipped:
+        self.skipped += 1
+        self.file_stats[fpath]["skipped"] += 1
+
+    # Update file duration continuously
+    self.file_stats[fpath]["duration"] = time.time() - self._file_start
+
+    # Print progress line every 50 tests
+    done = self.passed + self.failed + self.skipped
+    if done % 50 == 0:
+        console = self._get_console()
+        console.print(f"    {self._status_line()}", highlight=False)
+
+
+def _reporter_pytest_sessionfinish(self, session, exitstatus):
+    # Finalize last file
+    if self.current_file and self.current_file in self.file_stats:
+        self.file_stats[self.current_file]["duration"] = time.time() - self._file_start
+
+
+ValinorTestReporter.pytest_runtest_logstart = _reporter_pytest_runtest_logstart
+ValinorTestReporter.pytest_runtest_logreport = _reporter_pytest_runtest_logreport
+ValinorTestReporter.pytest_sessionfinish = _reporter_pytest_sessionfinish
