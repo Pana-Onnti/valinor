@@ -51,7 +51,7 @@ if os.getenv("ENABLE_TOKEN_TRACKING", "true").lower() in ("true", "1", "yes"):
             ["agent", "model", "token_type"],
         )
         _cost_usd_total = Counter(
-            "valinor_analysis_cost_usd_total",
+            "valinor_llm_cost_usd",
             "Estimated LLM cost in USD",
             ["agent", "model"],
         )

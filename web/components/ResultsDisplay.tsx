@@ -101,7 +101,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 function KPICard({ kpi, i }: { kpi: KPI; i: number }) {
-  const conf = CONF[kpi.confidence]
+  const conf = CONF[kpi.confidence as keyof typeof CONF] ?? CONF.ESTIMATED
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -109,8 +109,8 @@ function KPICard({ kpi, i }: { kpi: KPI; i: number }) {
       transition={{ delay: 0.05 * i, duration: 0.35 }}
       className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
     >
-      <p className="text-xs text-gray-500 dark:text-gray-400 leading-snug mb-2">{kpi.label}</p>
-      <p className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight leading-none">{kpi.value}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 leading-snug mb-2">{kpi.label ?? '—'}</p>
+      <p className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight leading-none">{kpi.value ?? '—'}</p>
       <div className="mt-3">
         <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${conf.cls}`}>
           {conf.icon}{conf.label}
@@ -676,11 +676,11 @@ export function ResultsDisplay({ analysisId, onNewAnalysis }: ResultsDisplayProp
       )}
 
       {/* ── KPI grid ── */}
-      {parsed.kpis.length > 0 && (
+      {(parsed.kpis ?? []).length > 0 && (
         <div>
           <SectionLabel>Las Cifras que Importan</SectionLabel>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-            {parsed.kpis.map((kpi, i) => <KPICard key={i} kpi={kpi} i={i} />)}
+            {(parsed.kpis ?? []).map((kpi, i) => <KPICard key={i} kpi={kpi} i={i} />)}
           </div>
         </div>
       )}

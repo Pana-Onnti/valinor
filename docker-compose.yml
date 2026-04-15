@@ -115,6 +115,7 @@ services:
       context: .
       dockerfile: Dockerfile.worker
     environment:
+      PYTHONPATH: /app:/app/core
       DATABASE_URL: postgresql://valinor:valinor_secret@postgres:5432/valinor_metadata
       REDIS_URL: redis://redis:6379
       LLM_PROVIDER: ${LLM_PROVIDER:-console_cli}

@@ -201,7 +201,7 @@ export default function ClientKPIsPage() {
     </div>
   )
 
-  const kpiEntries = Object.entries(data.kpis)
+  const kpiEntries = Object.entries(data.kpis ?? {})
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: T.bg.primary }}>
@@ -219,9 +219,9 @@ export default function ClientKPIsPage() {
               <ArrowLeft style={{ width: 20, height: 20 }} />
             </Link>
             <div>
-              <h1 style={{ fontSize: 18, fontWeight: 700, color: T.text.primary, margin: 0 }}>{data.client_name}</h1>
+              <h1 style={{ fontSize: 18, fontWeight: 700, color: T.text.primary, margin: 0 }}>{data.client_name ?? 'Cliente'}</h1>
               <p style={{ fontSize: 11, color: T.text.tertiary, margin: 0 }}>
-                {data.kpi_count} KPI{data.kpi_count !== 1 ? 's' : ''}
+                {data.kpi_count ?? 0} KPI{(data.kpi_count ?? 0) !== 1 ? 's' : ''}
                 {data.earliest_period && data.latest_period
                   ? ` · ${data.earliest_period} → ${data.latest_period}`
                   : ''}
@@ -279,7 +279,7 @@ export default function ClientKPIsPage() {
           </div>
           <div>
             <p style={{ fontSize: 13, fontWeight: 600, color: T.text.primary, margin: 0 }}>
-              {data.kpi_count} KPI{data.kpi_count !== 1 ? 's' : ''} rastreados
+              {data.kpi_count ?? 0} KPI{(data.kpi_count ?? 0) !== 1 ? 's' : ''} rastreados
             </p>
             {data.earliest_period && data.latest_period && (
               <p style={{ fontSize: 11, color: T.text.secondary, margin: 0 }}>
