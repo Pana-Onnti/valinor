@@ -45,6 +45,14 @@
 
 ## Completado (sesiones anteriores)
 
+### Sesion 2026-04-14b — Infra + null safety (develop)
+- ✅ Docker compose up: todos los servicios levantados (API, worker, web, postgres, redis, grafana, prometheus, loki)
+- ✅ Worker fix: agregado `PYTHONPATH=/app:/app/core` en docker-compose.yml (roto desde commit 9caddfdc que removio sys.path.insert hacks)
+- ✅ Metric collision fix: renombrado counter duplicado en `shared/llm/token_tracker.py` (`valinor_analysis_cost_usd_total` → `valinor_llm_cost_usd`)
+- ✅ Null safety en 11 archivos frontend: tabs Costos, KPIs, Segmentacion, History, Compare ya no crashean con data undefined
+- Archivos tocados: docker-compose.yml, shared/llm/token_tracker.py, 9 archivos web (costs, kpis, segmentation, history, compare, KPITrendChart, ResultsDisplay, KOReportV2, KOReportReveal)
+- ⚠️ Cambios sin commitear — pendiente push
+
 ### Sprint UI/Transparency (cerrado, en develop)
 - VAL-91: Theme toggle + skeletons + design tokens
 - VAL-92/93: Transparency Engine (audit trail, trust score, confidence badges)
