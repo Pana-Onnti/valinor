@@ -51,7 +51,7 @@ dev = [
 
 mysql = ["pymysql>=1.1"]
 postgres = ["psycopg2-binary>=2.9"]
-mssql = ["pyodbc>=5.0", "pymssql>=2.2"]
+mssql = ["pymssql>=2.2", "pyodbc>=5.0"]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -86,6 +86,7 @@ asyncio_mode = "auto"
 markers = [
     "mandatory: tests that must pass before any merge (pipeline core)",
     "live: tests that call real LLM agents via proxy (slow, non-deterministic)",
+    "mssql: tests that require a real SQL Server instance",
 ]
 
 [tool.coverage.run]

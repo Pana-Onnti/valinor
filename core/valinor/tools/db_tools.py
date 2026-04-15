@@ -29,6 +29,18 @@ def _create_engine(connection_string: str):
     return create_engine(connection_string)
 
 
+def _is_mssql(engine) -> bool:
+    """Check if the engine targets Microsoft SQL Server."""
+    return engine.dialect.name in ("mssql",)
+
+
+def _quote_ident(engine, schema: str, table: str) -> str:
+    """Return a properly quoted schema.table identifier for the dialect."""
+    if _is_mssql(engine):
+        return f"[{schema}].[{table}]"
+    return f'"{schema}"."{table}"'
+
+
 @tool(
     "connect_database",
     "Connect to a client database and verify read-only access. Returns schema/table metadata.",
@@ -141,8 +153,9 @@ async def introspect_schema(args):
             )
 
         # Row count (approximate)
+        qualified_table = _quote_ident(engine, schema, table)
         with engine.connect() as conn:
-            result = conn.execute(text(f'SELECT COUNT(*) FROM "{schema}"."{table}"'))
+            result = conn.execute(text(f"SELECT COUNT(*) FROM {qualified_table}"))
             row_count = result.scalar()
 
         engine.dispose()
@@ -200,11 +213,14 @@ async def sample_table(args):
     limit = args.get("limit", 5)
 
     try:
+        qualified_table = _quote_ident(engine, schema, table)
+        if _is_mssql(engine):
+            sample_sql = f"SELECT TOP(:limit) * FROM {qualified_table}"
+        else:
+            sample_sql = f"SELECT * FROM {qualified_table} LIMIT :limit"
+
         with engine.connect() as conn:
-            result = conn.execute(
-                text(f'SELECT * FROM "{schema}"."{table}" LIMIT :limit'),
-                {"limit": limit},
-            )
+            result = conn.execute(text(sample_sql), {"limit": limit})
             columns = list(result.keys())
             rows = [dict(zip(columns, row)) for row in result.fetchall()]
 
@@ -371,14 +387,24 @@ async def probe_column_values(args):
     column = args["column_name"]
 
     try:
-        with engine.connect() as conn:
-            result = conn.execute(
-                sa_text(
-                    f'SELECT "{column}", COUNT(*) AS cnt '
-                    f'FROM "{schema}"."{table}" '
-                    f"GROUP BY 1 ORDER BY cnt DESC LIMIT 20"
-                )
+        qualified_table = _quote_ident(engine, schema, table)
+        if _is_mssql(engine):
+            col_ref = f"[{column}]"
+            probe_sql = (
+                f"SELECT TOP 20 {col_ref}, COUNT(*) AS cnt "
+                f"FROM {qualified_table} "
+                f"GROUP BY {col_ref} ORDER BY cnt DESC"
             )
+        else:
+            col_ref = f'"{column}"'
+            probe_sql = (
+                f"SELECT {col_ref}, COUNT(*) AS cnt "
+                f"FROM {qualified_table} "
+                f"GROUP BY 1 ORDER BY cnt DESC LIMIT 20"
+            )
+
+        with engine.connect() as conn:
+            result = conn.execute(sa_text(probe_sql))
             rows = [{"value": str(r[0]), "count": r[1]} for r in result.fetchall()]
 
         engine.dispose()
