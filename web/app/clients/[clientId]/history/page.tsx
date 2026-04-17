@@ -183,7 +183,7 @@ export default function ClientHistoryPage() {
   useEffect(() => {
     fetch(`${API_URL}/api/clients/${clientId}/dq-history`)
       .then(r => r.json())
-      .then(setDqHistory)
+      .then(d => setDqHistory({ dq_history: d?.dq_history ?? [], avg_score: d?.avg_score ?? null, trend: d?.trend ?? null }))
       .catch(() => {})
   }, [clientId])
 
@@ -215,8 +215,9 @@ export default function ClientHistoryPage() {
     </div>
   )
 
-  const kpiLabels = Object.keys(profile.baseline_history).slice(0, 8)
-  const lastRun = profile.run_history[profile.run_history.length - 1]
+  const kpiLabels = Object.keys(profile.baseline_history ?? {}).slice(0, 8)
+  const runHistory = profile.run_history ?? []
+  const lastRun = runHistory[runHistory.length - 1]
 
   // DQ ring color
   const ringColor =
@@ -453,7 +454,7 @@ export default function ClientHistoryPage() {
                 <KPITrendChart
                   key={label}
                   label={label}
-                  dataPoints={profile.baseline_history[label]}
+                  dataPoints={(profile.baseline_history ?? {})[label]}
                 />
               ))}
             </div>
@@ -481,7 +482,7 @@ export default function ClientHistoryPage() {
         )}
 
         {/* Run history table */}
-        {profile.run_history.length > 0 && (
+        {(profile.run_history ?? []).length > 0 && (
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: T.space.md }}>
               <h2 style={{
@@ -518,7 +519,7 @@ export default function ClientHistoryPage() {
                 <span style={{ fontSize: 10, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.08em', width: 64, textAlign: 'right' }}>Cal. Datos</span>
               </div>
               <div>
-                {[...profile.run_history].reverse().map((run, i) => (
+                {[...(profile.run_history ?? [])].reverse().map((run, i) => (
                   <div key={i} style={{ borderTop: i > 0 ? T.border.subtle : 'none' }}>
                     <RunHistoryRow run={run} i={i} />
                   </div>

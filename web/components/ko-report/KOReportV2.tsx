@@ -276,10 +276,10 @@ export function KOReportV2({ report, dqScore, companyName, confidenceMetadata }:
   }
 
   // Hero numbers: KPIs más relevantes (primeros 4)
-  const heroKPIs = report.kpis.slice(0, 4)
+  const heroKPIs = (report.kpis ?? []).slice(0, 4)
 
   // Chart data desde KPIs numéricos
-  const chartData = report.kpis
+  const chartData = (report.kpis ?? [])
     .map(k => {
       const match = k.value.match(/[\d.,]+/)
       const num = match ? parseFloat(match[0].replace(',', '')) : null
