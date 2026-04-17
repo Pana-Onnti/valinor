@@ -300,20 +300,8 @@ async def run_cartographer(
     Returns:
         entity_map dict with discovered entities, relationships, base_filter, and quality flags.
     """
-    # ── Phase 1: Deterministic pre-scan ──────────────────────────────────────
-    # Extract extra table hints from hint pack for Phase 1 prioritization
-    extra_table_hints = []
-    if hint_pack:
-        for group_key in ("master_tables", "transactional_tables", "stock_tables"):
-            group = hint_pack.get("table_patterns", {}).get(group_key, [])
-            for entry in group:
-                if isinstance(entry, dict) and entry.get("pattern"):
-                    extra_table_hints.append(entry["pattern"])
-    prescan = await _prescan_filter_candidates(client_config, extra_table_hints=extra_table_hints or None)
-    phase1_section = _format_phase1_hints(prescan)
-
     # ── Load ERP hint pack if business context is available ─────────────────
-    hint_pack = {}
+    hint_pack: dict = {}
     business_context_section = ""
     if business_context is not None:
         try:
@@ -325,6 +313,18 @@ async def run_cartographer(
         except Exception as exc:
             logger.warning("cartographer: failed to load hint pack: %s", exc)
         business_context_section = _format_business_context(business_context, hint_pack)
+
+    # ── Phase 1: Deterministic pre-scan ──────────────────────────────────────
+    # Extract extra table hints from hint pack for Phase 1 prioritization
+    extra_table_hints = []
+    if hint_pack:
+        for group_key in ("master_tables", "transactional_tables", "stock_tables"):
+            group = hint_pack.get("table_patterns", {}).get(group_key, [])
+            for entry in group:
+                if isinstance(entry, dict) and entry.get("pattern"):
+                    extra_table_hints.append(entry["pattern"])
+    prescan = await _prescan_filter_candidates(client_config, extra_table_hints=extra_table_hints or None)
+    phase1_section = _format_phase1_hints(prescan)
 
     # ── Build prompt ──────────────────────────────────────────────────────────
     retry_section = ""
