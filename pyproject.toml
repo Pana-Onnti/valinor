@@ -20,6 +20,7 @@ dependencies = [
     "fastapi>=0.104",
     "uvicorn[standard]>=0.24",
     "celery[redis]>=5.3",
+    "celery-redbeat>=2.2",  # VAL-130 L2: dynamic scheduler
     "redis>=5.0",
     "paramiko>=3.3",  # SSH tunneling
     "asyncssh>=2.14",  # Async SSH alternative

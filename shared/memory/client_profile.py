@@ -161,6 +161,13 @@ class ClientProfile:
     # ── Webhooks ───────────────────────────────────────────────────────────────
     webhooks: List[Dict] = field(default_factory=list)  # registered webhook URLs
 
+    # ── Vertical schedule config (VAL-130 L2) ─────────────────────────────────
+    # list of dicts matching worker.scheduler.VerticalSchedule.to_dict():
+    #   {"vertical": "inventory", "cron": "0 6 * * 1-5", "mode": "run",
+    #    "enabled": True, "channels": ["email", "whatsapp"],
+    #    "recipients": ["gerardo@...", "+5435..."]}
+    schedule_config: List[Dict] = field(default_factory=list)
+
     # ── Business context (onboarding) ────────────────────────────────────────
     business_context: Optional[BusinessContext] = None
 
@@ -262,6 +269,7 @@ class ClientProfile:
         d['refinement'] = self.refinement
         d['segmentation_history'] = self.segmentation_history
         d['webhooks'] = self.webhooks
+        d['schedule_config'] = self.schedule_config
         d['business_context'] = asdict(self.business_context) if self.business_context else None
         d['metadata'] = self.metadata
         return d
@@ -277,7 +285,7 @@ class ClientProfile:
         top_level_fields = {
             'client_name', 'created_at', 'updated_at',
             'baseline_history', 'preferred_queries', 'refinement',
-            'segmentation_history', 'webhooks', 'metadata',
+            'segmentation_history', 'webhooks', 'schedule_config', 'metadata',
             'business_context',
         }
 
