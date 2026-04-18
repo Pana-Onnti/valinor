@@ -62,6 +62,7 @@ reportlab>=3.6.0
 
 # Database Drivers
 dlt>=1.0.0
+pymssql>=2.2
 
 # Development
 pytest>=7.4.3

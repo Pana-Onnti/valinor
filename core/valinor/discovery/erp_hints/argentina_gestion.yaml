@@ -1,0 +1,264 @@
+# ERP Hint Pack: Argentine PyME management systems
+# Covers: Tango Gestión, Bejerman, Softland, custom PyME ERPs
+# Country: AR | ERP type: gestion (generic Argentine gestión)
+
+naming_conventions:
+  # Prefix patterns for identifiers
+  id_prefixes:
+    - "Cod"          # CodArticulo, CodCliente, CodProveedor
+    - "Nro"          # NroComprobante, NroFactura, NroPedido
+    - "Id"           # IdCliente, IdMovimiento
+  # Suffix patterns for identifiers
+  id_suffixes:
+    - "_id"          # cliente_id, articulo_id
+    - "_cod"         # articulo_cod
+    - "ID"           # ClienteID, ArticuloID
+  # Date column patterns
+  date_patterns:
+    - "FechaAlta"    # Creation date
+    - "FechaMod"     # Modification date
+    - "FechaComp"    # Document date (comprobante)
+    - "FechaVto"     # Due date (vencimiento)
+    - "FechaEmision" # Issue date
+    - "FechaPago"    # Payment date
+    - "Fecha"        # Generic date prefix
+  # Boolean/status patterns
+  boolean_patterns:
+    - "Activo"       # Active flag
+    - "Vigente"      # Valid/current flag
+    - "Anulado"      # Voided/cancelled
+    - "Confirmado"   # Confirmed
+    - "Cerrado"      # Closed
+    - "Procesado"    # Processed
+
+table_patterns:
+  # Header/Detail pattern (CompCab = cabecera, CompDet = detalle)
+  header_detail:
+    header_suffixes: ["Cab", "Cabecera", "Enc", "Encabezado", "_cab", "_enc"]
+    detail_suffixes: ["Det", "Detalle", "Item", "Items", "_det", "_items"]
+    description: >
+      Argentine ERPs use header/detail pattern for documents.
+      CompCab (cabecera/header) has totals, dates, customer.
+      CompDet (detalle/detail) has line items, quantities, prices.
+
+  # Master tables
+  master_tables:
+    - pattern: "Articulo*"
+      entity: "products"
+      description: "Product/item catalog"
+    - pattern: "Cliente*"
+      entity: "customers"
+      description: "Customer master"
+    - pattern: "Proveedor*"
+      entity: "suppliers"
+      description: "Supplier master"
+    - pattern: "Vendedor*"
+      entity: "salesreps"
+      description: "Sales representatives"
+    - pattern: "Sucursal*"
+      entity: "branches"
+      description: "Company branches"
+    - pattern: "Deposito*"
+      entity: "warehouses"
+      description: "Warehouses/storage locations"
+    - pattern: "ListaPrec*"
+      entity: "pricelists"
+      description: "Price lists"
+    - pattern: "Rubro*"
+      entity: "categories"
+      description: "Product categories"
+    - pattern: "SubRubro*"
+      entity: "subcategories"
+      description: "Product subcategories"
+
+  # Transactional tables
+  transactional_tables:
+    - pattern: "Factura*"
+      entity: "invoices"
+      description: "Sales invoices"
+    - pattern: "Venta*"
+      entity: "sales"
+      description: "Sales transactions"
+    - pattern: "Compra*"
+      entity: "purchases"
+      description: "Purchase transactions"
+    - pattern: "Cobro*"
+      entity: "collections"
+      description: "Payment collections (accounts receivable)"
+    - pattern: "Pago*"
+      entity: "payments"
+      description: "Payments to suppliers (accounts payable)"
+    - pattern: "Pedido*"
+      entity: "orders"
+      description: "Orders (sales or purchase)"
+    - pattern: "Remito*"
+      entity: "delivery_notes"
+      description: "Delivery notes / packing slips"
+    - pattern: "NotaCred*"
+      entity: "credit_notes"
+      description: "Credit notes"
+    - pattern: "NotaDeb*"
+      entity: "debit_notes"
+      description: "Debit notes"
+    - pattern: "Presupuesto*"
+      entity: "quotes"
+      description: "Quotes/estimates"
+    - pattern: "Recibo*"
+      entity: "receipts"
+      description: "Payment receipts"
+
+  # Stock tables
+  stock_tables:
+    - pattern: "Stock*"
+      entity: "stock"
+      description: "Current stock levels"
+    - pattern: "MovStock*"
+      entity: "stock_movements"
+      description: "Stock movement log"
+    - pattern: "Inventario*"
+      entity: "inventory"
+      description: "Physical inventory"
+
+fiscal_patterns:
+  # Argentine tax identification
+  cuit:
+    columns: ["CUIT", "Cuit", "cuit", "NroCuit", "CuitCliente", "CuitProveedor"]
+    description: "CUIT — Clave Unica de Identificación Tributaria (11 digits, XX-XXXXXXXX-X)"
+    format: "##-########-#"
+
+  # IVA (VAT) condition
+  condicion_iva:
+    columns: ["CondIVA", "CondicionIVA", "CodCondIVA", "TipoIVA", "CategoriaIVA"]
+    values:
+      - "RI"   # Responsable Inscripto
+      - "MO"   # Monotributista
+      - "EX"   # Exento
+      - "CF"   # Consumidor Final
+      - "RNI"  # Responsable No Inscripto (deprecated)
+    description: "IVA tax category — determines tax treatment on invoices"
+
+  # Comprobante (document) types
+  tipo_comprobante:
+    columns: ["TipoComp", "TipoComprobante", "CodComp", "LetraComp", "Letra"]
+    values:
+      - "FA"  # Factura A (RI → RI)
+      - "FB"  # Factura B (RI → CF/EX/MO)
+      - "FC"  # Factura C (MO → any)
+      - "NCA" # Nota de Crédito A
+      - "NCB" # Nota de Crédito B
+      - "NDA" # Nota de Débito A
+      - "NDB" # Nota de Débito B
+      - "RE"  # Recibo
+      - "RM"  # Remito
+    description: "Argentine fiscal document types, letter depends on IVA condition of both parties"
+
+  # Punto de venta (point of sale)
+  punto_venta:
+    columns: ["PuntoVenta", "PtoVenta", "PtoVta", "NroPtoVta", "SucursalComp"]
+    description: "Point of sale number (1-5 digits), required by AFIP for all fiscal documents"
+
+  # CAE (electronic authorization)
+  cae:
+    columns: ["CAE", "NroCAE", "CAEVto", "FechaCAE", "CAEFechaVto"]
+    description: "Código de Autorización Electrónico — AFIP e-invoicing authorization code"
+
+  # Ingresos Brutos (provincial tax)
+  ingresos_brutos:
+    columns: ["IIBB", "NroIIBB", "IngresosBrutos", "CodIIBB"]
+    description: "Provincial gross income tax number"
+
+column_hints:
+  # Monetary columns
+  monetary:
+    patterns: ["Precio*", "Import*", "Total*", "Subtotal*", "Monto*", "Saldo*",
+               "Neto*", "IVA*", "Descuento*", "Recargo*", "Costo*", "Bonif*"]
+    description: "Monetary values — typically ARS, check for USD dual-currency columns"
+
+  # Quantity columns
+  quantity:
+    patterns: ["Cant*", "Stock*", "Cantidad*", "Unidades*", "Bultos*"]
+    description: "Quantity/stock values"
+
+  # Status columns
+  status:
+    patterns: ["Estado*", "Activo", "Vigente", "Anulado", "Confirmado",
+               "Cerrado", "Procesado", "Aprobado"]
+    description: "Status/flag columns — often char(1) with S/N or bit"
+
+  # Percentage columns
+  percentage:
+    patterns: ["Porc*", "Alicuota*", "TasaIVA*", "Descuento*Porc*", "Bonif*Porc*"]
+    description: "Percentage values — tax rates, discounts"
+
+  # Description/text columns
+  description:
+    patterns: ["Desc*", "Descripcion*", "Nombre*", "RazonSocial*", "Domicilio*",
+               "Direccion*", "Observ*", "Detalle*"]
+    description: "Text/description columns"
+
+business_flows:
+  distribucion:
+    description: "Distribution company flow (buy → stock → sell → invoice → collect)"
+    flow:
+      - step: "compras"
+        tables: ["Compra*", "OrdenCompra*"]
+        description: "Purchase orders and receipts from suppliers"
+      - step: "stock"
+        tables: ["Stock*", "MovStock*", "Deposito*"]
+        description: "Warehouse stock management, movements between deposits"
+      - step: "ventas"
+        tables: ["Pedido*", "Remito*"]
+        description: "Customer orders and delivery notes"
+      - step: "facturacion"
+        tables: ["Factura*", "NotaCred*", "NotaDeb*"]
+        description: "Invoicing with AFIP fiscal compliance (CAE)"
+      - step: "cobranzas"
+        tables: ["Cobro*", "Recibo*", "CuentaCorriente*"]
+        description: "Collections and current account management"
+    kpis:
+      - "Margen bruto por línea de producto"
+      - "Rotación de stock por depósito"
+      - "Días promedio de cobro (DSO)"
+      - "Concentración de ventas por cliente (top 10/20)"
+      - "Evolución de ventas mensual"
+
+  retail:
+    description: "Retail flow (catalog → pricing → sell → cash)"
+    flow:
+      - step: "articulos"
+        tables: ["Articulo*", "Rubro*", "SubRubro*"]
+        description: "Product catalog with categories"
+      - step: "precios"
+        tables: ["ListaPrec*", "Precio*"]
+        description: "Price lists, may have multiple lists per customer segment"
+      - step: "ventas"
+        tables: ["Venta*", "Factura*", "Ticket*"]
+        description: "Point of sale transactions"
+      - step: "caja"
+        tables: ["Caja*", "Cobro*", "MedioPago*"]
+        description: "Cash register, payment methods (cash, card, transfer)"
+    kpis:
+      - "Ticket promedio"
+      - "Ventas por metro cuadrado"
+      - "Rotación de inventario"
+      - "Margen por categoría"
+
+  servicios:
+    description: "Service company flow (quote → project → invoice → collect)"
+    flow:
+      - step: "presupuestos"
+        tables: ["Presupuesto*", "Cotizacion*"]
+        description: "Quotes and estimates"
+      - step: "proyectos"
+        tables: ["Proyecto*", "OrdenTrabajo*", "OT*"]
+        description: "Projects or work orders"
+      - step: "facturacion"
+        tables: ["Factura*", "NotaCred*"]
+        description: "Service invoicing"
+      - step: "cobranzas"
+        tables: ["Cobro*", "CuentaCorriente*"]
+        description: "Collections"
+    kpis:
+      - "Tasa de conversión presupuesto → proyecto"
+      - "Rentabilidad por proyecto"
+      - "DSO (días de cobro)"

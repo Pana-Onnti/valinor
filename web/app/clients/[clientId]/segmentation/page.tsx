@@ -55,11 +55,12 @@ const STACKED_COLORS = [
   T.accent.yellow,
 ]
 
-function formatCurrency(value: number, currency: string | null) {
+function formatCurrency(value: number | null | undefined, currency: string | null) {
+  const v = value ?? 0
   const symbol = currency ?? '$'
-  if (value >= 1_000_000) return `${symbol}${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `${symbol}${(value / 1_000).toFixed(0)}K`
-  return `${symbol}${value.toFixed(0)}`
+  if (v >= 1_000_000) return `${symbol}${(v / 1_000_000).toFixed(1)}M`
+  if (v >= 1_000) return `${symbol}${(v / 1_000).toFixed(0)}K`
+  return `${symbol}${v.toFixed(0)}`
 }
 
 function SegmentCard({
@@ -90,12 +91,12 @@ function SegmentCard({
           <div>
             <p style={{ fontSize: 14, fontWeight: 600, color: T.text.primary, margin: 0 }}>{segment.name}</p>
             <p style={{ fontSize: 12, color: T.text.tertiary, marginTop: 2, marginBottom: 0 }}>
-              {segment.count.toLocaleString('es')} clientes
+              {(segment.count ?? 0).toLocaleString('es')} clientes
             </p>
           </div>
         </div>
         <span style={{ fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 999, border: `1px solid ${meta.color}40`, backgroundColor: meta.color + '20', color: meta.color }}>
-          {segment.pct_of_total.toFixed(1)}%
+          {(segment.pct_of_total ?? 0).toFixed(1)}%
         </span>
       </div>
 
@@ -104,13 +105,13 @@ function SegmentCard({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
           <span style={{ fontSize: 12, color: T.text.tertiary }}>Revenue share</span>
           <span style={{ fontSize: 12, fontWeight: 600, color: T.text.primary }}>
-            {segment.revenue_share.toFixed(1)}%
+            {(segment.revenue_share ?? 0).toFixed(1)}%
           </span>
         </div>
         <div style={{ height: 8, backgroundColor: T.bg.elevated, borderRadius: 999, overflow: 'hidden' }}>
           <motion.div
             initial={{ width: 0 }}
-            animate={{ width: `${segment.revenue_share}%` }}
+            animate={{ width: `${segment.revenue_share ?? 0}%` }}
             transition={{ delay: i * 0.07 + 0.2, duration: 0.6, ease: 'easeOut' }}
             style={{ height: '100%', backgroundColor: meta.barColor, borderRadius: 999 }}
           />
@@ -198,7 +199,7 @@ export default function ClientSegmentationPage() {
             <div>
               <h1 style={{ fontSize: 18, fontWeight: 700, color: T.text.primary, margin: 0 }}>{clientName}</h1>
               <p style={{ fontSize: 12, color: T.text.tertiary, margin: 0 }}>
-                {data.total_customers.toLocaleString('es')} clientes totales
+                {(data.total_customers ?? 0).toLocaleString('es')} clientes totales
                 {data.currency ? ` · ${data.currency}` : ''}
               </p>
             </div>
@@ -241,13 +242,13 @@ export default function ClientSegmentationPage() {
             Segmentación de Clientes
           </h2>
           <p style={{ fontSize: 14, color: T.text.secondary, margin: 0 }}>
-            Distribución por segmento de valor · {data.total_customers.toLocaleString('es')} clientes
+            Distribución por segmento de valor · {(data.total_customers ?? 0).toLocaleString('es')} clientes
           </p>
         </div>
 
         {/* Segment cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 }}>
-          {data.segments.map((segment, i) => (
+          {(data.segments ?? []).map((segment, i) => (
             <SegmentCard
               key={segment.name}
               segment={segment}
@@ -265,21 +266,21 @@ export default function ClientSegmentationPage() {
           <div style={{ backgroundColor: T.bg.card, borderRadius: T.radius.lg, border: T.border.card, padding: 24 }}>
             {/* Stacked bar */}
             <div style={{ display: 'flex', height: 40, borderRadius: T.radius.md, overflow: 'hidden', gap: 2, marginBottom: 20 }}>
-              {data.segments.map((segment, i) => (
+              {(data.segments ?? []).map((segment, i) => (
                 <motion.div
                   key={segment.name}
                   initial={{ flex: 0 }}
-                  animate={{ flex: segment.revenue_share }}
+                  animate={{ flex: segment.revenue_share ?? 0 }}
                   transition={{ delay: i * 0.08 + 0.1, duration: 0.7, ease: 'easeOut' }}
                   style={{ backgroundColor: STACKED_COLORS[i % STACKED_COLORS.length] }}
-                  title={`${segment.name}: ${segment.revenue_share.toFixed(1)}%`}
+                  title={`${segment.name}: ${(segment.revenue_share ?? 0).toFixed(1)}%`}
                 />
               ))}
             </div>
 
             {/* Legend */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px 24px' }}>
-              {data.segments.map((segment, i) => {
+              {(data.segments ?? []).map((segment, i) => {
                 const meta = SEGMENT_META[segment.name] ?? SEGMENT_META['Maintenance']
                 const Icon = meta.icon
                 return (
@@ -290,7 +291,7 @@ export default function ClientSegmentationPage() {
                       {segment.name}
                     </span>
                     <span style={{ fontSize: 14, color: T.text.tertiary }}>
-                      {segment.revenue_share.toFixed(1)}%
+                      {(segment.revenue_share ?? 0).toFixed(1)}%
                     </span>
                   </div>
                 )
@@ -299,7 +300,7 @@ export default function ClientSegmentationPage() {
 
             {/* Summary row */}
             <div style={{ marginTop: 20, paddingTop: 20, borderTop: T.border.card, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-              {data.segments.map(segment => (
+              {(data.segments ?? []).map(segment => (
                 <div key={segment.name} style={{ textAlign: 'center' }}>
                   <p style={{ fontSize: 12, color: T.text.tertiary, marginBottom: 4 }}>{segment.name}</p>
                   <p style={{ fontSize: 18, fontWeight: 700, color: T.text.primary, margin: '0 0 2px' }}>

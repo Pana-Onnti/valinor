@@ -9,6 +9,7 @@ Available connectors:
 - MySQLConnector       — generic MySQL
 - EtendoConnector      — Etendo ERP via PostgreSQL + SSH tunnel
 - SQLiteConnector      — SQLite databases from uploaded CSV/Excel files (VAL-84)
+- MSSQLConnector       — Microsoft SQL Server (VAL-122)
 
 Use ConnectorFactory.create(source_type, config) to get a connector.
 """
@@ -18,6 +19,7 @@ from .postgresql import PostgreSQLConnector
 from .mysql import MySQLConnector
 from .etendo import EtendoConnector
 from .sqlite import SQLiteConnector
+from .mssql_connector import MSSQLConnector
 from .factory import ConnectorFactory
 
 __all__ = [
@@ -27,5 +29,6 @@ __all__ = [
     "MySQLConnector",
     "EtendoConnector",
     "SQLiteConnector",
+    "MSSQLConnector",
     "ConnectorFactory",
 ]

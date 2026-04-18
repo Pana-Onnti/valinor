@@ -101,6 +101,21 @@ class TableIntelligence:
 
 
 @dataclass
+class BusinessContext:
+    """
+    Business context injected during onboarding.
+    Gives agents knowledge about the client's business before analyzing their database.
+    """
+    company_name: str = ""           # "SYSCOP SRL"
+    industry: str = ""               # "distribucion_insumos_impresion"
+    country: str = ""                # "AR"
+    city: str = ""                   # "Rio Cuarto, Cordoba"
+    erp_type: str = ""               # "gestion_pyme_argentina"
+    expected_entities: List[str] = field(default_factory=list)  # ["articulos", "stock", "ventas"]
+    notes: str = ""                  # Free text from Loren during onboarding
+
+
+@dataclass
 class AlertConfig:
     """Alert thresholds and triggered alerts."""
     alert_thresholds: List[Dict] = field(default_factory=list)
@@ -145,6 +160,16 @@ class ClientProfile:
 
     # ── Webhooks ───────────────────────────────────────────────────────────────
     webhooks: List[Dict] = field(default_factory=list)  # registered webhook URLs
+
+    # ── Vertical schedule config (VAL-130 L2) ─────────────────────────────────
+    # list of dicts matching worker.scheduler.VerticalSchedule.to_dict():
+    #   {"vertical": "inventory", "cron": "0 6 * * 1-5", "mode": "run",
+    #    "enabled": True, "channels": ["email", "whatsapp"],
+    #    "recipients": ["gerardo@...", "+5435..."]}
+    schedule_config: List[Dict] = field(default_factory=list)
+
+    # ── Business context (onboarding) ────────────────────────────────────────
+    business_context: Optional[BusinessContext] = None
 
     # ── Arbitrary metadata ─────────────────────────────────────────────────────
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -244,6 +269,8 @@ class ClientProfile:
         d['refinement'] = self.refinement
         d['segmentation_history'] = self.segmentation_history
         d['webhooks'] = self.webhooks
+        d['schedule_config'] = self.schedule_config
+        d['business_context'] = asdict(self.business_context) if self.business_context else None
         d['metadata'] = self.metadata
         return d
 
@@ -258,7 +285,8 @@ class ClientProfile:
         top_level_fields = {
             'client_name', 'created_at', 'updated_at',
             'baseline_history', 'preferred_queries', 'refinement',
-            'segmentation_history', 'webhooks', 'metadata',
+            'segmentation_history', 'webhooks', 'schedule_config', 'metadata',
+            'business_context',
         }
 
         # Sub-object field mappings
@@ -287,6 +315,11 @@ class ClientProfile:
                 # Flat format (old pre-VAL-80 or to_dict output)
                 sub_kwargs = {k: d[k] for k in field_names if k in d}
                 kwargs[sub_attr] = sub_cls(**sub_kwargs)
+
+        # Deserialize business_context dict into BusinessContext object
+        bc = kwargs.get('business_context')
+        if bc is not None and isinstance(bc, dict):
+            kwargs['business_context'] = BusinessContext(**bc)
 
         return cls(**kwargs)
 

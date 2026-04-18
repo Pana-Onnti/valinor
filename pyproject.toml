@@ -20,6 +20,7 @@ dependencies = [
     "fastapi>=0.104",
     "uvicorn[standard]>=0.24",
     "celery[redis]>=5.3",
+    "celery-redbeat>=2.2",  # VAL-130 L2: dynamic scheduler
     "redis>=5.0",
     "paramiko>=3.3",  # SSH tunneling
     "asyncssh>=2.14",  # Async SSH alternative
@@ -51,7 +52,7 @@ dev = [
 
 mysql = ["pymysql>=1.1"]
 postgres = ["psycopg2-binary>=2.9"]
-mssql = ["pyodbc>=5.0"]
+mssql = ["pymssql>=2.2", "pyodbc>=5.0"]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -86,6 +87,8 @@ asyncio_mode = "auto"
 markers = [
     "mandatory: tests that must pass before any merge (pipeline core)",
     "live: tests that call real LLM agents via proxy (slow, non-deterministic)",
+    "mssql: tests that require a real SQL Server instance",
+    "discovery_benchmark: golden-dataset benchmark for the Discovery Engine (opt-in)",
 ]
 
 [tool.coverage.run]

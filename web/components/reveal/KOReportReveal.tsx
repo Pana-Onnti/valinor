@@ -343,8 +343,8 @@ export function KOReportReveal({ report, dqScore, companyName, confidenceMetadat
   const PHASE_1_START = 0
   const PHASE_2_START = 1200
   const PHASE_3_START = PHASE_2_START + Math.min(visibleFindings.length, 5) * 200 + 400
-  const PHASE_4_START = PHASE_3_START + report.kpis.length * 100 + 600
-  const PHASE_5_START = PHASE_4_START + report.actions.length * 100 + 400
+  const PHASE_4_START = PHASE_3_START + (report.kpis ?? []).length * 100 + 600
+  const PHASE_5_START = PHASE_4_START + (report.actions ?? []).length * 100 + 400
 
   return (
     <div style={{
@@ -579,7 +579,7 @@ export function KOReportReveal({ report, dqScore, companyName, confidenceMetadat
         {/* ═══════════════════════════════════════════════════════════════════════
             PHASE 3: KPI Cards Row
             ═══════════════════════════════════════════════════════════════════════ */}
-        {report.kpis.length > 0 && (
+        {(report.kpis ?? []).length > 0 && (
           <section style={{ marginBottom: T.space.xxl }}>
             <motion.div
               initial={{ opacity: 0 }}
@@ -608,7 +608,7 @@ export function KOReportReveal({ report, dqScore, companyName, confidenceMetadat
                 gap: T.space.md,
               }}
             >
-              {report.kpis.slice(0, 4).map((kpi, i) => (
+              {(report.kpis ?? []).slice(0, 4).map((kpi, i) => (
                 <KPICard
                   key={i}
                   kpi={kpi}

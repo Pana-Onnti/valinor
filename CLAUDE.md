@@ -1,5 +1,13 @@
 # Delta 4C — Valinor SaaS
 
+## Karpathy Guidelines (aplicar siempre)
+1. **Think Before Coding** — No asumir. Surfacear tradeoffs. Si hay ambiguedad, preguntar antes de implementar.
+2. **Simplicity First** — Minimo codigo que resuelve el problema. Nada especulativo ni abstracciones de un solo uso.
+3. **Surgical Changes** — Tocar solo lo necesario. No "mejorar" codigo adyacente ni refactorizar lo que no esta roto.
+4. **Goal-Driven Execution** — Definir criterios de exito verificables. Loopear hasta verificar.
+
+Ver `.claude/skills/karpathy-guidelines/SKILL.md` para detalle completo.
+
 ## Reglas no negociables
 1. Conventional commits: `tipo(scope): desc` + `Refs: VAL-XX` obligatorio (hook valida)
 2. Domain nunca importa de Infrastructure (hexagonal)
@@ -56,4 +64,4 @@ Ver `docs/TESTING.md` para guía completa. Skill: "correr test real" → `produc
 `.claude/commands/` — start-session, end-session, status, plan-task, implement-feature, fix-bug, run-tests, review-code
 
 ## Skills
-`.claude/skills/d4c-linear-workflow/` · `.claude/skills/d4c-brand-skill/` · `.claude/skills/production-test/`
+`.claude/skills/d4c-linear-workflow/` · `.claude/skills/d4c-brand-skill/` · `.claude/skills/production-test/` · `.claude/skills/karpathy-guidelines/`
