@@ -16,8 +16,9 @@ import pytest
 
 # Stub celery.schedules.crontab if celery isn't installed — tests only need a
 # construct that accepts the kwargs and can be introspected.
-if "celery" not in sys.modules:
+if "celery" not in sys.modules or not hasattr(sys.modules["celery"], "schedules"):
     _celery = types.ModuleType("celery")
+    _celery.__path__ = []  # mark as package so `celery.schedules` resolves
     _celery_sched = types.ModuleType("celery.schedules")
 
     class _FakeCrontab:
