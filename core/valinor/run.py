@@ -206,6 +206,15 @@ async def main(client: str, period: str, source: str | None = None):
     console.print("\n[bold]▸ Stage 2: Query Builder...[/bold]")
     period_config = parse_period(period)
     query_pack = build_queries(entity_map, period_config)
+
+    # VAL-141 — append sales v2 analytics (RFM, HHI, Magic Matrix, deal-risk scoring)
+    # to feed the structured SalesReportV2 narrator downstream.
+    try:
+        from valinor.queries.sales_v2 import append_to_query_pack
+        append_to_query_pack(query_pack, entity_map)
+    except Exception as e:
+        console.print(f"  [yellow]  ↳ sales_v2 queries not appended: {e}[/yellow]")
+
     console.print(
         f"  [green]✓[/green] {len(query_pack['queries'])} queries built, "
         f"{len(query_pack['skipped'])} skipped"
