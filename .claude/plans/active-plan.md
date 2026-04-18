@@ -1,77 +1,96 @@
 # Active Plan — SYSCOP Sprint
 
-**Ultima actualizacion:** 2026-04-14
-**Branch:** develop (31 commits ahead of main)
+**Ultima actualizacion:** 2026-04-18
+**Branch:** develop
 **Foco:** GRO-15 — Agente de Inventario para SYSCOP (Gerardo), primer cliente pagante
 **Deadline:** 2026-04-25
 
 ---
 
-## Estado actual de Linear (post-limpieza)
+## Sprint SYSCOP — Camino critico
 
-### In Progress (3 reales)
-| Issue | Que | Deadline | Estado real en codigo |
-|-------|-----|----------|----------------------|
-| VAL-125 | Discovery Engine v2: Multi-Agent Schema Understanding | Apr 25 | Sin codigo — los sub-issues son el trabajo |
-| VAL-121 | Agente Valinor para Gerardo — DB+Excel, WhatsApp | Apr 25 | Sin codigo — depende de VAL-125 + VAL-122 |
-| ANN-1 | Annatar Roadmap & Arquitectura v1.0 | — | Otro proyecto, no bloquea |
+### Fase 1-3: Discovery Engine v2 (VAL-125) — CERRADA
+VAL-125 EPIC cerrado 2026-04-18. Todos los sub-issues en develop:
 
-### Sprint SYSCOP — Camino critico (VAL-125 sub-issues)
-| Dia | Issue | Que | Due | Bloqueado por |
-|-----|-------|-----|-----|---------------|
-| 1-2 | VAL-126 | SchemaExtractor dialect-aware (SQLAlchemy) | Apr 16 | Nada — ARRANCAR ACA |
-| 1-2 | VAL-122 | MSSQLConnector en shared/connectors/ | — | Puede ir en paralelo con VAL-126 |
-| 2-3 | VAL-128 | BusinessContext model + argentina_gestion.yaml | Apr 17 | VAL-126 |
-| 3-4 | VAL-127 | Multi-Agent Inference + Ensemble Evaluator | Apr 18 | VAL-126 + VAL-128 |
-| 4-5 | VAL-129 | Golden Dataset + Benchmark precision/recall | Apr 18 | VAL-127 |
-| Post | VAL-130 | Scheduling + Reporting composable (redbeat) | Apr 25 | VAL-125 completo |
+| Issue | Que | Status |
+|-------|-----|--------|
+| VAL-122 | MSSQLConnector | DONE |
+| VAL-126 | SchemaExtractor dialect-aware + Structural Profiler | DONE |
+| VAL-128 | BusinessContext + argentina_gestion.yaml | DONE (PR #34) |
+| VAL-127 | Multi-Agent Inference + Ensemble Evaluator | DONE (PR #33) |
+| VAL-129 | Golden Dataset + Benchmark | DONE (PR #35) |
 
-### Gaps detectados (codigo vs Linear)
-- SQL Server: solo hay ping/onboarding. Falta `MSSQLConnector` class para queries del pipeline
-- Discovery Engine: existe v1 (`discovery/profiler.py`, `fk_discovery.py`) pero no es multi-dialect ni multi-agent
-- BusinessContext: no existe como abstraccion. ERP hints distribuidos en cartographer/KG/narrators
-- Scheduling: solo email digest + webhooks. No redbeat ni NotificationRouter
-- Inventory Agent: cero codigo
+### Fase 4: Runner Standalone (VAL-131) — CASI CERRADA
+Repo separado `Pana-Onnti/syscop-agent`. VAL-133 a VAL-139 Done, VAL-140 In Review.
 
-### Otros en backlog (no bloquean SYSCOP)
+| Issue | Que | Status |
+|-------|-----|--------|
+| VAL-133 | Setup repo syscop-agent | DONE |
+| VAL-134 | Docker SQL Server + schema BDPYME + data sintética | DONE |
+| VAL-135 | Prefetcher runner + data_pack.json | DONE |
+| VAL-136 | Agent loop (tool-use con anthropic SDK) | DONE |
+| VAL-137 | 4 agentes: Centinela/Analista/Cazador/Narrador | DONE |
+| VAL-138 | Renderer Jinja2 + weasyprint PDF | DONE |
+| VAL-139 | Mailer SMTP + Healthcheck | DONE |
+| VAL-140 | Build .exe + install Task Scheduler + test VM | IN REVIEW |
+
+### Pendientes activos
+
+| Issue | Que | Due | Status | Repo |
+|-------|-----|-----|--------|------|
+| VAL-140 | Validación .exe en Windows VM limpia | — | In Review | syscop-agent |
+| VAL-130 | Scheduling + Reporting composable (3 capas: pipelines por vertical, redbeat, NotificationRouter+WhatsApp) | Apr 25 | Backlog | valinor-saas |
+| GRO-17 | Lorenzo + Gerardo: user SQL + ODBC 17 en PC cliente | — | Bloquea deploy | — |
+
+### Bloquea first-run (lunes 27 Abr 06:00)
+- VAL-140 (validación) + GRO-17 (infra cliente) + deploy remoto
+
+### No bloquean SYSCOP
 | Issue | Que | Due |
 |-------|-----|-----|
 | VAL-120 | Demo Valinor para Bio4 | Apr 18 |
-| VAL-22 | Scale: load testing, zero-downtime | Jul 31 |
-| GRO-11 | YC application con metricas reales | Aug 1 |
-| VAL-107-119 | Backlog tecnico (security, caching, prompts) | — |
+| ANN-1 | Annatar Roadmap (otro proyecto) | — |
+| VAL-22 | Scale: load testing | Jul 31 |
+| GRO-11 | YC application | Aug 1 |
 
 ---
 
-## Completado (sesiones anteriores)
+## Arquitectura relevante (descubierta)
 
-### Sesion 2026-04-14b — Infra + null safety (develop)
-- ✅ Docker compose up: todos los servicios levantados (API, worker, web, postgres, redis, grafana, prometheus, loki)
-- ✅ Worker fix: agregado `PYTHONPATH=/app:/app/core` en docker-compose.yml (roto desde commit 9caddfdc que removio sys.path.insert hacks)
-- ✅ Metric collision fix: renombrado counter duplicado en `shared/llm/token_tracker.py` (`valinor_analysis_cost_usd_total` → `valinor_llm_cost_usd`)
-- ✅ Null safety en 11 archivos frontend: tabs Costos, KPIs, Segmentacion, History, Compare ya no crashean con data undefined
-- Archivos tocados: docker-compose.yml, shared/llm/token_tracker.py, 9 archivos web (costs, kpis, segmentation, history, compare, KPITrendChart, ResultsDisplay, KOReportV2, KOReportReveal)
-- ⚠️ Cambios sin commitear — pendiente push
+### Discovery Engine (`core/valinor/discovery/`)
+- `profiler.py` — SchemaProfiler → TableProfile, ColumnProfile
+- `fk_discovery.py` — FKDiscovery (inclusion dependency, estadistico)
+- `ontology_builder.py` — OntologyBuilder → EntityClassification
+- `semantic_enricher.py` — SemanticColumnType enum
 
-### Sprint UI/Transparency (cerrado, en develop)
-- VAL-91: Theme toggle + skeletons + design tokens
-- VAL-92/93: Transparency Engine (audit trail, trust score, confidence badges)
-- VAL-95: Journey Wizard (onboarding redesign, live analysis, KO revelation)
-- VAL-97: Confidence metadata API
-- VAL-104: KO Report Revelation
-- VAL-105: SSE/Redis real-time progress
+### Connectors (`shared/connectors/`)
+- Base: `DeltaConnector(abc.ABC)` — connect(), execute_query(), get_schema()
+- Factory: `ConnectorFactory.create(source_type, config)`
+- Existentes: PostgreSQL, MySQL, SQLite, Etendo
+- **Falta: MSSQL** ← VAL-122
 
-### Infra (cerrado)
-- VAL-18: CI/CD Epic — Fases 1-3 Done (GHCR, staging, PR checks)
-- VAL-47: Hardening Epic — todos los P0/P1/P2 Done
-- VAL-68: Sprint de Perfeccionamiento — 13/13 Done
-- VAL-82: File Ingestion Epic — 8/8 Done
-- 3055/3058 tests green, Next.js build OK
+### Cartographer (`core/valinor/agents/cartographer.py`)
+- Phase 1: SQLAlchemy inspector directo (determinista, ~5s)
+- Phase 2: Agente Sonnet con MCP tools (introspect_schema, sample_table, etc)
+- Output: entity_map.json
+
+### DB Tools (`core/valinor/tools/db_tools.py`)
+- connect_database, introspect_schema, sample_table, classify_entity, probe_column_values
+- **No hay get_schema_info()** — split entre introspect_schema + connect_database
 
 ---
 
-## Proximos pasos (hoy)
+## Completado
 
-1. **VAL-126**: SchemaExtractor dialect-aware con SQLAlchemy Inspector
-2. **VAL-122**: MSSQLConnector class en shared/connectors/ (en paralelo)
-3. Merge develop -> main cuando SYSCOP sprint este estable
+### Sesion 2026-04-15a — Setup + commit pendientes
+- Committed: fix(infra,web) — PYTHONPATH worker, metric collision, null-safety 9 archivos frontend
+- Committed: chore(docs) — plan + CLAUDE.md update
+- Linear MCP conectado y funcional
+- VAL-126 + VAL-122 movidos a In Progress
+- Agentes lanzados en worktrees paralelos
+
+### Sesion 2026-04-14b — Infra + null safety
+- Docker compose up: todos los servicios levantados
+- Worker fix: PYTHONPATH=/app:/app/core
+- Metric collision fix: counter duplicado
+- Null safety en 11 archivos frontend
