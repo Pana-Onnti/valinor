@@ -30,7 +30,8 @@ function sparklinePath(values: number[], width = 120, height = 32): string {
 }
 
 export function KPITrendChart({ label, dataPoints }: KPITrendChartProps) {
-  const numeric = dataPoints
+  const safePoints = dataPoints ?? []
+  const numeric = safePoints
     .map(d => d.numeric_value)
     .filter((v): v is number => v != null)
 
@@ -40,7 +41,7 @@ export function KPITrendChart({ label, dataPoints }: KPITrendChartProps) {
     ? last > prev ? 'up' : last < prev ? 'down' : 'flat'
     : 'flat'
 
-  const latestPoint = dataPoints[dataPoints.length - 1]
+  const latestPoint = safePoints[safePoints.length - 1]
   const trendColor = trend === 'up' ? T.accent.teal : trend === 'down' ? T.accent.red : T.text.tertiary
 
   return (
@@ -74,7 +75,7 @@ export function KPITrendChart({ label, dataPoints }: KPITrendChartProps) {
         {trend === 'up'   && <TrendingUp  size={12} style={{ color: trendColor }} />}
         {trend === 'down' && <TrendingDown size={12} style={{ color: trendColor }} />}
         {trend === 'flat' && <Minus        size={12} style={{ color: trendColor }} />}
-        <span style={{ fontSize: 11, color: trendColor }}>{dataPoints.length} períodos</span>
+        <span style={{ fontSize: 11, color: trendColor }}>{safePoints.length} períodos</span>
       </div>
     </div>
   )

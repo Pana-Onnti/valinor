@@ -1,6 +1,7 @@
-# Valinor SaaS v2 — Arquitectura Técnica
+# Valinor SaaS v2 — Arquitectura Tecnica
 
-> Estado: Marzo 2026. Fases 1–4 y 6 completadas.
+> Estado: Abril 2026. Fases 1–8 (ver docs/ROADMAP.md para detalle).
+> SYSCOP sprint en progreso — primer cliente pagante.
 
 ---
 
@@ -37,6 +38,9 @@ FastAPI (puerto 8000)
   │                    │ 10. AlertEngine               │
   │                    │ 11. Narrators                 │
   │                    └─────────────────────────────┘
+  │                              │
+  │                    SSE /api/jobs/{id}/stream ──► Redis Pub/Sub
+  │                    (real-time per-agent progress to frontend)
   │                              │
   │                    ProfileExtractor ──► ProfileStore (Redis/PG)
   │                    AdaptiveContextBuilder
@@ -117,6 +121,13 @@ Deterministic pre-flight check (no LLM cost). Verifies base_filter correctness v
 ### Discovery (Schema Topology)
 Classifies schema complexity (FULL / SLIM / MINIMAL) to gate query generation. FULL topology requires invoices + customers + payments. SLIM requires invoices + customers. MINIMAL generates only base financial queries.
 
+### Discovery v2 (IN PROGRESS — VAL-125)
+Multi-agent schema understanding for databases without explicit FK constraints (typical of Argentine ERP systems). Planned architecture:
+- SchemaExtractor: SQLAlchemy Inspector, dialect-aware (PostgreSQL, MySQL, SQL Server)
+- Structural Profiler: column type/name pattern analysis
+- Multi-Agent Inference: 4 parallel agents (structural, semantic, statistical, LLM) producing candidate relations
+- Ensemble Evaluator: deterministic consensus across agent outputs
+
 ---
 
 ## Connection Pooling (`shared/db_pool.py`)
@@ -189,9 +200,19 @@ AlertEngine → umbrales por cliente
 
 ---
 
-## Stack tecnológico
+## Connectors (shared/connectors/)
 
-| Capa | Tecnología |
+| Connector | Class | Estado |
+|-----------|-------|--------|
+| PostgreSQL | `PostgreSQLConnector` | Production (Gloria/Etendo) |
+| MySQL | `MySQLConnector` | Tested |
+| SQLite | `SQLiteConnector` | Production (file ingestion) |
+| Etendo | `EtendoConnector` | Production (Gloria) |
+| SQL Server | — | **Parcial**: solo ping/onboarding. MSSQLConnector pendiente (VAL-122) |
+
+## Stack tecnologico
+
+| Capa | Tecnologia |
 |---|---|
 | Backend API | FastAPI + Pydantic v2 |
 | Queue | Celery + Redis |
@@ -199,10 +220,12 @@ AlertEngine → umbrales por cliente
 | Cache/State | Redis (dev: puerto 6380) |
 | SSH Tunneling | Paramiko |
 | AI Agents | Claude API (claude-sonnet-4-6 / claude-opus-4-6) |
-| Frontend | Next.js + Tailwind CSS |
-| Monitoring | Prometheus (puerto 9090) |
-| Testing | pytest (2481 tests) |
-| Deployment target | Cloudflare Workers + GitHub Actions + Supabase |
+| Real-time | SSE + Redis Pub/Sub (per-agent progress) |
+| Frontend | Next.js + Tailwind CSS + D4C Design System |
+| Monitoring | Prometheus (puerto 9090) + Grafana + Loki |
+| Testing | pytest (~3055 tests) |
+| CI/CD | GitHub Actions (GHCR + staging deploy + PR checks) |
+| Deployment | Railway (staging) + Vercel (frontend) |
 
 ---
 
@@ -216,4 +239,5 @@ AlertEngine → umbrales por cliente
 
 ---
 
-*Última actualización: Marzo 2026 — Delta 4C*
+*Ultima actualizacion: Abril 2026 — Delta 4C*
+*Roadmap completo: docs/ROADMAP.md | Plan tactico: .claude/plans/active-plan.md*

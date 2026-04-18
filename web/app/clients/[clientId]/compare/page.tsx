@@ -171,7 +171,7 @@ export default function RunComparePage() {
                       <h3 style={{ fontSize: 11, fontWeight: 600, color: T.text.secondary, textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>KPIs Comparados</h3>
                     </div>
                     {kpiLabels.map(label => {
-                      const history = profile.baseline_history[label] || []
+                      const history = (profile?.baseline_history ?? {})[label] || []
                       const pointA = history.find((p: any) => p.period === runA.period)
                       const pointB = history.find((p: any) => p.period === runB.period)
                       if (!pointA && !pointB) return null

@@ -358,36 +358,36 @@ export default function ClientCostsPage() {
             <StatCard
               icon={BarChart2}
               label="Total Runs"
-              value={derivedCosts.total_runs}
+              value={derivedCosts.total_runs ?? 0}
               sub="desde el inicio"
               accent="blue"
             />
             <StatCard
               icon={DollarSign}
               label="Costo Total"
-              value={`$${derivedCosts.total_cost_usd.toFixed(2)}`}
+              value={`$${(derivedCosts.total_cost_usd ?? 0).toFixed(2)}`}
               sub="USD estimado"
               accent="teal"
             />
             <StatCard
               icon={TrendingUp}
               label="Costo Promedio"
-              value={`$${derivedCosts.avg_cost_per_run.toFixed(2)}`}
+              value={`$${(derivedCosts.avg_cost_per_run ?? 0).toFixed(2)}`}
               sub="por análisis"
               accent="yellow"
             />
             <StatCard
               icon={Calendar}
               label="Este Mes"
-              value={`$${derivedCosts.cost_this_month.toFixed(2)}`}
-              sub={`${derivedCosts.runs_this_month} run${derivedCosts.runs_this_month !== 1 ? 's' : ''}`}
+              value={`$${(derivedCosts.cost_this_month ?? 0).toFixed(2)}`}
+              sub={`${derivedCosts.runs_this_month ?? 0} run${(derivedCosts.runs_this_month ?? 0) !== 1 ? 's' : ''}`}
               accent="teal"
             />
           </div>
         )}
 
         {/* Monthly cost summary */}
-        {derivedCosts && derivedCosts.cost_by_month.length > 0 && (
+        {derivedCosts && (derivedCosts.cost_by_month ?? []).length > 0 && (
           <div style={{ marginBottom: T.space.xxl }}>
             <h2 style={{ fontSize: 11, fontWeight: 600, color: T.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: T.space.sm }}>
               Costo por Mes
@@ -395,12 +395,13 @@ export default function ClientCostsPage() {
             <div style={{ backgroundColor: T.bg.card, borderRadius: T.radius.lg, border: T.border.card, padding: T.space.lg }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
                 {(() => {
-                  const maxMonthCost = Math.max(...derivedCosts.cost_by_month.map(m => m.cost), 1)
-                  return derivedCosts.cost_by_month
+                  const months = derivedCosts.cost_by_month ?? []
+                  const maxMonthCost = Math.max(...months.map(m => m.cost ?? 0), 1)
+                  return months
                     .slice()
                     .reverse()
                     .map((entry, i) => {
-                      const pct = (entry.cost / maxMonthCost) * 100
+                      const pct = ((entry.cost ?? 0) / maxMonthCost) * 100
                       const [year, month] = entry.month.split('-')
                       const label = new Date(Number(year), Number(month) - 1, 1).toLocaleDateString(
                         'es',
@@ -434,10 +435,10 @@ export default function ClientCostsPage() {
                           </div>
                           <div style={{ width: 112, flexShrink: 0, textAlign: 'right' }}>
                             <p style={{ fontSize: 13, fontWeight: 600, color: T.text.primary, margin: 0 }}>
-                              ${entry.cost.toFixed(2)}
+                              ${(entry.cost ?? 0).toFixed(2)}
                             </p>
                             <p style={{ fontSize: 11, color: T.text.tertiary, margin: 0 }}>
-                              {entry.runs} run{entry.runs !== 1 ? 's' : ''}
+                              {entry.runs ?? 0} run{(entry.runs ?? 0) !== 1 ? 's' : ''}
                             </p>
                           </div>
                         </motion.div>
