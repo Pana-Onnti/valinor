@@ -20,8 +20,8 @@ VAL-125 EPIC cerrado 2026-04-18. Todos los sub-issues en develop:
 | VAL-127 | Multi-Agent Inference + Ensemble Evaluator | DONE (PR #33) |
 | VAL-129 | Golden Dataset + Benchmark | DONE (PR #35) |
 
-### Fase 4: Runner Standalone (VAL-131) — CASI CERRADA
-Repo separado `Pana-Onnti/syscop-agent`. VAL-133 a VAL-139 Done, VAL-140 In Review.
+### Fase 4: Runner Standalone (VAL-131) — CERRADA
+Repo separado `Pana-Onnti/syscop-agent`. Todos los sub-issues Done + hardening pass (commit `32d85381`).
 
 | Issue | Que | Status |
 |-------|-----|--------|
@@ -32,18 +32,36 @@ Repo separado `Pana-Onnti/syscop-agent`. VAL-133 a VAL-139 Done, VAL-140 In Revi
 | VAL-137 | 4 agentes: Centinela/Analista/Cazador/Narrador | DONE |
 | VAL-138 | Renderer Jinja2 + weasyprint PDF | DONE |
 | VAL-139 | Mailer SMTP + Healthcheck | DONE |
-| VAL-140 | Build .exe + install Task Scheduler + test VM | IN REVIEW |
+| VAL-140 | Build .exe + install Task Scheduler + test VM | DONE (código; build físico Win pendiente) |
+
+### Fase 5: Scheduling + Reporting composable (VAL-130) — CERRADA
+Mergeado a develop via PR #36 + PR #37.
+
+| Capa | Que | Status |
+|------|-----|--------|
+| L1.a | `core/valinor/verticals/` + `run_vertical` + InventoryVertical | DONE |
+| L1.b | analyst/sentinel/hunter detrás del registry + FINANCIAL_VERTICAL | DONE |
+| L3.a | NotificationRouter + Email/Webhook adapters | DONE |
+| L3.b | WhatsAppAdapter (Twilio) + format_whatsapp_body | DONE |
+| L2   | redbeat + VerticalSchedule + ScheduleManager | DONE |
 
 ### Pendientes activos
 
-| Issue | Que | Due | Status | Repo |
-|-------|-----|-----|--------|------|
-| VAL-140 | Validación .exe en Windows VM limpia | — | In Review | syscop-agent |
-| VAL-130 | Scheduling + Reporting composable (3 capas: pipelines por vertical, redbeat, NotificationRouter+WhatsApp) | Apr 25 | Backlog | valinor-saas |
-| GRO-17 | Lorenzo + Gerardo: user SQL + ODBC 17 en PC cliente | — | Bloquea deploy | — |
+| Issue | Que | Due | Status | Owner |
+|-------|-----|-----|--------|-------|
+| GRO-17 | Creds SQL r/o `valinor_ro` + OK .exe de Gerardo | — | Todo | Loren→Gerardo |
+| —      | Build físico `syscop_inventory.exe` (1h Windows host) | — | — | Nico |
+| —      | Deploy remoto AnyDesk Tue 22 / Wed 23 | — | — | Nico + Gerardo |
+| VAL-121 | Primer KO Report enviado exitosamente | Apr 25 | In Progress | Nico |
+| GRO-15  | EPIC SYSCOP comercial (cierra con primer report en vivo) | Apr 25 | In Progress | Nico |
 
 ### Bloquea first-run (lunes 27 Abr 06:00)
-- VAL-140 (validación) + GRO-17 (infra cliente) + deploy remoto
+**Solo GRO-17.** Todo el código está listo. Sin creds + OK de Gerardo no se puede deployar — escalado a Loren 2026-04-18.
+
+### Nota técnica 2026-04-18
+- Hardening pass del runner migró a `pymssql` (TDS nativo). **ODBC Driver 17 ya no es requerido** en la PC de Gerardo. GRO-17 actualizado.
+- VAL-130 L3.b WhatsAppAdapter queda listo pero el runner .exe manda por email. WhatsApp Twilio se cablea cuando Gerardo lo pida (V2).
+- Wirings cloud-side (task `run_vertical_schedule`, API endpoint, CRUD schedule_config) NO bloquean SYSCOP — son para clientes futuros que usen Valinor cloud scheduler.
 
 ### No bloquean SYSCOP
 | Issue | Que | Due |
