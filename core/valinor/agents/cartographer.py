@@ -16,6 +16,7 @@ Pattern references:
 import json
 import logging
 from pathlib import Path
+from typing import Optional
 
 from claude_agent_sdk import (
     query,
@@ -66,7 +67,7 @@ _BUSINESS_TABLE_HINTS = [
 ]
 
 
-async def _prescan_filter_candidates(client_config: dict) -> dict:
+async def _prescan_filter_candidates(client_config: dict, extra_table_hints: list | None = None) -> dict:
     """
     Phase 1: Deterministic pre-scan — discovers discriminator column values.
 
@@ -104,9 +105,13 @@ async def _prescan_filter_candidates(client_config: dict) -> dict:
         all_tables = inspector.get_table_names(schema=db_schema)
 
         # Only probe tables with business-entity names
+        # Merge default hints with ERP-specific extra hints
+        all_hints = list(_BUSINESS_TABLE_HINTS)
+        if extra_table_hints:
+            all_hints.extend(h.lower().rstrip("*") for h in extra_table_hints)
         target_tables = [
             t for t in all_tables
-            if any(h in t.lower() for h in _BUSINESS_TABLE_HINTS)
+            if any(h in t.lower() for h in all_hints)
         ][:6]  # cap at 6 tables to keep Phase 1 fast
 
         for table in target_tables:
@@ -195,6 +200,63 @@ def _format_phase1_hints(prescan: dict) -> str:
     return "\n".join(lines)
 
 
+def _format_business_context(business_context, hint_pack: dict) -> str:
+    """Format business context and ERP hint pack as a prompt section."""
+    if business_context is None:
+        return ""
+
+    lines = ["\n## Business Context"]
+    if business_context.company_name:
+        city_part = f" ({business_context.city})" if business_context.city else ""
+        lines.append(f"- Company: {business_context.company_name}{city_part}")
+    if business_context.industry:
+        lines.append(f"- Industry: {business_context.industry}")
+    if business_context.erp_type:
+        lines.append(f"- ERP: {business_context.erp_type}")
+    if business_context.expected_entities:
+        lines.append(f"- Expected entities: {', '.join(business_context.expected_entities)}")
+    if business_context.notes:
+        lines.append(f"- Notes: {business_context.notes}")
+
+    if hint_pack:
+        lines.append("\n## ERP Naming Conventions")
+        # Naming conventions
+        naming = hint_pack.get("naming_conventions", {})
+        if naming:
+            if naming.get("id_prefixes"):
+                lines.append(f"- ID prefixes: {', '.join(naming['id_prefixes'])}")
+            if naming.get("date_patterns"):
+                lines.append(f"- Date columns: {', '.join(naming['date_patterns'][:6])}")
+            if naming.get("boolean_patterns"):
+                lines.append(f"- Boolean/status: {', '.join(naming['boolean_patterns'])}")
+
+        # Table patterns
+        table_patterns = hint_pack.get("table_patterns", {})
+        if table_patterns.get("header_detail"):
+            hd = table_patterns["header_detail"]
+            lines.append(f"\n### Header/Detail Pattern")
+            lines.append(f"  Header suffixes: {', '.join(hd.get('header_suffixes', []))}")
+            lines.append(f"  Detail suffixes: {', '.join(hd.get('detail_suffixes', []))}")
+
+        # Fiscal patterns
+        fiscal = hint_pack.get("fiscal_patterns", {})
+        if fiscal:
+            lines.append(f"\n### Fiscal Patterns (Argentina)")
+            for key, info in fiscal.items():
+                if isinstance(info, dict) and info.get("columns"):
+                    lines.append(f"  {key}: columns={', '.join(info['columns'][:4])}")
+
+        # Column hints
+        col_hints = hint_pack.get("column_hints", {})
+        if col_hints:
+            lines.append(f"\n### Column Patterns")
+            for category, info in col_hints.items():
+                if isinstance(info, dict) and info.get("patterns"):
+                    lines.append(f"  {category}: {', '.join(info['patterns'][:6])}")
+
+    return "\n".join(lines)
+
+
 def _format_calibration_feedback(failures: list) -> str:
     """Format Guard Rail calibration failures as retry instructions."""
     if not failures:
@@ -220,6 +282,7 @@ def _format_calibration_feedback(failures: list) -> str:
 async def run_cartographer(
     client_config: dict,
     calibration_feedback: list | None = None,
+    business_context=None,
 ) -> dict:
     """
     Run the Cartographer agent to map a database schema.
@@ -232,12 +295,35 @@ async def run_cartographer(
         calibration_feedback: List of Guard Rail failures from a previous attempt.
             Each item: {"entity": "invoices", "feedback": "filtered_count is 0 ..."}
             When provided, Cartographer is instructed to fix these specific entities.
+        business_context: Optional BusinessContext with client business info and ERP type.
 
     Returns:
         entity_map dict with discovered entities, relationships, base_filter, and quality flags.
     """
+    # ── Load ERP hint pack if business context is available ─────────────────
+    hint_pack: dict = {}
+    business_context_section = ""
+    if business_context is not None:
+        try:
+            from valinor.discovery.erp_hints import load_hint_pack
+            hint_pack = load_hint_pack(
+                country=business_context.country,
+                erp_type=business_context.erp_type,
+            )
+        except Exception as exc:
+            logger.warning("cartographer: failed to load hint pack: %s", exc)
+        business_context_section = _format_business_context(business_context, hint_pack)
+
     # ── Phase 1: Deterministic pre-scan ──────────────────────────────────────
-    prescan = await _prescan_filter_candidates(client_config)
+    # Extract extra table hints from hint pack for Phase 1 prioritization
+    extra_table_hints = []
+    if hint_pack:
+        for group_key in ("master_tables", "transactional_tables", "stock_tables"):
+            group = hint_pack.get("table_patterns", {}).get(group_key, [])
+            for entry in group:
+                if isinstance(entry, dict) and entry.get("pattern"):
+                    extra_table_hints.append(entry["pattern"])
+    prescan = await _prescan_filter_candidates(client_config, extra_table_hints=extra_table_hints or None)
     phase1_section = _format_phase1_hints(prescan)
 
     # ── Build prompt ──────────────────────────────────────────────────────────
@@ -252,6 +338,7 @@ async def run_cartographer(
     prompt = f"""
     Client: {client_config['name']}
     Connection: {client_config['connection_string']}
+    {business_context_section}
     {phase1_section}
     {retry_section}
 
