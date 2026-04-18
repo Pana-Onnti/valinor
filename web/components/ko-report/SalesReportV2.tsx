@@ -62,19 +62,31 @@ interface CallListEntry {
 
 interface CategoryPerformance {
   category: string; revenue_eur: number; share_pct: number
-  mom_pct: number; trend: Trend; confidence: Confidence
+  mom_pct: number | null
+  trend: Trend | null
+  confidence: Confidence
 }
+
+interface NextAction {
+  priority: number; title: string; rationale: string
+  impact_eur: number; impact_confidence: Confidence; deadline: string
+}
+
+type CustomerProfile = 'account_grande' | 'cuenta_media' | 'outlier'
 
 export interface SalesReportV2Data {
   client_name: string; period: string; currency: string
   generated_at: string
+  hero_loss_eur: number
+  hero_loss_headline: string
   kpi_bar: KPITile[]
   rfm_segments: RFMSegmentSummary[]
   concentration: ConcentrationReport
   top_customers: TopCustomerRow[]
   category_performance: CategoryPerformance[]
   magic_matrix: MagicMatrixCell[]
-  call_list: CallListEntry[]
+  call_list: (CallListEntry & { profile?: CustomerProfile; frequency?: number })[]
+  next_actions: NextAction[]
   executive_summary: string
   data_caveats: string[]
 }
@@ -297,36 +309,47 @@ function TopCustomersTable({ rows }: { rows: TopCustomerRow[] }) {
 
 function CategoryPerformanceList({ rows }: { rows: CategoryPerformance[] }) {
   if (!rows.length) return null
+  const hasMoM = rows.some((r) => r.mom_pct !== null && r.mom_pct !== undefined)
   return (
     <div style={{ ...s.card, marginBottom: T.space.lg }}>
-      <SectionTitle label="Rendimiento por categoría" sub="Último mes — con variación MoM" />
-      {rows.map((r, i) => (
-        <div key={i} style={{
-          display: 'grid', alignItems: 'center', gap: T.space.sm,
-          gridTemplateColumns: '1.2fr 2fr 90px 60px 80px',
-          padding: '8px 0',
-          borderBottom: i < rows.length - 1 ? T.border.subtle : undefined,
-        }}>
-          <div style={{ fontSize: 12, color: T.text.primary }}>{r.category}</div>
-          <div style={{ height: 5, background: T.bg.elevated, borderRadius: 3, overflow: 'hidden' }}>
-            <div style={{
-              width: `${Math.min(r.share_pct * 2.5, 100)}%`, height: '100%',
-              background: TREND_COLOR[r.trend],
-            }} />
-          </div>
-          <div style={{ ...s.mono, fontSize: 11, color: T.text.secondary, textAlign: 'right' as const }}>
-            €{Math.round(r.revenue_eur).toLocaleString('es-AR')}
-          </div>
-          <div style={{ ...s.mono, fontSize: 11, color: T.text.tertiary, textAlign: 'right' as const }}>
-            {r.share_pct.toFixed(1)}%
-          </div>
-          <div style={{
-            ...s.mono, fontSize: 10, color: TREND_COLOR[r.trend], textAlign: 'right' as const,
+      <SectionTitle label="Rendimiento por categoría"
+        sub={hasMoM ? "Período actual vs. MoM" : "Revenue y share del período — MoM requiere 2 períodos"} />
+      {rows.map((r, i) => {
+        const trendColor = r.trend ? TREND_COLOR[r.trend] : T.accent.teal
+        return (
+          <div key={i} style={{
+            display: 'grid', alignItems: 'center', gap: T.space.sm,
+            gridTemplateColumns: hasMoM ? '1.2fr 2fr 110px 60px 80px' : '1.2fr 2fr 110px 60px',
+            padding: '8px 0',
+            borderBottom: i < rows.length - 1 ? T.border.subtle : undefined,
           }}>
-            {r.mom_pct > 0 ? '+' : ''}{r.mom_pct.toFixed(0)}% MoM
+            <div style={{ fontSize: 12, color: T.text.primary }}>{r.category}</div>
+            <div style={{ height: 5, background: T.bg.elevated, borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{
+                width: `${Math.min(r.share_pct * 2.5, 100)}%`, height: '100%',
+                background: trendColor,
+              }} />
+            </div>
+            <div style={{ ...s.mono, fontSize: 11, color: T.text.secondary, textAlign: 'right' as const }}>
+              €{Math.round(r.revenue_eur).toLocaleString('es-AR')}
+            </div>
+            <div style={{ ...s.mono, fontSize: 11, color: T.text.tertiary, textAlign: 'right' as const }}>
+              {r.share_pct.toFixed(1)}%
+            </div>
+            {hasMoM && (
+              <div style={{
+                ...s.mono, fontSize: 10,
+                color: r.mom_pct !== null ? trendColor : T.text.tertiary,
+                textAlign: 'right' as const,
+              }}>
+                {r.mom_pct === null || r.mom_pct === undefined
+                  ? '—'
+                  : `${r.mom_pct > 0 ? '+' : ''}${r.mom_pct.toFixed(0)}% MoM`}
+              </div>
+            )}
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -387,16 +410,30 @@ function MagicMatrixHeatmap({ cells }: { cells: MagicMatrixCell[] }) {
   )
 }
 
-function CallList({ rows }: { rows: CallListEntry[] }) {
+const PROFILE_LABEL: Record<CustomerProfile, string> = {
+  account_grande: 'CUENTA GRANDE',
+  cuenta_media: 'CUENTA MEDIA',
+  outlier: 'OUTLIER',
+}
+
+const PROFILE_COLOR: Record<CustomerProfile, string> = {
+  account_grande: T.accent.teal,
+  cuenta_media: T.accent.blue,
+  outlier: T.accent.yellow,
+}
+
+function CallList({ rows }: { rows: SalesReportV2Data['call_list'] }) {
   if (!rows.length) return null
   return (
     <div style={{ ...s.card, marginBottom: T.space.lg }}>
       <SectionTitle label="Call list priorizada por Deal Risk Score"
-        sub="Score 0-100 combinando recencia × LTV × frecuencia histórica" />
+        sub="Script adaptado al perfil (cuenta grande / media / outlier). Sample chica penaliza confianza del potencial." />
       {rows.map((r) => {
         const scoreColor =
           r.deal_risk_score > 70 ? T.accent.red :
           r.deal_risk_score > 40 ? T.accent.yellow : T.accent.teal
+        const profile = r.profile ?? 'cuenta_media'
+        const profileColor = PROFILE_COLOR[profile]
         return (
           <div key={r.rank} style={{
             display: 'grid', gap: T.space.sm,
@@ -411,11 +448,20 @@ function CallList({ rows }: { rows: CallListEntry[] }) {
             <div>
               <div style={{ fontSize: 12, color: T.text.primary, fontWeight: 500 }}>
                 {r.customer_name}
-                {r.customer_id && <span style={{ ...s.mono, color: T.text.tertiary, marginLeft: 4, fontSize: 10 }}>({r.customer_id})</span>}
               </div>
-              <div style={{ fontSize: 11, color: T.text.secondary, marginTop: 2 }}>{r.reason}</div>
-              <div style={{ fontSize: 11, color: T.text.tertiary, marginTop: 4, fontStyle: 'italic' as const }}>
-                Script: "{r.script_hint}"
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 3 }}>
+                <span style={{
+                  ...s.mono, fontSize: 9, color: profileColor,
+                  background: `${profileColor}1a`, border: `1px solid ${profileColor}33`,
+                  padding: '1px 6px', borderRadius: 3, letterSpacing: '0.08em',
+                }}>{PROFILE_LABEL[profile]}</span>
+                <span style={{ ...s.mono, fontSize: 10, color: T.text.tertiary }}>
+                  {r.frequency ?? 0} pedidos
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: T.text.secondary, marginTop: 6 }}>{r.reason}</div>
+              <div style={{ fontSize: 11, color: T.text.tertiary, marginTop: 4, fontStyle: 'italic' as const, lineHeight: 1.5 }}>
+                "{r.script_hint}"
               </div>
             </div>
             <div style={{ fontSize: 11, color: T.text.secondary }}>
@@ -440,6 +486,57 @@ function CallList({ rows }: { rows: CallListEntry[] }) {
   )
 }
 
+function NextActionsBlock({ actions, heroLossEur }: { actions: NextAction[]; heroLossEur: number }) {
+  if (!actions.length) return null
+  return (
+    <div style={{
+      ...s.card,
+      background: `linear-gradient(180deg, ${T.accent.red}08 0%, ${T.bg.card} 100%)`,
+      borderLeft: `4px solid ${T.accent.red}`,
+      marginBottom: T.space.lg,
+    }}>
+      <div style={{
+        ...s.mono, fontSize: 11, color: T.accent.red,
+        letterSpacing: '0.18em', textTransform: 'uppercase' as const, marginBottom: T.space.sm,
+      }}>Esta semana tenés que:</div>
+      {actions.map((a) => (
+        <div key={a.priority} style={{
+          display: 'grid', gap: T.space.md, alignItems: 'flex-start',
+          gridTemplateColumns: '28px 1fr 140px',
+          padding: `${T.space.md} 0`,
+          borderBottom: a.priority < actions.length ? T.border.subtle : undefined,
+        }}>
+          <div style={{
+            ...s.mono, fontSize: 20, color: T.accent.red, fontWeight: 300,
+            textAlign: 'center' as const, lineHeight: 1,
+          }}>{a.priority}</div>
+          <div>
+            <div style={{ fontSize: 14, color: T.text.primary, fontWeight: 500, marginBottom: 4 }}>
+              {a.title}
+            </div>
+            <div style={{ fontSize: 12, color: T.text.secondary, lineHeight: 1.5 }}>{a.rationale}</div>
+            <div style={{
+              ...s.mono, fontSize: 10, color: T.text.tertiary, marginTop: 6,
+              letterSpacing: '0.08em',
+            }}>
+              DEADLINE: {a.deadline.toUpperCase()}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' as const }}>
+            <div style={{ ...s.mono, fontSize: 16, color: T.accent.red, fontWeight: 300 }}>
+              €{Math.round(a.impact_eur).toLocaleString('es-AR')}
+            </div>
+            <div style={{ ...s.mono, fontSize: 9, color: T.text.tertiary, marginTop: 2 }}>
+              IMPACTO €
+            </div>
+            <div style={{ marginTop: 4 }}><ConfMarker level={a.impact_confidence} /></div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function SectionTitle({ label, sub }: { label: string; sub?: string }) {
   return (
     <div style={{ marginBottom: T.space.md }}>
@@ -453,6 +550,36 @@ function SectionTitle({ label, sub }: { label: string; sub?: string }) {
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
+
+function HeroLoss({ report }: { report: SalesReportV2Data }) {
+  if (!report.hero_loss_eur) return null
+  return (
+    <div style={{
+      padding: `${T.space.xl} ${T.space.lg}`,
+      borderLeft: `4px solid ${T.accent.red}`,
+      background: `linear-gradient(180deg, ${T.accent.red}10 0%, ${T.bg.card} 100%)`,
+      borderRadius: T.radius.md,
+      marginBottom: T.space.lg,
+    }}>
+      <div style={{
+        ...s.mono, fontSize: 10, color: T.accent.red, letterSpacing: '0.2em',
+        textTransform: 'uppercase' as const, marginBottom: T.space.sm,
+      }}>Hallazgo crítico</div>
+      <div style={{
+        ...s.display, fontSize: 44, color: T.accent.red, fontWeight: 300,
+        lineHeight: 1, letterSpacing: '-0.02em',
+      }}>
+        €{Math.round(report.hero_loss_eur).toLocaleString('es-AR')}
+      </div>
+      <div style={{
+        ...s.display, fontSize: 16, color: T.text.primary, lineHeight: 1.5,
+        marginTop: T.space.sm, maxWidth: 720,
+      }}>
+        {report.hero_loss_headline}
+      </div>
+    </div>
+  )
+}
 
 export default function SalesReportV2({ report }: { report: SalesReportV2Data }) {
   return (
@@ -473,13 +600,19 @@ export default function SalesReportV2({ report }: { report: SalesReportV2Data })
         </div>
       </div>
 
+      {/* Loss-framed hero — first element the CEO sees */}
+      <HeroLoss report={report} />
+
+      {/* Decision-forcing actions near the top — provocación directa */}
+      <NextActionsBlock actions={report.next_actions} heroLossEur={report.hero_loss_eur} />
+
       <KPIBar tiles={report.kpi_bar} />
       <ConcentrationPanel c={report.concentration} />
+      <CallList rows={report.call_list} />
       <TopCustomersTable rows={report.top_customers} />
       <RFMGrid segments={report.rfm_segments} />
       <CategoryPerformanceList rows={report.category_performance} />
       <MagicMatrixHeatmap cells={report.magic_matrix} />
-      <CallList rows={report.call_list} />
 
       {!!report.data_caveats.length && (
         <div style={{
@@ -510,7 +643,12 @@ export function parseSalesReportV2(raw: string | null | undefined): SalesReportV
     if (!obj || typeof obj !== 'object') return null
     // Minimal runtime validation — full validation happens in the backend
     if (!('concentration' in obj) || !('kpi_bar' in obj)) return null
-    return obj as SalesReportV2Data
+    // Backfill new fields for older JSON payloads so the renderer stays defensive
+    const result = obj as SalesReportV2Data
+    if (result.hero_loss_eur === undefined) result.hero_loss_eur = 0
+    if (!result.hero_loss_headline) result.hero_loss_headline = ''
+    if (!Array.isArray(result.next_actions)) result.next_actions = []
+    return result
   } catch {
     return null
   }

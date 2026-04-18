@@ -222,12 +222,14 @@ def cross_sell_matrix_sql(entity_map: dict, months: int = 12) -> str:
     Matrix: for each RFM segment × product category, % of customers in that
     segment who bought at least once from that category.
 
-    Uses CTE from rfm_segmentation_sql; expects `products.category` present.
-    If category isn't present, fall back to `products.name` bucket.
+    Joins `m_product_category` by `m_product_category_id` (via `product_categories`
+    entity in entity_map) to emit human-readable category names. Falls back to
+    the category_id string when the categories entity is missing.
     """
     invoices = _table(entity_map, "invoices", "invoices")
     invoice_lines = _table(entity_map, "invoice_lines", "invoice_lines")
     products = _table(entity_map, "products", "products")
+    product_categories = _table(entity_map, "product_categories", "m_product_category")
 
     inv_date = _col(entity_map, "invoices", "invoice_date", "invoice_date")
     inv_customer = _col(entity_map, "invoices", "customer_id", "customer_id")
@@ -237,6 +239,8 @@ def cross_sell_matrix_sql(entity_map: dict, months: int = 12) -> str:
     line_amount = _col(entity_map, "invoice_lines", "line_amount", "line_amount")
     prod_id = _col(entity_map, "products", "product_id", "id")
     prod_category = _col(entity_map, "products", "category", "category")
+    pc_id = _col(entity_map, "product_categories", "category_id", "m_product_category_id")
+    pc_name = _col(entity_map, "product_categories", "category_name", "name")
 
     inv_filter = _base_filter(entity_map, "invoices")
 
@@ -279,19 +283,23 @@ rfm_seg AS (
 customer_categories AS (
     SELECT DISTINCT
         i.{inv_customer} AS customer_id,
-        p.{prod_category} AS category
+        COALESCE(pc.{pc_name}, p.{prod_category}::text) AS category,
+        COALESCE(SUM(l.{line_amount}), 0) AS segment_spent_eur
     FROM {invoices} i
     JOIN {invoice_lines} l ON l.{line_inv} = i.{inv_id}
     JOIN {products} p ON p.{prod_id} = l.{line_product}
+    LEFT JOIN {product_categories} pc ON pc.{pc_id} = p.{prod_category}
     WHERE i.{inv_date} > CURRENT_DATE - INTERVAL '{months} months'
     {inv_filter}
     AND p.{prod_category} IS NOT NULL
+    GROUP BY i.{inv_customer}, pc.{pc_name}, p.{prod_category}
 )
 SELECT
     s.segment,
     cc.category,
     COUNT(DISTINCT cc.customer_id) AS customers_buying,
     (SELECT COUNT(*) FROM rfm_seg s2 WHERE s2.segment = s.segment) AS segment_size,
+    ROUND(SUM(cc.segment_spent_eur)::numeric, 2) AS category_revenue_eur,
     ROUND((100.0 * COUNT(DISTINCT cc.customer_id) /
            NULLIF((SELECT COUNT(*) FROM rfm_seg s2 WHERE s2.segment = s.segment), 0))::numeric, 2)
         AS penetration_pct
@@ -341,8 +349,10 @@ WITH history AS (
         COUNT(DISTINCT i.{inv_id}) AS frequency,
         SUM(i.{inv_total}) AS ltv_eur,
         MAX(i.{inv_date}::date) AS last_purchase,
+        MIN(i.{inv_date}::date) AS first_purchase,
         CURRENT_DATE - MAX(i.{inv_date}::date) AS recency_days,
-        AVG(i.{inv_total}) AS avg_order_eur
+        AVG(i.{inv_total}) AS avg_order_eur,
+        STDDEV_POP(i.{inv_total}) AS stddev_order_eur
     FROM {customers} c
     JOIN {invoices} i ON i.{inv_customer} = c.{cust_id}
     WHERE i.{inv_date} > CURRENT_DATE - INTERVAL '{months} months'
@@ -360,8 +370,10 @@ scored AS (
         ltv_eur,
         frequency,
         last_purchase::text AS last_purchase,
+        first_purchase::text AS first_purchase,
         recency_days,
         avg_order_eur,
+        stddev_order_eur,
         -- Score components (each 0-100, weighted):
         --   recency_factor: older = higher urgency (capped at 180d)
         --   value_factor:   higher LTV = higher priority
@@ -370,8 +382,20 @@ scored AS (
       + LEAST(100, (ltv_eur / NULLIF((SELECT MAX(ltv_eur) FROM dormant), 0)) * 100) * 0.5
       + LEAST(100, (frequency::numeric / NULLIF((SELECT MAX(frequency) FROM dormant), 0)) * 100) * 0.2
         AS deal_risk_score,
-        -- Recovery potential: 1 avg order value × historical win rate (estimated at 30%)
-        avg_order_eur * 0.30 AS recovery_potential_eur
+        -- Recovery potential: avg_order × win_rate × confidence_factor.
+        -- confidence_factor penalizes small samples: freq<=3 gets 0.1, freq<=10 gets 0.4,
+        -- freq<=30 gets 0.7, freq>30 gets 1.0. Outliers (KONG con 1 pedido) no distorsionan.
+        avg_order_eur * 0.30 * CASE
+            WHEN frequency <= 3  THEN 0.10
+            WHEN frequency <= 10 THEN 0.40
+            WHEN frequency <= 30 THEN 0.70
+            ELSE 1.00
+        END AS recovery_potential_eur,
+        CASE
+            WHEN frequency > 100 THEN 'account_grande'
+            WHEN frequency <= 3  THEN 'outlier'
+            ELSE 'cuenta_media'
+        END AS profile
     FROM dormant
 )
 SELECT
@@ -379,10 +403,13 @@ SELECT
     customer_name,
     ROUND(deal_risk_score::numeric, 1) AS deal_risk_score,
     last_purchase,
+    first_purchase,
     ROUND(ltv_eur::numeric, 2) AS ltv_eur,
     ROUND(recovery_potential_eur::numeric, 2) AS recovery_potential_eur,
+    ROUND(avg_order_eur::numeric, 2) AS avg_order_eur,
     recency_days,
-    frequency
+    frequency,
+    profile
 FROM scored
 ORDER BY deal_risk_score DESC
 LIMIT {limit}

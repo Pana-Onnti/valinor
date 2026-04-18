@@ -16,6 +16,22 @@ const SAMPLE: SalesReportV2Data = {
   currency: 'EUR',
   generated_at: new Date().toISOString(),
 
+  hero_loss_eur: 1315041,
+  hero_loss_headline:
+    '€1,315,041 de LTV dormido en 12 cuentas que dejaron de comprarte. Si no las llamás esta semana, las perdés definitivamente.',
+
+  next_actions: [
+    { priority: 1, title: 'Llamar al top 5 dormantes esta semana',
+      rationale: 'LTV combinado €1.1M. Recuperable mínimo €16K en próximos 30 días.',
+      impact_eur: 16000, impact_confidence: 'estimated', deadline: 'Esta semana' },
+    { priority: 2, title: 'Segmentar Champions en tier A/B/C',
+      rationale: '42 Champions concentran 71% del revenue. Caída de la cola = -33% facturación anual.',
+      impact_eur: 1100000, impact_confidence: 'estimated', deadline: 'Próximas 2 semanas' },
+    { priority: 3, title: 'Automatizar email para "About to Sleep"',
+      rationale: '103 clientes en ventana de recuperación de 30 días antes de Hibernating.',
+      impact_eur: 24000, impact_confidence: 'estimated', deadline: 'Próximos 30 días' },
+  ],
+
   kpi_bar: [
     { label: 'Clientes activos', value: '959', confidence: 'measured' },
     { label: 'Dormantes', value: '4.620', sub: '> 60 días', confidence: 'measured' },

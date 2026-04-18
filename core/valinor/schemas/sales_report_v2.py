@@ -46,6 +46,13 @@ class RiskLevel(str, Enum):
     HIGH = "high"
 
 
+class CustomerProfile(str, Enum):
+    """Used to pick the right script variant in the call list."""
+    ACCOUNT_GRANDE = "account_grande"      # >100 órdenes históricas
+    CUENTA_MEDIA = "cuenta_media"          # 4-100 órdenes
+    OUTLIER = "outlier"                    # 1-3 órdenes (muestra chica, baja confianza)
+
+
 class KPITile(BaseModel):
     """One tile in the KPI bar header."""
 
@@ -116,23 +123,36 @@ class CallListEntry(BaseModel):
     rank: int = Field(ge=1)
     customer_name: str
     customer_id: Optional[str] = None
+    profile: CustomerProfile = CustomerProfile.CUENTA_MEDIA
+    frequency: int = Field(default=0, ge=0, description="Historical order count")
     deal_risk_score: float = Field(ge=0, le=100, description="0-100 probability-weighted priority")
     last_purchase: str
     ltv_eur: float = Field(ge=0)
     recovery_potential_eur: float = Field(ge=0)
     recovery_confidence: ValueConfidence = ValueConfidence.ESTIMATED
     reason: str = Field(description="Why they're on the list (one sentence)")
-    script_hint: str = Field(description="Talking point for the call")
+    script_hint: str = Field(description="Talking point for the call — varies by profile")
+
+
+class NextAction(BaseModel):
+    """Decision-forcing item that ends the report: WHAT to do THIS WEEK."""
+
+    priority: int = Field(ge=1, description="1 = top priority")
+    title: str = Field(description="Short imperative action (e.g. 'Llamar al top 5 dormant')")
+    rationale: str = Field(description="One sentence why, with the at-risk value")
+    impact_eur: float = Field(ge=0, description="€ at stake if done / lost if not")
+    impact_confidence: ValueConfidence = ValueConfidence.ESTIMATED
+    deadline: str = Field(default="Esta semana", description="When it must be done")
 
 
 class CategoryPerformance(BaseModel):
-    """Category-level revenue performance with MoM trend."""
+    """Category-level revenue. MoM requires 2 period runs — omit if unavailable."""
 
     category: str
     revenue_eur: float = Field(ge=0)
     share_pct: float = Field(ge=0, le=100)
-    mom_pct: float = Field(description="Month-over-month % change (can be negative)")
-    trend: str = Field(description="sube | estable | baja | caida")
+    mom_pct: Optional[float] = Field(default=None, description="MoM % change — None when single-period")
+    trend: Optional[str] = Field(default=None, description="sube | estable | baja | caida (None when MoM unavailable)")
     confidence: ValueConfidence = ValueConfidence.MEASURED
 
 
@@ -151,6 +171,14 @@ class SalesReportV2(BaseModel):
     currency: str = Field(default="EUR")
     generated_at: str = Field(description="ISO timestamp")
 
+    hero_loss_eur: float = Field(
+        default=0.0, ge=0,
+        description="Loss-framed hero number: total € at risk (sum of top dormant LTV)",
+    )
+    hero_loss_headline: str = Field(
+        default="",
+        description="One-sentence loss-framed hero statement. Shown 48px at the top.",
+    )
     kpi_bar: List[KPITile] = Field(description="4-5 header KPIs")
     rfm_segments: List[RFMSegmentSummary] = Field(description="Up to 11 segments")
     concentration: ConcentrationReport
@@ -158,6 +186,10 @@ class SalesReportV2(BaseModel):
     category_performance: List[CategoryPerformance]
     magic_matrix: List[MagicMatrixCell] = Field(description="RFM × category cells")
     call_list: List[CallListEntry] = Field(description="Top-N prioritized by deal risk score")
+    next_actions: List[NextAction] = Field(
+        default_factory=list,
+        description="Decision-forcing — 'esta semana tenés que: 1, 2, 3' with € impact",
+    )
 
     executive_summary: str = Field(description="3-5 sentence summary for header/email")
     data_caveats: List[str] = Field(
