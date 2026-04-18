@@ -13,7 +13,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from valinor.schemas.agent_outputs import ValueConfidence
 
@@ -70,14 +70,22 @@ class RFMSegmentSummary(BaseModel):
 class ConcentrationReport(BaseModel):
     """Herfindahl-Hirschman Index + Concentration Ratios."""
 
-    hhi: float = Field(ge=0, le=10000, description="HHI 0-10000")
-    hhi_level: ConcentrationLevel
-    cr1_pct: float = Field(ge=0, le=100, description="% revenue from top 1")
-    cr5_pct: float = Field(ge=0, le=100, description="% revenue from top 5")
-    cr10_pct: float = Field(ge=0, le=100, description="% revenue from top 10")
-    total_customers: int = Field(ge=0)
-    interpretation: str = Field(description="One-sentence human-readable interpretation")
-    confidence: ValueConfidence = ValueConfidence.MEASURED
+    hhi: float = Field(default=0.0, ge=0, le=10000, description="HHI 0-10000")
+    hhi_level: ConcentrationLevel = ConcentrationLevel.DIVERSIFIED
+    cr1_pct: float = Field(default=0.0, ge=0, le=100, description="% revenue from top 1")
+    cr5_pct: float = Field(default=0.0, ge=0, le=100, description="% revenue from top 5")
+    cr10_pct: float = Field(default=0.0, ge=0, le=100, description="% revenue from top 10")
+    total_customers: int = Field(default=0, ge=0)
+    interpretation: str = Field(default="", description="One-sentence human-readable interpretation")
+    confidence: ValueConfidence = ValueConfidence.INFERRED
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_nulls_to_defaults(cls, data: Any) -> Any:
+        """Accept LLM-emitted nulls by dropping them — Pydantic then applies field defaults."""
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if v is not None}
+        return data
 
 
 class TopCustomerRow(BaseModel):

@@ -439,9 +439,20 @@ def append_to_query_pack(query_pack: dict, entity_map: dict, months: int = 12) -
     Append the 5 sales_v2 queries to an existing query_pack (mutates and returns).
 
     The pipeline's `execute_queries` consumes `query_pack["queries"]`, where each
-    entry is `{"id", "sql", "domain", "description"}`. The keys we use here line
-    up with what the sales narrator v2 expects in `query_results["results"]`.
+    entry is `{"id", "sql", "domain", "description", "params"}`. The keys we use
+    here line up with what the sales narrator v2 expects in
+    `query_results["results"]`.
+
+    No-op when the entity_map lacks invoices/customers — skipping is silent so
+    callers that build queries for non-sales schemas (e.g. tests with empty
+    entity_maps) don't acquire synthetic SQL.
     """
+    entities = entity_map.get("entities", {}) or {}
+    if not ({"invoices", "customers"} <= set(entities.keys())):
+        # Silent skip — we don't pollute query_pack.skipped (which is reserved
+        # for the main template engine's tracked skips).
+        return query_pack
+
     queries = build_sales_v2_queries(entity_map, months=months)
     descriptions = {
         "rfm_segmentation":
@@ -462,5 +473,6 @@ def append_to_query_pack(query_pack: dict, entity_map: dict, months: int = 12) -
             "sql": sql,
             "domain": "sales",
             "description": descriptions.get(qid, ""),
+            "params": {"months": months},
         })
     return query_pack
