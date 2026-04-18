@@ -18,6 +18,8 @@ from valinor.queries.sales_v2 import (
 )
 from valinor.schemas.sales_report_v2 import (
     ConcentrationReport,
+    CustomerProfile,
+    NextAction,
     RFMSegment,
     SalesReportV2,
     ValueConfidence,
@@ -243,3 +245,127 @@ class TestNarratorFallback:
         validated = SalesReportV2.model_validate(parsed)
         assert validated.client_name == "Test"
         assert validated.data_caveats == ["synthetic"]
+
+    def test_fallback_includes_hero_defaults(self):
+        from valinor.agents.narrators.sales import _fallback_report
+
+        parsed = json.loads(_fallback_report({"display_name": "X"}, reason="r"))
+        assert parsed["hero_loss_eur"] == 0.0
+        assert parsed["hero_loss_headline"] == ""
+        assert parsed["next_actions"] == []
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Refactor fixes: loss framing, profiles, MoM null, UUID cleanup
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestRefactorFixes:
+    """Covers the 8 critiques that drove the demo-grade refactor."""
+
+    def test_hero_loss_eur_bounded_and_optional(self):
+        """hero_loss_eur defaults to 0, must be ≥ 0."""
+        r = SalesReportV2(
+            client_name="X", period="P", currency="EUR",
+            generated_at="2026-04-18T00:00:00+00:00",
+            kpi_bar=[], rfm_segments=[],
+            concentration={"hhi": 0, "hhi_level": "diversified",
+                           "cr1_pct": 0, "cr5_pct": 0, "cr10_pct": 0,
+                           "total_customers": 0, "interpretation": "n/a",
+                           "confidence": "inferred"},
+            top_customers=[], category_performance=[],
+            magic_matrix=[], call_list=[], next_actions=[],
+            executive_summary="s", data_caveats=[],
+        )
+        assert r.hero_loss_eur == 0.0
+        assert r.hero_loss_headline == ""
+        assert r.next_actions == []
+
+    def test_customer_profile_enum(self):
+        assert CustomerProfile.ACCOUNT_GRANDE.value == "account_grande"
+        assert CustomerProfile.CUENTA_MEDIA.value == "cuenta_media"
+        assert CustomerProfile.OUTLIER.value == "outlier"
+
+    def test_category_performance_mom_null_allowed(self, sample_valid_report: dict):
+        """MoM stays null when only 1 period is available — don't fake 0."""
+        sample_valid_report["category_performance"][0]["mom_pct"] = None
+        sample_valid_report["category_performance"][0]["trend"] = None
+        report = SalesReportV2.model_validate(sample_valid_report)
+        assert report.category_performance[0].mom_pct is None
+        assert report.category_performance[0].trend is None
+
+    def test_call_list_entry_requires_profile(self, sample_valid_report: dict):
+        """CallListEntry.profile defaults to cuenta_media when not supplied."""
+        # Remove profile from sample — should default
+        if "profile" in sample_valid_report["call_list"][0]:
+            del sample_valid_report["call_list"][0]["profile"]
+        report = SalesReportV2.model_validate(sample_valid_report)
+        assert report.call_list[0].profile == "cuenta_media"
+
+    def test_call_list_profile_enum_strict(self, sample_valid_report: dict):
+        sample_valid_report["call_list"][0]["profile"] = "invalid_profile"
+        with pytest.raises(Exception):
+            SalesReportV2.model_validate(sample_valid_report)
+
+    def test_next_action_schema(self):
+        na = NextAction(
+            priority=1, title="Llamar top 5",
+            rationale="LTV €1.1M", impact_eur=16000,
+            impact_confidence=ValueConfidence.ESTIMATED,
+            deadline="Esta semana",
+        )
+        assert na.priority == 1
+        assert na.impact_eur == 16000
+
+    def test_concentration_null_coercion(self):
+        """LLM emits nulls for concentration → must not reject, must default."""
+        report = SalesReportV2.model_validate({
+            "client_name": "X", "period": "P", "currency": "EUR",
+            "generated_at": "2026-04-18T00:00:00+00:00",
+            "kpi_bar": [], "rfm_segments": [],
+            "concentration": {
+                "hhi": None, "hhi_level": None,
+                "cr1_pct": None, "cr5_pct": None, "cr10_pct": None,
+            },
+            "top_customers": [], "category_performance": [],
+            "magic_matrix": [], "call_list": [],
+            "executive_summary": "s", "data_caveats": [],
+        })
+        assert report.concentration.hhi == 0.0
+        assert report.concentration.hhi_level == "diversified"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Query SQL shape — ensures the refactor added new columns
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestQueryShapeAfterRefactor:
+    """SQL-level checks — no DB required, pure string inspection."""
+
+    def test_churn_risk_scoring_emits_profile_and_frequency(self, openbravo_entity_map):
+        sql = build_sales_v2_queries(openbravo_entity_map)["churn_risk_scoring"]
+        assert "profile" in sql.lower()
+        assert "frequency" in sql.lower()
+        assert "confidence_factor" in sql.lower() or "CASE" in sql
+
+    def test_churn_risk_scoring_penalizes_small_samples(self, openbravo_entity_map):
+        """Confidence factor CASE must penalize freq<=3."""
+        sql = build_sales_v2_queries(openbravo_entity_map)["churn_risk_scoring"]
+        assert "frequency <= 3" in sql
+        assert "0.10" in sql
+
+    def test_cross_sell_matrix_joins_categories(self, openbravo_entity_map):
+        sql = build_sales_v2_queries(openbravo_entity_map)["cross_sell_matrix"]
+        # Must reference the product_categories lookup (JOIN or COALESCE)
+        assert "m_product_category" in sql.lower() or "product_categories" in sql.lower()
+        # Must emit category revenue
+        assert "category_revenue_eur" in sql.lower() or "segment_spent_eur" in sql.lower()
+
+    def test_all_queries_run_on_entity_map(self, openbravo_entity_map):
+        """All 5 queries must be non-empty SQL strings using the mapped tables."""
+        queries = build_sales_v2_queries(openbravo_entity_map)
+        assert len(queries) == 5
+        for qid, sql in queries.items():
+            assert sql.strip(), f"{qid} is empty"
+            assert "SELECT" in sql.upper(), f"{qid} has no SELECT"
