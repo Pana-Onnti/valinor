@@ -47,7 +47,13 @@ class RiskLevel(str, Enum):
 
 
 class CustomerProfile(str, Enum):
-    """Used to pick the right script variant in the call list."""
+    """
+    Used to pick the right script variant in the call list.
+
+    Priority order: cuenta_top (LTV p95+) > account_grande (>100 orders) >
+                    outlier (1-3 orders) > cuenta_media (everything else).
+    """
+    CUENTA_TOP = "cuenta_top"              # LTV en p95+ — cliente crítico independientemente de frecuencia
     ACCOUNT_GRANDE = "account_grande"      # >100 órdenes históricas
     CUENTA_MEDIA = "cuenta_media"          # 4-100 órdenes
     OUTLIER = "outlier"                    # 1-3 órdenes (muestra chica, baja confianza)

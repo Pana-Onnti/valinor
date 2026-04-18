@@ -119,7 +119,17 @@ def _build_script_for_profile(row: dict) -> tuple[str, str]:
     profile = row.get("profile", "cuenta_media")
     avg_order = float(row.get("avg_order_eur", ltv / max(freq, 1)))
 
-    if profile == "account_grande":
+    if profile == "cuenta_top":
+        reason = (
+            f"Cuenta TOP (LTV €{ltv:,.0f}, {freq} pedidos) — "
+            f"{recency} días sin comprar. Cliente crítico, impacto directo en revenue."
+        )
+        script = (
+            "Sos una cuenta estratégica para nosotros y notamos que hace un tiempo no "
+            "coincidimos. Queremos entender qué pasó — producto, precio, lead time. "
+            "Agendamos una reunión con el equipo directivo esta semana."
+        )
+    elif profile == "account_grande":
         reason = (
             f"Cuenta grande ({freq} pedidos históricos, LTV €{ltv:,.0f}), "
             f"{recency} días fuera de ciclo."

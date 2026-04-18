@@ -72,7 +72,7 @@ interface NextAction {
   impact_eur: number; impact_confidence: Confidence; deadline: string
 }
 
-type CustomerProfile = 'account_grande' | 'cuenta_media' | 'outlier'
+type CustomerProfile = 'cuenta_top' | 'account_grande' | 'cuenta_media' | 'outlier'
 
 export interface SalesReportV2Data {
   client_name: string; period: string; currency: string
@@ -411,12 +411,14 @@ function MagicMatrixHeatmap({ cells }: { cells: MagicMatrixCell[] }) {
 }
 
 const PROFILE_LABEL: Record<CustomerProfile, string> = {
+  cuenta_top: 'CUENTA TOP',
   account_grande: 'CUENTA GRANDE',
   cuenta_media: 'CUENTA MEDIA',
   outlier: 'OUTLIER',
 }
 
 const PROFILE_COLOR: Record<CustomerProfile, string> = {
+  cuenta_top: T.accent.red,
   account_grande: T.accent.teal,
   cuenta_media: T.accent.blue,
   outlier: T.accent.yellow,

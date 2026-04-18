@@ -363,6 +363,18 @@ WITH history AS (
 dormant AS (
     SELECT * FROM history WHERE recency_days > {dormant_threshold_days}
 ),
+ltv_percentiles AS (
+    -- 'cuenta_top' = the top-5 LTV customers in the dormant pool. An
+    -- absolute cap (not a percentile) so the badge stays rare and
+    -- legible regardless of dormant population size. Percentiles
+    -- (p95, p99) all turned out too permissive — when all top-12 risk
+    -- scores are also the top-12 LTVs, the badge collapses into "all
+    -- TOP" and stops differentiating.
+    SELECT MIN(ltv_eur) AS p_top_ltv
+    FROM (
+        SELECT ltv_eur FROM dormant ORDER BY ltv_eur DESC LIMIT 5
+    ) top5
+),
 scored AS (
     SELECT
         customer_id,
@@ -382,16 +394,33 @@ scored AS (
       + LEAST(100, (ltv_eur / NULLIF((SELECT MAX(ltv_eur) FROM dormant), 0)) * 100) * 0.5
       + LEAST(100, (frequency::numeric / NULLIF((SELECT MAX(frequency) FROM dormant), 0)) * 100) * 0.2
         AS deal_risk_score,
-        -- Recovery potential: avg_order × win_rate × confidence_factor.
+        -- Recovery potential: avg_order × win_rate × confidence_factor × cadence_factor.
         -- confidence_factor penalizes small samples: freq<=3 gets 0.1, freq<=10 gets 0.4,
         -- freq<=30 gets 0.7, freq>30 gets 1.0. Outliers (KONG con 1 pedido) no distorsionan.
-        avg_order_eur * 0.30 * CASE
-            WHEN frequency <= 3  THEN 0.10
-            WHEN frequency <= 10 THEN 0.40
-            WHEN frequency <= 30 THEN 0.70
-            ELSE 1.00
-        END AS recovery_potential_eur,
+        -- cadence_factor: for high-frequency clients, what you recover isn't "one order"
+        -- but "resume the monthly cadence". monthly_freq ≈ frequency / months_active
+        -- (clamped so low-freq clients get at least 1× single-order recovery).
+        avg_order_eur * 0.30
+          * CASE
+              WHEN frequency <= 3  THEN 0.10
+              WHEN frequency <= 10 THEN 0.40
+              WHEN frequency <= 30 THEN 0.70
+              ELSE 1.00
+            END
+          * GREATEST(
+              1.0,
+              (frequency::numeric / NULLIF(
+                  GREATEST(1, EXTRACT(MONTH FROM AGE(last_purchase::timestamp, first_purchase::timestamp))::int + 1),
+                  0
+              )) * 0.5
+            )
+        AS recovery_potential_eur,
+        -- Profile: cuenta_top (LTV p95+) > account_grande (>100 pedidos) >
+        --          outlier (1-3) > cuenta_media (resto).
+        -- Top-LTV precedence because a 32-order client responsable for 14%
+        -- del revenue NO es "cuenta media" — es la cuenta crítica del reporte.
         CASE
+            WHEN ltv_eur >= (SELECT p_top_ltv FROM ltv_percentiles) THEN 'cuenta_top'
             WHEN frequency > 100 THEN 'account_grande'
             WHEN frequency <= 3  THEN 'outlier'
             ELSE 'cuenta_media'

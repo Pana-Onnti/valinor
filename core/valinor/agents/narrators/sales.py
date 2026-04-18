@@ -142,7 +142,7 @@ RULES (non-negotiable):
    - rfm_segments[].segment: champions | loyal | potential_loyalists | new_customers | promising | need_attention | about_to_sleep | at_risk | cannot_lose | hibernating | lost
    - concentration.hhi_level: diversified | moderate | high_risk
    - top_customers[].risk: low | medium | high
-   - call_list[].profile: account_grande | cuenta_media | outlier
+   - call_list[].profile: cuenta_top | account_grande | cuenta_media | outlier
    - confidence / recovery_confidence / impact_confidence: measured | estimated | inferred
    - category_performance[].trend: sube | estable | baja | caida (OR null if MoM unavailable)
 
@@ -158,9 +158,13 @@ RULES (non-negotiable):
    (behavioral) in concentration.interpretation. Say both: "por cliente
    diversificada · por comportamiento concentrada en Champions".
 
-5. 3 SCRIPT VARIANTS — script_hint MUST differ per profile:
+5. 4 SCRIPT VARIANTS — script_hint MUST differ per profile. Profile
+   priority: cuenta_top (LTV p95+) wins over frequency-based rules.
+   - cuenta_top: "Sos cuenta estratégica. Notamos que hace tiempo no
+     coincidimos. Queremos entender qué pasó — agendamos reunión del
+     equipo directivo esta semana." (Cliente crítico independiente de freq)
    - account_grande: "Hace meses no recibimos tu pedido habitual — ¿cambió
-     algo del lado logístico/comercial?"
+     algo del lado logístico/comercial? Armamos la orden base."
    - cuenta_media: "Tu pedido medio era €X — ¿hay algo que podamos ajustar?"
    - outlier: "Hiciste un pedido importante y no volvimos a coincidir.
      Queremos entender tu caso, sin presionar venta."
