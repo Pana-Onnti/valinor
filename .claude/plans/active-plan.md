@@ -1,51 +1,18 @@
-# Active Plan — SYSCOP Sprint
+# Active Plan — SYSCOP Sprint + Bio4 Demo
 
-**Ultima actualizacion:** 2026-04-18
-**Branch:** develop
-**Foco:** GRO-15 — Agente de Inventario para SYSCOP (Gerardo), primer cliente pagante
-**Deadline:** 2026-04-25
+**Ultima actualizacion:** 2026-04-20
+**Branch:** develop (master 92 commits behind)
+**Foco:** GRO-15 SYSCOP (primer cliente pagante) + VAL-120 Bio4 Demo
+**Deadlines:** GRO-15 → 2026-04-25 · VAL-120 → vencido (reagendar con Loren)
 
 ---
 
 ## Sprint SYSCOP — Camino critico
 
-### Fase 1-3: Discovery Engine v2 (VAL-125) — CERRADA
-VAL-125 EPIC cerrado 2026-04-18. Todos los sub-issues en develop:
+### Fase 1-5: CERRADAS
+VAL-125 (Discovery v2) · VAL-131 (Runner standalone) · VAL-130 (Scheduling composable) — todos Done. Detalles en Session Log 2026-04-17/18.
 
-| Issue | Que | Status |
-|-------|-----|--------|
-| VAL-122 | MSSQLConnector | DONE |
-| VAL-126 | SchemaExtractor dialect-aware + Structural Profiler | DONE |
-| VAL-128 | BusinessContext + argentina_gestion.yaml | DONE (PR #34) |
-| VAL-127 | Multi-Agent Inference + Ensemble Evaluator | DONE (PR #33) |
-| VAL-129 | Golden Dataset + Benchmark | DONE (PR #35) |
-
-### Fase 4: Runner Standalone (VAL-131) — CERRADA
-Repo separado `Pana-Onnti/syscop-agent`. Todos los sub-issues Done + hardening pass (commit `32d85381`).
-
-| Issue | Que | Status |
-|-------|-----|--------|
-| VAL-133 | Setup repo syscop-agent | DONE |
-| VAL-134 | Docker SQL Server + schema BDPYME + data sintética | DONE |
-| VAL-135 | Prefetcher runner + data_pack.json | DONE |
-| VAL-136 | Agent loop (tool-use con anthropic SDK) | DONE |
-| VAL-137 | 4 agentes: Centinela/Analista/Cazador/Narrador | DONE |
-| VAL-138 | Renderer Jinja2 + weasyprint PDF | DONE |
-| VAL-139 | Mailer SMTP + Healthcheck | DONE |
-| VAL-140 | Build .exe + install Task Scheduler + test VM | DONE (código; build físico Win pendiente) |
-
-### Fase 5: Scheduling + Reporting composable (VAL-130) — CERRADA
-Mergeado a develop via PR #36 + PR #37.
-
-| Capa | Que | Status |
-|------|-----|--------|
-| L1.a | `core/valinor/verticals/` + `run_vertical` + InventoryVertical | DONE |
-| L1.b | analyst/sentinel/hunter detrás del registry + FINANCIAL_VERTICAL | DONE |
-| L3.a | NotificationRouter + Email/Webhook adapters | DONE |
-| L3.b | WhatsAppAdapter (Twilio) + format_whatsapp_body | DONE |
-| L2   | redbeat + VerticalSchedule + ScheduleManager | DONE |
-
-### Pendientes activos
+### Pendientes activos SYSCOP
 
 | Issue | Que | Due | Status | Owner |
 |-------|-----|-----|--------|-------|
@@ -58,47 +25,89 @@ Mergeado a develop via PR #36 + PR #37.
 ### Bloquea first-run (lunes 27 Abr 06:00)
 **Solo GRO-17.** Todo el código está listo. Sin creds + OK de Gerardo no se puede deployar — escalado a Loren 2026-04-18.
 
-### Nota técnica 2026-04-18
-- Hardening pass del runner migró a `pymssql` (TDS nativo). **ODBC Driver 17 ya no es requerido** en la PC de Gerardo. GRO-17 actualizado.
-- VAL-130 L3.b WhatsAppAdapter queda listo pero el runner .exe manda por email. WhatsApp Twilio se cablea cuando Gerardo lo pida (V2).
-- Wirings cloud-side (task `run_vertical_schedule`, API endpoint, CRUD schedule_config) NO bloquean SYSCOP — son para clientes futuros que usen Valinor cloud scheduler.
+---
 
-### No bloquean SYSCOP
+## Sprint Bio4 Demo — VAL-120
+
+### VAL-141: Sales Report v2 — LISTO PARA REVIEW
+
+**Estado:** In Progress · PR #39 open (base develop) · 6 commits · +3520 / -131
+
+**Entregables completos:**
+- ✅ Pydantic `SalesReportV2` schema con 4 tiers de CustomerProfile, hero fields, next_actions
+- ✅ 5 queries SQL parametrizadas con JOIN m_product_category real · confidence_factor + cadence_factor en recovery_potential
+- ✅ Narrator LLM v2 system prompt alineado con schema (loss framing, HHI reconciliation, 4 script variants, UUID strip)
+- ✅ React `SalesReportV2.tsx` con hero 44px rojo + NextActionsBlock + Magic Matrix heatmap
+- ✅ Script `generate_sales_report_v2_gloria.py` — datos reales de Gloria sin LLM (1.928 clientes, HHI 290, 5 cuenta_top)
+- ✅ Rutas demo: `/demo/sales-v2` (sample) y `/demo/sales-v2-gloria` (real)
+- ✅ 3199/6 unit tests pass · test_pipeline_production 397s PASSED · TS clean
+
+**Sub-issues audit trail:** VAL-152/153/154/155 Done · VAL-156 Backlog (Magic Matrix weighted gap para v3)
+
+### Pendientes VAL-120 (post-merge PR #39)
+
+- [ ] Review + merge PR #39 a develop
+- [ ] Re-correr `test_pipeline_production` post-merge para capturar narrator LLM output v2-complete (run anterior emitió fallback por falta de wiring)
+- [ ] Validación visual browser — `http://localhost:3000/demo/sales-v2-gloria`
+- [ ] Screencast 3-5 min del reporte renderizado
+- [ ] 10 talking points para demo
+- [ ] Coordinar con Loren el agendamiento con Bio4 (due original 2026-04-18 pasó)
+
+---
+
+## No bloquean sprints activos
+
 | Issue | Que | Due |
 |-------|-----|-----|
-| VAL-120 | Demo Valinor para Bio4 | Apr 18 |
-| ANN-1 | Annatar Roadmap (otro proyecto) | — |
 | VAL-22 | Scale: load testing | Jul 31 |
 | GRO-11 | YC application | Aug 1 |
+| ANN-1 | Annatar Roadmap (otro proyecto) | — |
+| VAL-156 | Magic Matrix weighted gap (v3) | — |
 
 ---
 
 ## Arquitectura relevante (descubierta)
 
-### Discovery Engine (`core/valinor/discovery/`)
+### Sales Report v2 stack (VAL-141)
+- **Schema:** `core/valinor/schemas/sales_report_v2.py` — SalesReportV2, ConcentrationReport con coerción de None, CustomerProfile enum (cuenta_top > account_grande > outlier > cuenta_media)
+- **Queries:** `core/valinor/queries/sales_v2.py` — 5 builders parametrizados, `append_to_query_pack` wired en `build_queries`
+- **Narrator:** `core/valinor/agents/narrators/sales.py` — emite JSON string-serialized, fallback schema-valid
+- **Frontend:** `web/components/ko-report/SalesReportV2.tsx` + `web/app/demo/sales-v2*`
+
+### Discovery Engine (VAL-125)
 - `profiler.py` — SchemaProfiler → TableProfile, ColumnProfile
 - `fk_discovery.py` — FKDiscovery (inclusion dependency, estadistico)
 - `ontology_builder.py` — OntologyBuilder → EntityClassification
 - `semantic_enricher.py` — SemanticColumnType enum
+- `golden_dataset.py` + `benchmark.py` — ensemble baseline (gloria_full P=1.00 R=0.88 F1=0.93)
 
 ### Connectors (`shared/connectors/`)
 - Base: `DeltaConnector(abc.ABC)` — connect(), execute_query(), get_schema()
 - Factory: `ConnectorFactory.create(source_type, config)`
-- Existentes: PostgreSQL, MySQL, SQLite, Etendo
-- **Falta: MSSQL** ← VAL-122
+- Existentes: PostgreSQL, MySQL, SQLite, Etendo, MSSQL (VAL-122 done)
 
-### Cartographer (`core/valinor/agents/cartographer.py`)
-- Phase 1: SQLAlchemy inspector directo (determinista, ~5s)
-- Phase 2: Agente Sonnet con MCP tools (introspect_schema, sample_table, etc)
-- Output: entity_map.json
-
-### DB Tools (`core/valinor/tools/db_tools.py`)
-- connect_database, introspect_schema, sample_table, classify_entity, probe_column_values
-- **No hay get_schema_info()** — split entre introspect_schema + connect_database
+### Verticals (VAL-130)
+- `core/valinor/verticals/` — registry + run_vertical + InventoryVertical (Haiku) + FinancialVertical (swarm)
+- `core/valinor/notifications/` — NotificationRouter + Email/Webhook/WhatsApp adapters
+- redbeat scheduler por (client, vertical) en `ClientProfile.schedule_config`
 
 ---
 
 ## Completado
+
+### Sesion 2026-04-18/20 — Sales Report v2 (VAL-141)
+- 6 commits en rama VAL-141 · PR #39 · +3520 / -131
+- 8 fixes críticos de primera pasada (loss framing, reconciliation, recovery, categorías, MoM, scripts, UUIDs, next_actions)
+- Segunda pasada: narrator LLM alineado, fallback robusto, 13 tests nuevos
+- Tercera pasada: cuenta_top tier + cadence_factor (ISKAY correcta clasificación, EL CORTE recovery €29→€4.549)
+- Audit trail VAL-152/153/154/155 Done · VAL-156 Backlog
+- Detalle completo en Session Log — Dev (Linear docs)
+
+### Sesion 2026-04-17/18 — SYSCOP Sprint Closure
+- VAL-125, VAL-127/128/129, VAL-130 (4 capas), VAL-131 (runner), VAL-140 — todos Done
+- PRs mergeados: #33, #34, #35, #36, #37
+- 24 branches locales mergeadas borradas (28 → 4)
+- GRO-17 actualizado (sin ODBC, solo creds + OK)
 
 ### Sesion 2026-04-15a — Setup + commit pendientes
 - Committed: fix(infra,web) — PYTHONPATH worker, metric collision, null-safety 9 archivos frontend
@@ -106,9 +115,3 @@ Mergeado a develop via PR #36 + PR #37.
 - Linear MCP conectado y funcional
 - VAL-126 + VAL-122 movidos a In Progress
 - Agentes lanzados en worktrees paralelos
-
-### Sesion 2026-04-14b — Infra + null safety
-- Docker compose up: todos los servicios levantados
-- Worker fix: PYTHONPATH=/app:/app/core
-- Metric collision fix: counter duplicado
-- Null safety en 11 archivos frontend

@@ -1,0 +1,703 @@
+{
+  "client_name": "Gloria",
+  "period": "Últimos 12 meses",
+  "currency": "EUR",
+  "generated_at": "2026-04-18T19:05:01.202888+00:00",
+  "hero_loss_eur": 1315040.72,
+  "hero_loss_headline": "€1,315,041 de LTV dormido en 12 cuentas que dejaron de comprarte. Si no las llamás esta semana, las perdés definitivamente.",
+  "kpi_bar": [
+    {
+      "label": "LTV en riesgo",
+      "value": "€1.315.041",
+      "sub": "top 12 dormantes",
+      "confidence": "measured"
+    },
+    {
+      "label": "Clientes activos",
+      "value": "1.928",
+      "confidence": "measured"
+    },
+    {
+      "label": "Dormantes",
+      "value": "1.084",
+      "sub": "> 60 días",
+      "confidence": "measured"
+    },
+    {
+      "label": "HHI",
+      "value": "290",
+      "sub": "diversificada*",
+      "confidence": "measured"
+    },
+    {
+      "label": "Champions",
+      "value": "72%",
+      "sub": "414 clientes del revenue",
+      "confidence": "measured"
+    }
+  ],
+  "rfm_segments": [
+    {
+      "segment": "champions",
+      "count": 414,
+      "revenue_share_pct": 71.55,
+      "avg_ltv": 10940.97,
+      "recommended_action": "Programa VIP. Gerente comercial directo. Renovación anticipada.",
+      "confidence": "measured"
+    },
+    {
+      "segment": "loyal",
+      "count": 134,
+      "revenue_share_pct": 9.68,
+      "avg_ltv": 4573.77,
+      "recommended_action": "Bundle + cross-sell. Descuentos por volumen para consolidar.",
+      "confidence": "measured"
+    },
+    {
+      "segment": "lost",
+      "count": 287,
+      "revenue_share_pct": 6.17,
+      "avg_ltv": 1360.19,
+      "recommended_action": "Archivar. Evaluar patrones de churn de 12 meses para prevención.",
+      "confidence": "measured"
+    },
+    {
+      "segment": "at_risk",
+      "count": 102,
+      "revenue_share_pct": 5.53,
+      "avg_ltv": 3434.47,
+      "recommended_action": "Prioridad alta. Llamada del gerente, no del vendedor.",
+      "confidence": "measured"
+    },
+    {
+      "segment": "about_to_sleep",
+      "count": 560,
+      "revenue_share_pct": 2.58,
+      "avg_ltv": 291.5,
+      "recommended_action": "Reactivación con incentivo de reorder. Última ventana antes de churn.",
+      "confidence": "measured"
+    },
+    {
+      "segment": "need_attention",
+      "count": 145,
+      "revenue_share_pct": 1.98,
+      "avg_ltv": 863.57,
+      "recommended_action": "Call comercial. Verificar por qué bajó la frecuencia vs. histórico.",
+      "confidence": "measured"
+    },
+    {
+      "segment": "potential_loyalists",
+      "count": 216,
+      "revenue_share_pct": 1.63,
+      "avg_ltv": 478.23,
+      "recommended_action": "Onboarding comercial. Catálogo expandido. Segundo pedido es clave.",
+      "confidence": "measured"
+    },
+    {
+      "segment": "hibernating",
+      "count": 135,
+      "revenue_share_pct": 0.47,
+      "avg_ltv": 218.36,
+      "recommended_action": "Campaña email automática. Bajo costo de intento, alto volumen.",
+      "confidence": "measured"
+    },
+    {
+      "segment": "promising",
+      "count": 112,
+      "revenue_share_pct": 0.37,
+      "avg_ltv": 208.71,
+      "recommended_action": "Email personalizado + oferta de primer volumen. Educar en producto.",
+      "confidence": "measured"
+    },
+    {
+      "segment": "new_customers",
+      "count": 11,
+      "revenue_share_pct": 0.05,
+      "avg_ltv": 280.72,
+      "recommended_action": "Seguimiento a 30 días. Validar calidad de servicio en primer envío.",
+      "confidence": "measured"
+    }
+  ],
+  "concentration": {
+    "hhi": 290.18,
+    "hhi_level": "diversified",
+    "cr1_pct": 14.47,
+    "cr5_pct": 28.48,
+    "cr10_pct": 37.21,
+    "total_customers": 1928,
+    "interpretation": "Por cliente individual la cartera es muy diversificada (HHI 290, CR5 28.5%). Pero por comportamiento, 414 clientes 'Champions' (21% de la base) generan el 72% del revenue: si la cola de Champions cae, perdés un tercio de la facturación.",
+    "confidence": "measured"
+  },
+  "top_customers": [
+    {
+      "customer_name": "ISKAY PET S.LU.",
+      "customer_id": "159599AA",
+      "ltv_eur": 489781.06,
+      "share_pct": 14.47,
+      "last_purchase": "2025-06-19",
+      "risk": "high",
+      "confidence": "measured"
+    },
+    {
+      "customer_name": "C.C. CARREFOUR S.A.",
+      "customer_id": "72CF845C",
+      "ltv_eur": 148297.66,
+      "share_pct": 4.38,
+      "last_purchase": "2025-07-22",
+      "risk": "high",
+      "confidence": "measured"
+    },
+    {
+      "customer_name": "GUAW",
+      "customer_id": "75C5DCD2",
+      "ltv_eur": 135949.59,
+      "share_pct": 4.02,
+      "last_purchase": "2025-06-23",
+      "risk": "high",
+      "confidence": "measured"
+    },
+    {
+      "customer_name": "SAS ANIMALIS",
+      "customer_id": "37F11728",
+      "ltv_eur": 99209.22,
+      "share_pct": 2.93,
+      "last_purchase": "2025-06-20",
+      "risk": "high",
+      "confidence": "measured"
+    },
+    {
+      "customer_name": "EL CORTE INGLES S.A.",
+      "customer_id": "4F69DE89",
+      "ltv_eur": 90985.17,
+      "share_pct": 2.69,
+      "last_purchase": "2025-06-23",
+      "risk": "high",
+      "confidence": "measured"
+    },
+    {
+      "customer_name": "KONG DE",
+      "customer_id": "BFCA12E7",
+      "ltv_eur": 83897.1,
+      "share_pct": 2.48,
+      "last_purchase": "2025-04-22",
+      "risk": "high",
+      "confidence": "measured"
+    },
+    {
+      "customer_name": "AK PARTNERS EUROPE SRL",
+      "customer_id": "7EA2EB36",
+      "ltv_eur": 66775.32,
+      "share_pct": 1.97,
+      "last_purchase": "2025-05-26",
+      "risk": "high",
+      "confidence": "measured"
+    },
+    {
+      "customer_name": "MASKOKOTAS S.L",
+      "customer_id": "0746C300",
+      "ltv_eur": 49874.79,
+      "share_pct": 1.47,
+      "last_purchase": "2025-06-23",
+      "risk": "high",
+      "confidence": "measured"
+    },
+    {
+      "customer_name": "COSTCO WHOLESALE S.L.U",
+      "customer_id": "36476123",
+      "ltv_eur": 49841.35,
+      "share_pct": 1.47,
+      "last_purchase": "2025-06-17",
+      "risk": "high",
+      "confidence": "measured"
+    },
+    {
+      "customer_name": "TRUFFAUT",
+      "customer_id": "0F64B1DA",
+      "ltv_eur": 45195.04,
+      "share_pct": 1.33,
+      "last_purchase": "2025-06-19",
+      "risk": "high",
+      "confidence": "measured"
+    }
+  ],
+  "category_performance": [
+    {
+      "category": "JUGUETES",
+      "revenue_eur": 1157092.02,
+      "share_pct": 38.66,
+      "mom_pct": null,
+      "trend": null,
+      "confidence": "measured"
+    },
+    {
+      "category": "ALIMENTACIÓN",
+      "revenue_eur": 567966.38,
+      "share_pct": 18.98,
+      "mom_pct": null,
+      "trend": null,
+      "confidence": "measured"
+    },
+    {
+      "category": "CORREAS",
+      "revenue_eur": 237929.43,
+      "share_pct": 7.95,
+      "mom_pct": null,
+      "trend": null,
+      "confidence": "measured"
+    },
+    {
+      "category": "ASEO",
+      "revenue_eur": 222577.75000000003,
+      "share_pct": 7.44,
+      "mom_pct": null,
+      "trend": null,
+      "confidence": "measured"
+    },
+    {
+      "category": "VARIOS",
+      "revenue_eur": 170881.43000000002,
+      "share_pct": 5.71,
+      "mom_pct": null,
+      "trend": null,
+      "confidence": "measured"
+    },
+    {
+      "category": "ARENA",
+      "revenue_eur": 117147.12999999999,
+      "share_pct": 3.91,
+      "mom_pct": null,
+      "trend": null,
+      "confidence": "measured"
+    },
+    {
+      "category": "PETRALES",
+      "revenue_eur": 101478.4,
+      "share_pct": 3.39,
+      "mom_pct": null,
+      "trend": null,
+      "confidence": "measured"
+    },
+    {
+      "category": "GASTOS CONTABILIDAD",
+      "revenue_eur": 93593.31999999999,
+      "share_pct": 3.13,
+      "mom_pct": null,
+      "trend": null,
+      "confidence": "measured"
+    }
+  ],
+  "magic_matrix": [
+    {
+      "segment": "at_risk",
+      "category": "JUGUETES",
+      "penetration_pct": 87.35,
+      "gap_opportunity_eur": 4915.26,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "at_risk",
+      "category": "ALIMENTACIÓN",
+      "penetration_pct": 82.53,
+      "gap_opportunity_eur": 3492.11,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "at_risk",
+      "category": "ASEO",
+      "penetration_pct": 65.66,
+      "gap_opportunity_eur": 3309.89,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "at_risk",
+      "category": "VARIOS",
+      "penetration_pct": 56.63,
+      "gap_opportunity_eur": 3781.5,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "at_risk",
+      "category": "CORREAS",
+      "penetration_pct": 50.0,
+      "gap_opportunity_eur": 6560.84,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "at_risk",
+      "category": "ARENA",
+      "penetration_pct": 24.1,
+      "gap_opportunity_eur": 13100.45,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "champions",
+      "category": "JUGUETES",
+      "penetration_pct": 96.48,
+      "gap_opportunity_eur": 3040.3,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "champions",
+      "category": "ALIMENTACIÓN",
+      "penetration_pct": 92.95,
+      "gap_opportunity_eur": 3132.59,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "champions",
+      "category": "ASEO",
+      "penetration_pct": 82.38,
+      "gap_opportunity_eur": 3775.18,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "champions",
+      "category": "VARIOS",
+      "penetration_pct": 71.27,
+      "gap_opportunity_eur": 5568.37,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "champions",
+      "category": "CORREAS",
+      "penetration_pct": 66.4,
+      "gap_opportunity_eur": 9800.48,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "champions",
+      "category": "ARENA",
+      "penetration_pct": 33.06,
+      "gap_opportunity_eur": 25683.15,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "hibernating",
+      "category": "JUGUETES",
+      "penetration_pct": 56.37,
+      "gap_opportunity_eur": 32067.33,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "hibernating",
+      "category": "ALIMENTACIÓN",
+      "penetration_pct": 54.14,
+      "gap_opportunity_eur": 17340.08,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "hibernating",
+      "category": "ASEO",
+      "penetration_pct": 43.63,
+      "gap_opportunity_eur": 10277.39,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "hibernating",
+      "category": "VARIOS",
+      "penetration_pct": 35.99,
+      "gap_opportunity_eur": 10557.08,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "hibernating",
+      "category": "CORREAS",
+      "penetration_pct": 32.48,
+      "gap_opportunity_eur": 16758.83,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "hibernating",
+      "category": "ARENA",
+      "penetration_pct": 12.42,
+      "gap_opportunity_eur": 28593.73,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "loyal",
+      "category": "JUGUETES",
+      "penetration_pct": 91.4,
+      "gap_opportunity_eur": 1872.1,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "loyal",
+      "category": "ALIMENTACIÓN",
+      "penetration_pct": 83.87,
+      "gap_opportunity_eur": 1806.36,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "loyal",
+      "category": "ASEO",
+      "penetration_pct": 74.19,
+      "gap_opportunity_eur": 1393.72,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "loyal",
+      "category": "VARIOS",
+      "penetration_pct": 73.12,
+      "gap_opportunity_eur": 1313.04,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "loyal",
+      "category": "CORREAS",
+      "penetration_pct": 56.99,
+      "gap_opportunity_eur": 3161.8,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "loyal",
+      "category": "ARENA",
+      "penetration_pct": 21.51,
+      "gap_opportunity_eur": 7589.86,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "potential_loyalists",
+      "category": "ALIMENTACIÓN",
+      "penetration_pct": 75.95,
+      "gap_opportunity_eur": 9151.44,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "potential_loyalists",
+      "category": "JUGUETES",
+      "penetration_pct": 75.32,
+      "gap_opportunity_eur": 18254.93,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "potential_loyalists",
+      "category": "ASEO",
+      "penetration_pct": 61.39,
+      "gap_opportunity_eur": 7084.22,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "potential_loyalists",
+      "category": "VARIOS",
+      "penetration_pct": 47.15,
+      "gap_opportunity_eur": 8772.0,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "potential_loyalists",
+      "category": "CORREAS",
+      "penetration_pct": 43.67,
+      "gap_opportunity_eur": 14070.47,
+      "confidence": "estimated"
+    },
+    {
+      "segment": "potential_loyalists",
+      "category": "ARENA",
+      "penetration_pct": 12.97,
+      "gap_opportunity_eur": 28595.14,
+      "confidence": "estimated"
+    }
+  ],
+  "call_list": [
+    {
+      "rank": 1,
+      "customer_name": "ISKAY PET S.LU.",
+      "customer_id": "159599AA",
+      "profile": "cuenta_top",
+      "frequency": 32,
+      "deal_risk_score": 80.7,
+      "last_purchase": "2025-06-19",
+      "ltv_eur": 489781.06,
+      "recovery_potential_eur": 36733.58,
+      "recovery_confidence": "estimated",
+      "reason": "Cuenta TOP (LTV €489,781, 32 pedidos) — 303 días sin comprar. Cliente crítico, impacto directo en revenue.",
+      "script_hint": "Sos una cuenta estratégica para nosotros y notamos que hace un tiempo no coincidimos. Queremos entender qué pasó — producto, precio, lead time. Agendamos una reunión con el equipo directivo esta semana."
+    },
+    {
+      "rank": 2,
+      "customer_name": "EL CORTE INGLES S.A.",
+      "customer_id": "4F69DE89",
+      "profile": "cuenta_top",
+      "frequency": 943,
+      "deal_risk_score": 59.3,
+      "last_purchase": "2025-06-23",
+      "ltv_eur": 90985.17,
+      "recovery_potential_eur": 4549.26,
+      "recovery_confidence": "estimated",
+      "reason": "Cuenta TOP (LTV €90,985, 943 pedidos) — 299 días sin comprar. Cliente crítico, impacto directo en revenue.",
+      "script_hint": "Sos una cuenta estratégica para nosotros y notamos que hace un tiempo no coincidimos. Queremos entender qué pasó — producto, precio, lead time. Agendamos una reunión con el equipo directivo esta semana."
+    },
+    {
+      "rank": 3,
+      "customer_name": "GUAW",
+      "customer_id": "75C5DCD2",
+      "profile": "cuenta_top",
+      "frequency": 373,
+      "deal_risk_score": 51.8,
+      "last_purchase": "2025-06-23",
+      "ltv_eur": 135949.59,
+      "recovery_potential_eur": 6797.48,
+      "recovery_confidence": "estimated",
+      "reason": "Cuenta TOP (LTV €135,950, 373 pedidos) — 299 días sin comprar. Cliente crítico, impacto directo en revenue.",
+      "script_hint": "Sos una cuenta estratégica para nosotros y notamos que hace un tiempo no coincidimos. Queremos entender qué pasó — producto, precio, lead time. Agendamos una reunión con el equipo directivo esta semana."
+    },
+    {
+      "rank": 4,
+      "customer_name": "C.C. CARREFOUR S.A.",
+      "customer_id": "72CF845C",
+      "profile": "cuenta_top",
+      "frequency": 62,
+      "deal_risk_score": 46.5,
+      "last_purchase": "2025-07-22",
+      "ltv_eur": 148297.66,
+      "recovery_potential_eur": 5561.16,
+      "recovery_confidence": "estimated",
+      "reason": "Cuenta TOP (LTV €148,298, 62 pedidos) — 270 días sin comprar. Cliente crítico, impacto directo en revenue.",
+      "script_hint": "Sos una cuenta estratégica para nosotros y notamos que hace un tiempo no coincidimos. Queremos entender qué pasó — producto, precio, lead time. Agendamos una reunión con el equipo directivo esta semana."
+    },
+    {
+      "rank": 5,
+      "customer_name": "MASKOKOTAS S.L",
+      "customer_id": "0746C300",
+      "profile": "account_grande",
+      "frequency": 252,
+      "deal_risk_score": 40.4,
+      "last_purchase": "2025-06-23",
+      "ltv_eur": 49874.79,
+      "recovery_potential_eur": 2493.74,
+      "recovery_confidence": "estimated",
+      "reason": "Cuenta grande (252 pedidos históricos, LTV €49,875), 299 días fuera de ciclo.",
+      "script_hint": "Notamos que hace meses no recibimos tu pedido habitual. ¿Cambió algo del lado comercial o logístico? Armamos la orden base de €198 para que aprueben."
+    },
+    {
+      "rank": 6,
+      "customer_name": "SAS ANIMALIS",
+      "customer_id": "37F11728",
+      "profile": "cuenta_top",
+      "frequency": 8,
+      "deal_risk_score": 40.3,
+      "last_purchase": "2025-06-20",
+      "ltv_eur": 99209.22,
+      "recovery_potential_eur": 2976.28,
+      "recovery_confidence": "estimated",
+      "reason": "Cuenta TOP (LTV €99,209, 8 pedidos) — 302 días sin comprar. Cliente crítico, impacto directo en revenue.",
+      "script_hint": "Sos una cuenta estratégica para nosotros y notamos que hace un tiempo no coincidimos. Queremos entender qué pasó — producto, precio, lead time. Agendamos una reunión con el equipo directivo esta semana."
+    },
+    {
+      "rank": 7,
+      "customer_name": "KONG DE",
+      "customer_id": "BFCA12E7",
+      "profile": "outlier",
+      "frequency": 1,
+      "deal_risk_score": 38.6,
+      "last_purchase": "2025-04-22",
+      "ltv_eur": 83897.1,
+      "recovery_potential_eur": 2516.91,
+      "recovery_confidence": "inferred",
+      "reason": "Outlier: solo 1 pedido(s) histórico(s) de €83,897. Muestra insuficiente — potencial real desconocido.",
+      "script_hint": "Hiciste un pedido importante y no volvimos a coincidir. Queremos entender tu caso: ¿qué hizo falta? Sin presionar la venta — primero entender."
+    },
+    {
+      "rank": 8,
+      "customer_name": "TRUFFAUT",
+      "customer_id": "0F64B1DA",
+      "profile": "account_grande",
+      "frequency": 131,
+      "deal_risk_score": 37.4,
+      "last_purchase": "2025-06-19",
+      "ltv_eur": 45195.04,
+      "recovery_potential_eur": 3389.63,
+      "recovery_confidence": "estimated",
+      "reason": "Cuenta grande (131 pedidos históricos, LTV €45,195), 303 días fuera de ciclo.",
+      "script_hint": "Notamos que hace meses no recibimos tu pedido habitual. ¿Cambió algo del lado comercial o logístico? Armamos la orden base de €345 para que aprueben."
+    },
+    {
+      "rank": 9,
+      "customer_name": "AK PARTNERS EUROPE SRL",
+      "customer_id": "7EA2EB36",
+      "profile": "outlier",
+      "frequency": 3,
+      "deal_risk_score": 36.9,
+      "last_purchase": "2025-05-26",
+      "ltv_eur": 66775.32,
+      "recovery_potential_eur": 1001.63,
+      "recovery_confidence": "inferred",
+      "reason": "Outlier: solo 3 pedido(s) histórico(s) de €66,775. Muestra insuficiente — potencial real desconocido.",
+      "script_hint": "Hiciste un pedido importante y no volvimos a coincidir. Queremos entender tu caso: ¿qué hizo falta? Sin presionar la venta — primero entender."
+    },
+    {
+      "rank": 10,
+      "customer_name": "COSTCO WHOLESALE S.L.U",
+      "customer_id": "36476123",
+      "profile": "cuenta_media",
+      "frequency": 4,
+      "deal_risk_score": 35.2,
+      "last_purchase": "2025-06-17",
+      "ltv_eur": 49841.35,
+      "recovery_potential_eur": 1495.24,
+      "recovery_confidence": "estimated",
+      "reason": "Cadencia cayó: 4 pedidos en histórico, 305 días desde el último (€49,841 LTV).",
+      "script_hint": "Tu pedido medio era €12,460 y venías comprando regularmente. ¿Hay algo que podamos ajustar — producto, precio, logística?"
+    },
+    {
+      "rank": 11,
+      "customer_name": "MASQUEPET PORTUGAL",
+      "customer_id": "C33E9DE1",
+      "profile": "account_grande",
+      "frequency": 147,
+      "deal_risk_score": 35.1,
+      "last_purchase": "2025-06-23",
+      "ltv_eur": 19314.97,
+      "recovery_potential_eur": 965.75,
+      "recovery_confidence": "estimated",
+      "reason": "Cuenta grande (147 pedidos históricos, LTV €19,315), 299 días fuera de ciclo.",
+      "script_hint": "Notamos que hace meses no recibimos tu pedido habitual. ¿Cambió algo del lado comercial o logístico? Armamos la orden base de €131 para que aprueben."
+    },
+    {
+      "rank": 12,
+      "customer_name": "BIG BUY",
+      "customer_id": "F728ACCE",
+      "profile": "cuenta_media",
+      "frequency": 48,
+      "deal_risk_score": 34.7,
+      "last_purchase": "2025-06-23",
+      "ltv_eur": 35919.45,
+      "recovery_potential_eur": 1795.97,
+      "recovery_confidence": "estimated",
+      "reason": "Cadencia cayó: 48 pedidos en histórico, 299 días desde el último (€35,919 LTV).",
+      "script_hint": "Tu pedido medio era €748 y venías comprando regularmente. ¿Hay algo que podamos ajustar — producto, precio, logística?"
+    }
+  ],
+  "next_actions": [
+    {
+      "priority": 1,
+      "title": "Llamar al top 5 dormantes (ISKAY, EL, GUAW, C.C., MASKOKOTAS)",
+      "rationale": "LTV combinado €914,888. Recuperable mínimo €56,135. Ventana corta.",
+      "impact_eur": 56135.22,
+      "impact_confidence": "estimated",
+      "deadline": "Esta semana"
+    },
+    {
+      "priority": 2,
+      "title": "Segmentar Champions en tier A/B/C",
+      "rationale": "414 Champions concentran 72% del revenue. Si cae la cola se pierde un tercio de la facturación anual.",
+      "impact_eur": 1117220.46,
+      "impact_confidence": "estimated",
+      "deadline": "Próximas 2 semanas"
+    },
+    {
+      "priority": 3,
+      "title": "Email de reactivación automático para 560 'About to Sleep'",
+      "rationale": "Ventana de recuperación se cierra en 30 días antes de migrar a 'Hibernating'.",
+      "impact_eur": 24485.91,
+      "impact_confidence": "estimated",
+      "deadline": "Próximos 30 días"
+    }
+  ],
+  "executive_summary": "€1,315,041 de LTV concentrado en 12 cuentas dormantes (top: ISKAY PET S.LU., €489,781). Cartera con HHI 290 por cliente individual, pero 414 Champions generan 72% del revenue — concentración por comportamiento alta. Acción inmediata: call list priorizada por Deal Risk Score.",
+  "data_caveats": [
+    "Datos del período rolling 12 meses (al 2026-04-18).",
+    "MoM % omitido — requiere comparación con período previo (ver plan).",
+    "Recovery potential = avg_order × 30% × confidence_factor (0.1-1.0 según frecuencia)."
+  ]
+}

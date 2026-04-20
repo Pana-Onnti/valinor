@@ -203,6 +203,7 @@ async def main(client: str, period: str, source: str | None = None):
             console.print(f"  [yellow]  ↳ {w.get('entity','?')}: {w.get('detail','')[:100]}[/yellow]")
 
     # ═══ STAGE 2: QUERY BUILDER ═══
+    # (sales_v2 queries — RFM/HHI/Magic Matrix — are appended inside build_queries)
     console.print("\n[bold]▸ Stage 2: Query Builder...[/bold]")
     period_config = parse_period(period)
     query_pack = build_queries(entity_map, period_config)
