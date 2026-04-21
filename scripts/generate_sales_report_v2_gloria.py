@@ -5,13 +5,24 @@ Generate a SalesReportV2 JSON from real Gloria data — demo-grade.
 Applies loss framing (Kahneman), profile-aware scripts, real category names,
 and decision-forcing next_actions. See VAL-141 refactor.
 
-Output: web/public/demo/sales-v2-gloria.json
+Usage:
+    # Single window (default 12m → web/public/demo/sales-v2-gloria.json)
+    python3 scripts/generate_sales_report_v2_gloria.py
 
-Refs: VAL-141
+    # Custom window + output path
+    python3 scripts/generate_sales_report_v2_gloria.py --months 3 \\
+        --label "Últimos 3 meses" \\
+        --output web/public/demo/sales-v2-gloria-3m.json
+
+    # Batch — emits the 3 periods used by the dynamic demo
+    python3 scripts/generate_sales_report_v2_gloria.py --batch
+
+Refs: VAL-141, VAL-158
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
@@ -27,29 +38,33 @@ from valinor.queries.sales_v2 import build_sales_v2_queries, hhi_level
 
 
 GLORIA_CONN = "postgresql://tad:tad@localhost:5432/gloria"
-OUTPUT_PATH = (
-    Path(__file__).resolve().parent.parent / "web" / "public" / "demo" / "sales-v2-gloria.json"
-)
+DEMO_DIR = Path(__file__).resolve().parent.parent / "web" / "public" / "demo"
+
+# Gloria's data goes 2011-02 → 2025-12. Anchor "today" at 2025-12-15 so the
+# rolling windows (3m/12m/24m) hit real data. In a live deployment this would
+# be CURRENT_DATE; here we're snapshotting historical data for the demo.
+REFERENCE_DATE = "2025-12-15"
 
 ENTITY_MAP = {
     "entities": {
         "invoices": {
             "table": "c_invoice",
             "key_columns": {
-                "invoice_id": "c_invoice_id",
-                "invoice_date": "dateacct",
-                "customer_id": "c_bpartner_id",
-                "total_amount": "grandtotal",
+                "pk": "c_invoice_id",
+                "invoice_date": "dateinvoiced",
+                "customer_fk": "c_bpartner_id",
+                "amount_col": "grandtotal",
             },
-            "base_filter": "AND issotrx = 'Y'",
+            "base_filter": "issotrx='Y' AND docstatus='CO' AND isactive='Y'",
         },
         "customers": {
             "table": "c_bpartner",
-            "key_columns": {"customer_id": "c_bpartner_id", "customer_name": "name"},
+            "key_columns": {"pk": "c_bpartner_id", "customer_name": "name"},
         },
         "invoice_lines": {
             "table": "c_invoiceline",
             "key_columns": {
+                "pk": "c_invoiceline_id",
                 "invoice_id": "c_invoice_id",
                 "product_id": "m_product_id",
                 "line_amount": "linenetamt",
@@ -58,6 +73,7 @@ ENTITY_MAP = {
         "products": {
             "table": "m_product",
             "key_columns": {
+                "pk": "m_product_id",
                 "product_id": "m_product_id",
                 "category": "m_product_category_id",
             },
@@ -65,12 +81,21 @@ ENTITY_MAP = {
         "product_categories": {
             "table": "m_product_category",
             "key_columns": {
+                "pk": "m_product_category_id",
                 "category_id": "m_product_category_id",
                 "category_name": "name",
             },
         },
     },
 }
+
+# 3 periods wired to the dynamic demo period picker.
+# 3m is too sparse on Gloria's Dec-2025 tail (~3 customers, no champions) — start at 6m so every option tells a story.
+BATCH_PERIODS = [
+    {"months": 6,  "label": "Últimos 6 meses",  "slug": "6m"},
+    {"months": 12, "label": "Últimos 12 meses", "slug": "12m"},
+    {"months": 24, "label": "Últimos 24 meses", "slug": "24m"},
+]
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -179,14 +204,18 @@ def _to_jsonable(row, cols):
 # ─────────────────────────────────────────────────────────────────────
 
 
-def main() -> None:
-    engine = create_engine(GLORIA_CONN)
-    queries = build_sales_v2_queries(ENTITY_MAP, months=12)
+def _pin_reference_date(sql: str, anchor: str = REFERENCE_DATE) -> str:
+    """Replace CURRENT_DATE with a fixed anchor so rolling windows hit historical data."""
+    return sql.replace("CURRENT_DATE", f"DATE '{anchor}'")
+
+
+def _run_pipeline(engine, months: int, label: str, output_path: Path) -> None:
+    queries = build_sales_v2_queries(ENTITY_MAP, months=months)
 
     results: dict[str, list[dict]] = {}
     with engine.connect() as conn:
         for qid, sql in queries.items():
-            rs = conn.execute(text(sql))
+            rs = conn.execute(text(_pin_reference_date(sql)))
             cols = list(rs.keys())
             results[qid] = [_to_jsonable(row, cols) for row in rs]
             print(f"  {qid}: {len(results[qid])} rows")
@@ -311,12 +340,21 @@ def main() -> None:
         })
 
     # ── HERO (loss framing!) ────────────────────────────────────────
-    # Sum of top-12 dormant LTV — this is what walks out the door if no action
+    # Sum of top-12 dormant LTV — this is what walks out the door if no action.
+    # In short windows with no dormants, pivot the hero to concentration risk.
     top_dormant_ltv = sum(c["ltv_eur"] for c in call_list)
-    hero_loss_headline = (
-        f"€{top_dormant_ltv:,.0f} de LTV dormido en {len(call_list)} cuentas "
-        f"que dejaron de comprarte. Si no las llamás esta semana, las perdés definitivamente."
-    )
+    if call_list:
+        hero_loss_headline = (
+            f"€{top_dormant_ltv:,.0f} de LTV dormido en {len(call_list)} cuentas "
+            f"que dejaron de comprarte. Si no las llamás esta semana, las perdés definitivamente."
+        )
+    else:
+        champs_revenue = seg_agg.get("champions", {}).get("revenue", 0)
+        hero_loss_headline = (
+            f"€{champs_revenue:,.0f} de revenue depende de {champions_count} Champions. "
+            f"Sin programa de retención dedicado, es tu mayor punto único de falla."
+        )
+        top_dormant_ltv = champs_revenue  # so hero_loss_eur stays meaningful
 
     # ── Dormants aggregate ──────────────────────────────────────────
     dormants = sum(
@@ -353,13 +391,16 @@ def main() -> None:
         })
 
     # ── next_actions (decision forcing) ─────────────────────────────
+    # Short windows (e.g. 3m) may produce no dormants — skip the call-list
+    # action in that case and lead with the concentration/Champions narrative.
     top5 = call_list[:5]
-    top5_names = ", ".join(c["customer_name"].split()[0][:14] for c in top5)
     top5_recovery = sum(c["recovery_potential_eur"] for c in top5)
+    next_actions: list[dict] = []
 
-    next_actions = [
-        {
-            "priority": 1,
+    if top5:
+        top5_names = ", ".join(c["customer_name"].split()[0][:14] for c in top5)
+        next_actions.append({
+            "priority": len(next_actions) + 1,
             "title": f"Llamar al top 5 dormantes ({top5_names})",
             "rationale": (
                 f"LTV combinado €{sum(c['ltv_eur'] for c in top5):,.0f}. "
@@ -368,36 +409,37 @@ def main() -> None:
             "impact_eur": round(top5_recovery, 2),
             "impact_confidence": "estimated",
             "deadline": "Esta semana",
-        },
-        {
-            "priority": 2,
-            "title": "Segmentar Champions en tier A/B/C",
-            "rationale": (
-                f"{champions_count} Champions concentran {champions_share:.0f}% del revenue. "
-                "Si cae la cola se pierde un tercio de la facturación anual."
-            ),
-            "impact_eur": round(0.33 * total_revenue, 2),
-            "impact_confidence": "estimated",
-            "deadline": "Próximas 2 semanas",
-        },
-        {
-            "priority": 3,
-            "title": f"Email de reactivación automático para {seg_agg.get('about_to_sleep', {}).get('count', 0)} 'About to Sleep'",
+        })
+
+    next_actions.append({
+        "priority": len(next_actions) + 1,
+        "title": "Segmentar Champions en tier A/B/C",
+        "rationale": (
+            f"{champions_count} Champions concentran {champions_share:.0f}% del revenue. "
+            "Si cae la cola se pierde un tercio de la facturación anual."
+        ),
+        "impact_eur": round(0.33 * total_revenue, 2),
+        "impact_confidence": "estimated",
+        "deadline": "Próximas 2 semanas",
+    })
+
+    about_to_sleep_count = seg_agg.get("about_to_sleep", {}).get("count", 0)
+    if about_to_sleep_count:
+        next_actions.append({
+            "priority": len(next_actions) + 1,
+            "title": f"Email de reactivación automático para {about_to_sleep_count} 'About to Sleep'",
             "rationale": (
                 "Ventana de recuperación se cierra en 30 días antes de migrar a 'Hibernating'."
             ),
-            "impact_eur": round(
-                seg_agg.get("about_to_sleep", {}).get("revenue", 0) * 0.15, 2
-            ),
+            "impact_eur": round(seg_agg["about_to_sleep"]["revenue"] * 0.15, 2),
             "impact_confidence": "estimated",
             "deadline": "Próximos 30 días",
-        },
-    ]
+        })
 
     # ── Assemble ────────────────────────────────────────────────────
     report = {
         "client_name": "Gloria",
-        "period": "Últimos 12 meses",
+        "period": label,
         "currency": "EUR",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "hero_loss_eur": round(top_dormant_ltv, 2),
@@ -418,11 +460,14 @@ def main() -> None:
         "call_list": call_list,
         "next_actions": next_actions,
         "executive_summary": (
-            f"€{top_dormant_ltv:,.0f} de LTV concentrado en {len(call_list)} cuentas dormantes "
-            f"(top: {top5[0]['customer_name']}, €{top5[0]['ltv_eur']:,.0f}). "
+            (f"€{top_dormant_ltv:,.0f} de LTV concentrado en {len(call_list)} cuentas dormantes "
+             f"(top: {top5[0]['customer_name']}, €{top5[0]['ltv_eur']:,.0f}). ")
+            if top5 else
+            f"Sin cuentas dormantes detectadas en el período ({total_customers} clientes activos). "
+        ) + (
             f"Cartera con HHI {hhi:.0f} por cliente individual, pero {champions_count} Champions "
             f"generan {champions_share:.0f}% del revenue — concentración por comportamiento alta. "
-            f"Acción inmediata: call list priorizada por Deal Risk Score."
+            f"Acción inmediata: {'call list priorizada por Deal Risk Score.' if top5 else 'segmentar Champions y reforzar retención.'}"
         ),
         "data_caveats": [
             f"Datos del período rolling 12 meses (al {datetime.now().strftime('%Y-%m-%d')}).",
@@ -431,12 +476,46 @@ def main() -> None:
         ],
     }
 
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_PATH.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\n✅ Written {OUTPUT_PATH}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\n✅ Written {output_path}")
     print(f"   hero: {hero_loss_headline[:100]}...")
     print(f"   {total_customers:,} customers, HHI {hhi:.0f} ({level}), Champions {champions_count} = {champions_share:.1f}%")
     print(f"   call_list: {len(call_list)} · next_actions: {len(next_actions)}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
+    parser.add_argument("--months", type=int, default=12,
+                        help="Rolling window in months (default 12)")
+    parser.add_argument("--label", default=None,
+                        help="Period label shown in the report (defaults to 'Últimos N meses')")
+    parser.add_argument("--output", type=Path, default=None,
+                        help="Output path (default web/public/demo/sales-v2-gloria.json)")
+    parser.add_argument("--batch", action="store_true",
+                        help=f"Emit the {len(BATCH_PERIODS)} periods used by the dynamic demo "
+                             "(overrides --months/--label/--output)")
+    args = parser.parse_args()
+
+    engine = create_engine(GLORIA_CONN)
+
+    if args.batch:
+        for p in BATCH_PERIODS:
+            print(f"\n── {p['label']} ({p['months']}m) ─────────────────────────")
+            out = DEMO_DIR / f"sales-v2-gloria-{p['slug']}.json"
+            _run_pipeline(engine, months=p["months"], label=p["label"], output_path=out)
+        # Also keep the legacy default path as a copy of the 12m report
+        default = DEMO_DIR / "sales-v2-gloria.json"
+        legacy_src = DEMO_DIR / "sales-v2-gloria-12m.json"
+        if legacy_src.exists():
+            default.write_text(legacy_src.read_text(encoding="utf-8"), encoding="utf-8")
+            print(f"\n✅ Copied 12m → {default} (legacy default)")
+        return
+
+    months = args.months
+    label = args.label or f"Últimos {months} meses"
+    output = args.output or (DEMO_DIR / "sales-v2-gloria.json")
+    _run_pipeline(engine, months=months, label=label, output_path=output)
 
 
 if __name__ == "__main__":
