@@ -1,16 +1,27 @@
 # Active Plan — SYSCOP Sprint + Bio4 Demo
 
-**Ultima actualizacion:** 2026-04-20
-**Branch:** develop (master 92 commits behind)
+**Ultima actualizacion:** 2026-04-21
+**Branch actual:** nicolasbaseggiodev/val-158-sales-v2-dynamic-demo (2 commits ahead de develop)
 **Foco:** GRO-15 SYSCOP (primer cliente pagante) + VAL-120 Bio4 Demo
-**Deadlines:** GRO-15 → 2026-04-25 · VAL-120 → vencido (reagendar con Loren)
+**Deadlines:** GRO-15 → 2026-04-25 · VAL-120 → reagendar con Loren
 
 ---
 
-## Sprint SYSCOP — Camino critico
+## PRs abiertos (merge order)
+
+| PR | Scope | Base | Status | Checks |
+|----|-------|------|--------|--------|
+| #40 | VAL-157 — sales_v2 queries fix (post-merge VAL-141) | develop | CLEAN | ✅ 3/3 |
+| #41 | VAL-158 — dynamic demo (period picker + animated pipeline) | **#40** (stacked) | CLEAN | pendiente CI |
+
+**Orden de merge:** #40 → develop primero, luego #41 rebasea sola.
+
+---
+
+## Sprint SYSCOP — Camino crítico
 
 ### Fase 1-5: CERRADAS
-VAL-125 (Discovery v2) · VAL-131 (Runner standalone) · VAL-130 (Scheduling composable) — todos Done. Detalles en Session Log 2026-04-17/18.
+VAL-125 · VAL-131 · VAL-130 — todos Done.
 
 ### Pendientes activos SYSCOP
 
@@ -20,38 +31,57 @@ VAL-125 (Discovery v2) · VAL-131 (Runner standalone) · VAL-130 (Scheduling com
 | —      | Build físico `syscop_inventory.exe` (1h Windows host) | — | — | Nico |
 | —      | Deploy remoto AnyDesk Tue 22 / Wed 23 | — | — | Nico + Gerardo |
 | VAL-121 | Primer KO Report enviado exitosamente | Apr 25 | In Progress | Nico |
-| GRO-15  | EPIC SYSCOP comercial (cierra con primer report en vivo) | Apr 25 | In Progress | Nico |
+| GRO-15 | EPIC SYSCOP comercial | Apr 25 | In Progress | Nico |
 
-### Bloquea first-run (lunes 27 Abr 06:00)
-**Solo GRO-17.** Todo el código está listo. Sin creds + OK de Gerardo no se puede deployar — escalado a Loren 2026-04-18.
+**Bloquea first-run (2026-04-27 06:00):** solo GRO-17. Código listo, esperando creds+OK.
 
 ---
 
 ## Sprint Bio4 Demo — VAL-120
 
-### VAL-141: Sales Report v2 — LISTO PARA REVIEW
+### VAL-141: Sales Report v2 — DONE (mergeado 2026-04-20)
+PR #39 merged a develop · 7 commits · +3520 / -131 · cerrado en Linear.
 
-**Estado:** In Progress · PR #39 open (base develop) · 6 commits · +3520 / -131
+### VAL-157: Post-merge follow-up — PR #40 ABIERTO
 
-**Entregables completos:**
-- ✅ Pydantic `SalesReportV2` schema con 4 tiers de CustomerProfile, hero fields, next_actions
-- ✅ 5 queries SQL parametrizadas con JOIN m_product_category real · confidence_factor + cadence_factor en recovery_potential
-- ✅ Narrator LLM v2 system prompt alineado con schema (loss framing, HHI reconciliation, 4 script variants, UUID strip)
-- ✅ React `SalesReportV2.tsx` con hero 44px rojo + NextActionsBlock + Magic Matrix heatmap
-- ✅ Script `generate_sales_report_v2_gloria.py` — datos reales de Gloria sin LLM (1.928 clientes, HHI 290, 5 cuenta_top)
-- ✅ Rutas demo: `/demo/sales-v2` (sample) y `/demo/sales-v2-gloria` (real)
-- ✅ 3199/6 unit tests pass · test_pipeline_production 397s PASSED · TS clean
+3 bugs descubiertos por production test contra Gloria:
+- ✅ Semantic keys `customer_fk` / `amount_col` / `pk` (Cartographer canonical)
+- ✅ `_base_filter` prefija ` AND ` (tolerant con legacy AND prefix)
+- ✅ 3 queries con JOIN múltiple reworked (CTE invoices_filtered evita ambigüedad `isactive`)
+- ✅ Schema: `NextAction.impact_eur` valida `None → 0.0`
 
-**Sub-issues audit trail:** VAL-152/153/154/155 Done · VAL-156 Backlog (Magic Matrix weighted gap para v3)
+**Validación:**
+- 29/29 unit tests pass
+- 13/13 queries contra Gloria (vs 8/13 pre-fix)
+- Narrator LLM post-fix SIN validar — Stage 3 del test falló con `claude CLI error (exit 1)` transitorio (contención con Claude Code session, NO regresión). Re-run necesario cuando CLI esté libre.
 
-### Pendientes VAL-120 (post-merge PR #39)
+### VAL-158: Dynamic demo — PR #41 ABIERTO
 
-- [ ] Review + merge PR #39 a develop
-- [ ] Re-correr `test_pipeline_production` post-merge para capturar narrator LLM output v2-complete (run anterior emitió fallback por falta de wiring)
-- [ ] Validación visual browser — `http://localhost:3000/demo/sales-v2-gloria`
-- [ ] Screencast 3-5 min del reporte renderizado
-- [ ] 10 talking points para demo
-- [ ] Coordinar con Loren el agendamiento con Bio4 (due original 2026-04-18 pasó)
+Demo path que se siente flow real sin arriesgar el CLI en vivo.
+
+**3 fases:**
+- `idle` — period selector (6m / 12m / 24m) + CTA "Ejecutar diagnóstico"
+- `loading` — `PipelineProgress` con 9 stages animados (~14s cold, ~5s switch)
+- `ready` — `SalesReportV2` con period bar persistente
+
+**Backing data:** `generate_sales_report_v2_gloria.py --batch` emite 3 JSONs pre-calculados:
+- 6m: €168.825 LTV dormido · 474 clientes · 67 Champions
+- 12m: €3.878.732 LTV dormido · 2.813 clientes · 697 Champions
+- 24m: €12.056.597 LTV dormido · 3.772 clientes · 1.038 Champions
+
+Fijado `REFERENCE_DATE = 2025-12-15` en el generator para que rolling windows peguen a data real (Gloria va 2011 → Dec 2025).
+
+### Pendientes VAL-120
+
+- [ ] Merge #40 → develop
+- [ ] Merge #41 → develop (auto-rebase post #40)
+- [ ] **Browser walkthrough** — probar flow end-to-end en `http://localhost:3000/demo/sales-v2-gloria`
+  - idle → click "Ejecutar diagnóstico" → progress ~14s → report
+  - click 6m/24m → short progress ~5s → report swap
+- [ ] **Re-run production test** cuando CLI esté libre — capturar narrator LLM v2-complete output
+- [ ] Screencast 3-5 min del flow completo
+- [ ] 10 talking points para la demo
+- [ ] Coordinar con Loren el agendamiento con Bio4
 
 ---
 
@@ -61,57 +91,57 @@ VAL-125 (Discovery v2) · VAL-131 (Runner standalone) · VAL-130 (Scheduling com
 |-------|-----|-----|
 | VAL-22 | Scale: load testing | Jul 31 |
 | GRO-11 | YC application | Aug 1 |
-| ANN-1 | Annatar Roadmap (otro proyecto) | — |
+| ANN-1 | Annatar Roadmap | — |
 | VAL-156 | Magic Matrix weighted gap (v3) | — |
 
 ---
 
 ## Arquitectura relevante (descubierta)
 
-### Sales Report v2 stack (VAL-141)
-- **Schema:** `core/valinor/schemas/sales_report_v2.py` — SalesReportV2, ConcentrationReport con coerción de None, CustomerProfile enum (cuenta_top > account_grande > outlier > cuenta_media)
-- **Queries:** `core/valinor/queries/sales_v2.py` — 5 builders parametrizados, `append_to_query_pack` wired en `build_queries`
+### Sales Report v2 stack (VAL-141 + VAL-157 + VAL-158)
+- **Schema:** `core/valinor/schemas/sales_report_v2.py` — SalesReportV2 + ConcentrationReport con None coerción + NextAction con `impact_eur` validator (VAL-157)
+- **Queries:** `core/valinor/queries/sales_v2.py` — 5 builders con semantic keys canonical + AND prefix helper + CTE `invoices_filtered` para JOIN queries (VAL-157)
 - **Narrator:** `core/valinor/agents/narrators/sales.py` — emite JSON string-serialized, fallback schema-valid
-- **Frontend:** `web/components/ko-report/SalesReportV2.tsx` + `web/app/demo/sales-v2*`
+- **Frontend:**
+  - `web/components/ko-report/SalesReportV2.tsx` — render estructurado
+  - `web/components/ko-report/PipelineProgress.tsx` (VAL-158) — animated timeline
+  - `web/app/demo/sales-v2-gloria/page.tsx` — state machine idle/loading/ready (VAL-158)
+- **Generator:** `scripts/generate_sales_report_v2_gloria.py` — CLI `--months/--label/--output/--batch`, REFERENCE_DATE anchor, empty-dormants fallback
 
 ### Discovery Engine (VAL-125)
-- `profiler.py` — SchemaProfiler → TableProfile, ColumnProfile
-- `fk_discovery.py` — FKDiscovery (inclusion dependency, estadistico)
-- `ontology_builder.py` — OntologyBuilder → EntityClassification
-- `semantic_enricher.py` — SemanticColumnType enum
-- `golden_dataset.py` + `benchmark.py` — ensemble baseline (gloria_full P=1.00 R=0.88 F1=0.93)
+`profiler.py` · `fk_discovery.py` · `ontology_builder.py` · `semantic_enricher.py` · `golden_dataset.py` + `benchmark.py` (gloria_full P=1.00 R=0.88 F1=0.93)
 
 ### Connectors (`shared/connectors/`)
-- Base: `DeltaConnector(abc.ABC)` — connect(), execute_query(), get_schema()
-- Factory: `ConnectorFactory.create(source_type, config)`
-- Existentes: PostgreSQL, MySQL, SQLite, Etendo, MSSQL (VAL-122 done)
+Base `DeltaConnector` + Factory. Existentes: PostgreSQL, MySQL, SQLite, Etendo, MSSQL.
 
 ### Verticals (VAL-130)
-- `core/valinor/verticals/` — registry + run_vertical + InventoryVertical (Haiku) + FinancialVertical (swarm)
-- `core/valinor/notifications/` — NotificationRouter + Email/Webhook/WhatsApp adapters
-- redbeat scheduler por (client, vertical) en `ClientProfile.schedule_config`
+`core/valinor/verticals/` — registry + InventoryVertical (Haiku) + FinancialVertical (swarm).
 
 ---
 
 ## Completado
 
-### Sesion 2026-04-18/20 — Sales Report v2 (VAL-141)
-- 6 commits en rama VAL-141 · PR #39 · +3520 / -131
-- 8 fixes críticos de primera pasada (loss framing, reconciliation, recovery, categorías, MoM, scripts, UUIDs, next_actions)
-- Segunda pasada: narrator LLM alineado, fallback robusto, 13 tests nuevos
-- Tercera pasada: cuenta_top tier + cadence_factor (ISKAY correcta clasificación, EL CORTE recovery €29→€4.549)
+### Sesion 2026-04-21 — VAL-141 merge + VAL-157 fix + VAL-158 dynamic demo
+- **Merge:** PR #39 VAL-141 → develop (commit `ddeab48d`). VAL-141 cerrado en Linear.
+- **Fix (PR #40):** 3 bugs sales_v2 post-merge detectados por production test:
+  - Semantic keys mismatch (Cartographer emite `customer_fk`/`amount_col`/`pk`, no `customer_id`/`total_amount`/`invoice_id`)
+  - `base_filter` sin AND prefix rompía sintaxis
+  - JOIN con customers/invoice_lines/products ambiguaba `isactive` → CTE pre-filter
+  - `NextAction.impact_eur` validator coerce None → 0.0
+  - 4 tests nuevos (29/29), 13/13 queries OK contra Gloria
+- **Demo dinámico (PR #41):** period picker + animated progress + 3 pre-generated period JSONs
+  - Backend: `--batch` flag + REFERENCE_DATE anchor + fallback empty-dormants
+  - Frontend: `PipelineProgress.tsx` (9 stages), `page.tsx` state machine
+- **Linear MCP:** token vencido durante la sesión → no se pudo crear VAL-157/VAL-158 como issues formales ni actualizar Session Log remoto. **TODO al re-auth:** crear VAL-157 + VAL-158 como sub-issues de VAL-141, portar comentarios post-merge.
+
+### Sesion 2026-04-18/20 — Sales Report v2 (VAL-141 shipped)
+- 6 commits · PR #39 · +3520 / -131
+- 8 fixes de primera pasada · segunda pasada narrator LLM · tercera pasada cuenta_top + cadence_factor
 - Audit trail VAL-152/153/154/155 Done · VAL-156 Backlog
-- Detalle completo en Session Log — Dev (Linear docs)
+- Detalle en Session Log — Dev (Linear)
 
 ### Sesion 2026-04-17/18 — SYSCOP Sprint Closure
-- VAL-125, VAL-127/128/129, VAL-130 (4 capas), VAL-131 (runner), VAL-140 — todos Done
-- PRs mergeados: #33, #34, #35, #36, #37
-- 24 branches locales mergeadas borradas (28 → 4)
-- GRO-17 actualizado (sin ODBC, solo creds + OK)
+VAL-125, VAL-127/128/129, VAL-130 (4 capas), VAL-131, VAL-140 Done. PRs #33, #34, #35, #36, #37 merged.
 
-### Sesion 2026-04-15a — Setup + commit pendientes
-- Committed: fix(infra,web) — PYTHONPATH worker, metric collision, null-safety 9 archivos frontend
-- Committed: chore(docs) — plan + CLAUDE.md update
-- Linear MCP conectado y funcional
-- VAL-126 + VAL-122 movidos a In Progress
-- Agentes lanzados en worktrees paralelos
+### Sesion 2026-04-15a — Setup + commits pendientes
+Commits infra/web/docs. Linear conectado. Agentes en worktrees paralelos.
