@@ -39,17 +39,17 @@ def openbravo_entity_map() -> dict:
             "invoices": {
                 "table": "c_invoice",
                 "key_columns": {
-                    "invoice_id": "c_invoice_id",
+                    "pk": "c_invoice_id",
                     "invoice_date": "dateacct",
-                    "customer_id": "c_bpartner_id",
-                    "total_amount": "grandtotal",
+                    "customer_fk": "c_bpartner_id",
+                    "amount_col": "grandtotal",
                 },
-                "base_filter": "AND issotrx = 'Y'",
+                "base_filter": "issotrx = 'Y'",
             },
             "customers": {
                 "table": "c_bpartner",
                 "key_columns": {
-                    "customer_id": "c_bpartner_id",
+                    "pk": "c_bpartner_id",
                     "customer_name": "name",
                 },
             },
@@ -205,6 +205,39 @@ class TestQueries:
         assert "invoices" in queries["rfm_segmentation"]
         assert "customers" in queries["concentration_top_customers"]
 
+    def test_base_filter_injected_with_and_prefix(self, openbravo_entity_map):
+        """Cartographer emits bare predicates — we must prepend AND to append to WHERE."""
+        queries = build_sales_v2_queries(openbravo_entity_map)
+        # Every query with a WHERE must contain " AND issotrx = 'Y'", never naked.
+        for qid in ("concentration_hhi", "concentration_top_customers",
+                    "cross_sell_matrix", "churn_risk_scoring"):
+            sql = queries[qid]
+            assert " AND issotrx = 'Y'" in sql, f"{qid} missing AND prefix"
+            # Guard against double-AND regression
+            assert "AND AND" not in sql, f"{qid} has double AND"
+
+    def test_base_filter_accepts_legacy_and_prefix(self):
+        """If a legacy entity_map already prefixed the filter with AND, don't double it."""
+        legacy_map = {
+            "entities": {
+                "invoices": {
+                    "table": "c_invoice",
+                    "key_columns": {
+                        "pk": "c_invoice_id", "invoice_date": "dateacct",
+                        "customer_fk": "c_bpartner_id", "amount_col": "grandtotal",
+                    },
+                    "base_filter": "AND issotrx = 'Y'",
+                },
+                "customers": {
+                    "table": "c_bpartner",
+                    "key_columns": {"pk": "c_bpartner_id", "customer_name": "name"},
+                },
+            },
+        }
+        sql = build_sales_v2_queries(legacy_map)["concentration_hhi"]
+        assert "AND AND" not in sql
+        assert " AND issotrx = 'Y'" in sql
+
     def test_hhi_level_thresholds(self):
         assert hhi_level(100) == "diversified"
         assert hhi_level(1499) == "diversified"
@@ -316,6 +349,20 @@ class TestRefactorFixes:
         )
         assert na.priority == 1
         assert na.impact_eur == 16000
+
+    def test_next_action_impact_null_coerces_to_zero(self):
+        """LLM sometimes emits impact_eur=null — must coerce to 0.0, not reject."""
+        na = NextAction.model_validate({
+            "priority": 2, "title": "Revisar", "rationale": "r",
+            "impact_eur": None,
+        })
+        assert na.impact_eur == 0.0
+
+    def test_next_action_impact_missing_defaults_to_zero(self):
+        na = NextAction.model_validate({
+            "priority": 1, "title": "t", "rationale": "r",
+        })
+        assert na.impact_eur == 0.0
 
     def test_concentration_null_coercion(self):
         """LLM emits nulls for concentration → must not reject, must default."""

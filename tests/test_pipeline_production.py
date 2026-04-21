@@ -132,6 +132,10 @@ def _build_entity_map_from_gloria() -> dict:
         pay_disb = conn.execute(text("SELECT COUNT(*) FROM fin_payment WHERE isreceipt='N'")).scalar()
         pay_active = conn.execute(text("SELECT COUNT(*) FROM fin_payment WHERE isactive='Y'")).scalar()
 
+        ilines = conn.execute(text("SELECT COUNT(*) FROM c_invoiceline")).scalar()
+        prods = conn.execute(text("SELECT COUNT(*) FROM m_product")).scalar()
+        pcats = conn.execute(text("SELECT COUNT(*) FROM m_product_category")).scalar()
+
     engine.dispose()
 
     return {
@@ -199,6 +203,40 @@ def _build_entity_map_from_gloria() -> dict:
                 "probed_values": {
                     "isreceipt": {"Y": pay_receipt, "N": pay_disb},
                     "isactive": {"Y": pay_active},
+                },
+            },
+            "invoice_lines": {
+                "table": "c_invoiceline",
+                "type": "TRANSACTIONAL",
+                "row_count": ilines,
+                "confidence": 0.97,
+                "key_columns": {
+                    "pk": "c_invoiceline_id",
+                    "invoice_id": "c_invoice_id",
+                    "product_id": "m_product_id",
+                    "line_amount": "linenetamt",
+                },
+            },
+            "products": {
+                "table": "m_product",
+                "type": "MASTER",
+                "row_count": prods,
+                "confidence": 0.95,
+                "key_columns": {
+                    "pk": "m_product_id",
+                    "product_id": "m_product_id",
+                    "category": "m_product_category_id",
+                },
+            },
+            "product_categories": {
+                "table": "m_product_category",
+                "type": "MASTER",
+                "row_count": pcats,
+                "confidence": 0.95,
+                "key_columns": {
+                    "pk": "m_product_category_id",
+                    "category_id": "m_product_category_id",
+                    "category_name": "name",
                 },
             },
         },
