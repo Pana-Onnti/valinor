@@ -40,8 +40,18 @@ def _col(entity_map: dict, entity: str, semantic: str, fallback: str) -> str:
 
 
 def _base_filter(entity_map: dict, entity: str) -> str:
-    f = _resolve(entity_map, entity).get("base_filter", "")
-    return f if f else ""
+    """
+    Return the entity's base_filter ready to be appended to an existing WHERE clause.
+
+    Cartographer emits `base_filter` as a bare predicate (e.g. "issotrx='Y' AND
+    docstatus='CO'"), so we prepend ` AND ` when non-empty. Callers inject the
+    result right after a WHERE condition — no connector needed on their side.
+    Accepts legacy filters that already include a leading "AND ".
+    """
+    f = _resolve(entity_map, entity).get("base_filter", "").strip()
+    if not f:
+        return ""
+    return f" {f}" if f.upper().startswith("AND ") else f" AND {f}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -60,10 +70,10 @@ def rfm_segmentation_sql(entity_map: dict, months: int = 12) -> str:
     customers = _table(entity_map, "customers", "customers")
 
     inv_date = _col(entity_map, "invoices", "invoice_date", "invoice_date")
-    inv_customer = _col(entity_map, "invoices", "customer_id", "customer_id")
-    inv_total = _col(entity_map, "invoices", "total_amount", "total_amount")
-    inv_id = _col(entity_map, "invoices", "invoice_id", "id")
-    cust_id = _col(entity_map, "customers", "customer_id", "id")
+    inv_customer = _col(entity_map, "invoices", "customer_fk", "customer_id")
+    inv_total = _col(entity_map, "invoices", "amount_col", "total_amount")
+    inv_id = _col(entity_map, "invoices", "pk", "id")
+    cust_id = _col(entity_map, "customers", "pk", "id")
     cust_name = _col(entity_map, "customers", "customer_name", "name")
 
     inv_filter = _base_filter(entity_map, "invoices")
@@ -125,8 +135,8 @@ def concentration_hhi_sql(entity_map: dict, months: int = 12) -> str:
     """
     invoices = _table(entity_map, "invoices", "invoices")
     inv_date = _col(entity_map, "invoices", "invoice_date", "invoice_date")
-    inv_customer = _col(entity_map, "invoices", "customer_id", "customer_id")
-    inv_total = _col(entity_map, "invoices", "total_amount", "total_amount")
+    inv_customer = _col(entity_map, "invoices", "customer_fk", "customer_id")
+    inv_total = _col(entity_map, "invoices", "amount_col", "total_amount")
     inv_filter = _base_filter(entity_map, "invoices")
 
     return f"""
@@ -174,25 +184,35 @@ def concentration_top_customers_sql(entity_map: dict, months: int = 12, limit: i
     invoices = _table(entity_map, "invoices", "invoices")
     customers = _table(entity_map, "customers", "customers")
     inv_date = _col(entity_map, "invoices", "invoice_date", "invoice_date")
-    inv_customer = _col(entity_map, "invoices", "customer_id", "customer_id")
-    inv_total = _col(entity_map, "invoices", "total_amount", "total_amount")
-    cust_id = _col(entity_map, "customers", "customer_id", "id")
+    inv_customer = _col(entity_map, "invoices", "customer_fk", "customer_id")
+    inv_total = _col(entity_map, "invoices", "amount_col", "total_amount")
+    cust_id = _col(entity_map, "customers", "pk", "id")
     cust_name = _col(entity_map, "customers", "customer_name", "name")
     inv_filter = _base_filter(entity_map, "invoices")
 
+    # Aggregate on invoices alone (avoids "isactive ambiguous" when base_filter
+    # uses bare column names that also exist on customers); join customers last
+    # for human-readable names only.
     return f"""
 WITH customer_revenue AS (
     SELECT
-        i.{inv_customer} AS customer_id,
-        c.{cust_name}    AS customer_name,
-        SUM(i.{inv_total}) AS ltv_eur,
-        MAX(i.{inv_date}::date) AS last_purchase
-    FROM {invoices} i
-    LEFT JOIN {customers} c ON c.{cust_id} = i.{inv_customer}
-    WHERE i.{inv_date} > CURRENT_DATE - INTERVAL '{months} months'
+        {inv_customer} AS customer_id,
+        SUM({inv_total}) AS ltv_eur,
+        MAX({inv_date}::date) AS last_purchase
+    FROM {invoices}
+    WHERE {inv_date} > CURRENT_DATE - INTERVAL '{months} months'
     {inv_filter}
-    GROUP BY i.{inv_customer}, c.{cust_name}
-    HAVING SUM(i.{inv_total}) > 0
+    GROUP BY {inv_customer}
+    HAVING SUM({inv_total}) > 0
+),
+with_names AS (
+    SELECT
+        cr.customer_id,
+        cr.ltv_eur,
+        cr.last_purchase,
+        c.{cust_name} AS customer_name
+    FROM customer_revenue cr
+    LEFT JOIN {customers} c ON c.{cust_id} = cr.customer_id
 ),
 total AS (SELECT SUM(ltv_eur) AS total_rev FROM customer_revenue)
 SELECT
@@ -206,7 +226,7 @@ SELECT
         WHEN CURRENT_DATE - last_purchase > 45 THEN 'medium'
         ELSE 'low'
     END AS risk
-FROM customer_revenue, total t
+FROM with_names, total t
 ORDER BY ltv_eur DESC
 LIMIT {limit}
 """.strip()
@@ -232,8 +252,8 @@ def cross_sell_matrix_sql(entity_map: dict, months: int = 12) -> str:
     product_categories = _table(entity_map, "product_categories", "m_product_category")
 
     inv_date = _col(entity_map, "invoices", "invoice_date", "invoice_date")
-    inv_customer = _col(entity_map, "invoices", "customer_id", "customer_id")
-    inv_id = _col(entity_map, "invoices", "invoice_id", "id")
+    inv_customer = _col(entity_map, "invoices", "customer_fk", "customer_id")
+    inv_id = _col(entity_map, "invoices", "pk", "id")
     line_inv = _col(entity_map, "invoice_lines", "invoice_id", "invoice_id")
     line_product = _col(entity_map, "invoice_lines", "product_id", "product_id")
     line_amount = _col(entity_map, "invoice_lines", "line_amount", "line_amount")
@@ -244,19 +264,28 @@ def cross_sell_matrix_sql(entity_map: dict, months: int = 12) -> str:
 
     inv_filter = _base_filter(entity_map, "invoices")
 
-    # Inline a simplified RFM segmentation CTE (no JOIN to customers — we only need segment labels)
+    # Pre-filter invoices in a CTE so JOINs to invoice_lines/products/categories
+    # never re-apply base_filter (which uses bare column names that collide with
+    # `isactive` on every Openbravo table).
     return f"""
-WITH rfm_raw AS (
+WITH invoices_filtered AS (
     SELECT
+        {inv_id}       AS invoice_id,
         {inv_customer} AS customer_id,
-        CURRENT_DATE - MAX({inv_date})::date AS recency_days,
-        COUNT(DISTINCT {inv_id}) AS frequency,
-        SUM(COALESCE((SELECT SUM(l.{line_amount}) FROM {invoice_lines} l WHERE l.{line_inv} = i.{inv_id}), 0)) AS monetary_eur
-    FROM {invoices} i
+        {inv_date}     AS invoice_date
+    FROM {invoices}
     WHERE {inv_date} > CURRENT_DATE - INTERVAL '{months} months'
     {inv_filter}
-    GROUP BY {inv_customer}
-    HAVING COUNT(DISTINCT {inv_id}) > 0
+),
+rfm_raw AS (
+    SELECT
+        inv.customer_id,
+        CURRENT_DATE - MAX(inv.invoice_date)::date AS recency_days,
+        COUNT(DISTINCT inv.invoice_id) AS frequency,
+        COALESCE(SUM((SELECT SUM(l.{line_amount}) FROM {invoice_lines} l WHERE l.{line_inv} = inv.invoice_id)), 0) AS monetary_eur
+    FROM invoices_filtered inv
+    GROUP BY inv.customer_id
+    HAVING COUNT(DISTINCT inv.invoice_id) > 0
 ),
 rfm_scored AS (
     SELECT
@@ -281,18 +310,16 @@ rfm_seg AS (
     FROM rfm_scored
 ),
 customer_categories AS (
-    SELECT DISTINCT
-        i.{inv_customer} AS customer_id,
+    SELECT
+        inv.customer_id,
         COALESCE(pc.{pc_name}, p.{prod_category}::text) AS category,
-        COALESCE(SUM(l.{line_amount}), 0) AS segment_spent_eur
-    FROM {invoices} i
-    JOIN {invoice_lines} l ON l.{line_inv} = i.{inv_id}
+        SUM(l.{line_amount}) AS segment_spent_eur
+    FROM invoices_filtered inv
+    JOIN {invoice_lines} l ON l.{line_inv} = inv.invoice_id
     JOIN {products} p ON p.{prod_id} = l.{line_product}
     LEFT JOIN {product_categories} pc ON pc.{pc_id} = p.{prod_category}
-    WHERE i.{inv_date} > CURRENT_DATE - INTERVAL '{months} months'
-    {inv_filter}
-    AND p.{prod_category} IS NOT NULL
-    GROUP BY i.{inv_customer}, pc.{pc_name}, p.{prod_category}
+    WHERE p.{prod_category} IS NOT NULL
+    GROUP BY inv.customer_id, pc.{pc_name}, p.{prod_category}
 )
 SELECT
     s.segment,
@@ -334,31 +361,46 @@ def churn_risk_scoring_sql(
     invoices = _table(entity_map, "invoices", "invoices")
     customers = _table(entity_map, "customers", "customers")
     inv_date = _col(entity_map, "invoices", "invoice_date", "invoice_date")
-    inv_customer = _col(entity_map, "invoices", "customer_id", "customer_id")
-    inv_total = _col(entity_map, "invoices", "total_amount", "total_amount")
-    inv_id = _col(entity_map, "invoices", "invoice_id", "id")
-    cust_id = _col(entity_map, "customers", "customer_id", "id")
+    inv_customer = _col(entity_map, "invoices", "customer_fk", "customer_id")
+    inv_total = _col(entity_map, "invoices", "amount_col", "total_amount")
+    inv_id = _col(entity_map, "invoices", "pk", "id")
+    cust_id = _col(entity_map, "customers", "pk", "id")
     cust_name = _col(entity_map, "customers", "customer_name", "name")
     inv_filter = _base_filter(entity_map, "invoices")
 
+    # Aggregate on invoices alone first (avoids "isactive ambiguous" when
+    # base_filter uses bare column names that also exist on customers);
+    # join customers last for human-readable names only.
     return f"""
-WITH history AS (
+WITH history_raw AS (
     SELECT
-        c.{cust_id} AS customer_id,
-        c.{cust_name} AS customer_name,
-        COUNT(DISTINCT i.{inv_id}) AS frequency,
-        SUM(i.{inv_total}) AS ltv_eur,
-        MAX(i.{inv_date}::date) AS last_purchase,
-        MIN(i.{inv_date}::date) AS first_purchase,
-        CURRENT_DATE - MAX(i.{inv_date}::date) AS recency_days,
-        AVG(i.{inv_total}) AS avg_order_eur,
-        STDDEV_POP(i.{inv_total}) AS stddev_order_eur
-    FROM {customers} c
-    JOIN {invoices} i ON i.{inv_customer} = c.{cust_id}
-    WHERE i.{inv_date} > CURRENT_DATE - INTERVAL '{months} months'
+        {inv_customer} AS customer_id,
+        COUNT(DISTINCT {inv_id}) AS frequency,
+        SUM({inv_total}) AS ltv_eur,
+        MAX({inv_date}::date) AS last_purchase,
+        MIN({inv_date}::date) AS first_purchase,
+        CURRENT_DATE - MAX({inv_date}::date) AS recency_days,
+        AVG({inv_total}) AS avg_order_eur,
+        STDDEV_POP({inv_total}) AS stddev_order_eur
+    FROM {invoices}
+    WHERE {inv_date} > CURRENT_DATE - INTERVAL '{months} months'
     {inv_filter}
-    GROUP BY c.{cust_id}, c.{cust_name}
-    HAVING SUM(i.{inv_total}) > 0
+    GROUP BY {inv_customer}
+    HAVING SUM({inv_total}) > 0
+),
+history AS (
+    SELECT
+        h.customer_id,
+        c.{cust_name} AS customer_name,
+        h.frequency,
+        h.ltv_eur,
+        h.last_purchase,
+        h.first_purchase,
+        h.recency_days,
+        h.avg_order_eur,
+        h.stddev_order_eur
+    FROM history_raw h
+    LEFT JOIN {customers} c ON c.{cust_id} = h.customer_id
 ),
 dormant AS (
     SELECT * FROM history WHERE recency_days > {dormant_threshold_days}

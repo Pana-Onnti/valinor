@@ -13,7 +13,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from valinor.schemas.agent_outputs import ValueConfidence
 
@@ -146,9 +146,14 @@ class NextAction(BaseModel):
     priority: int = Field(ge=1, description="1 = top priority")
     title: str = Field(description="Short imperative action (e.g. 'Llamar al top 5 dormant')")
     rationale: str = Field(description="One sentence why, with the at-risk value")
-    impact_eur: float = Field(ge=0, description="€ at stake if done / lost if not")
+    impact_eur: float = Field(default=0.0, ge=0, description="€ at stake if done / lost if not")
     impact_confidence: ValueConfidence = ValueConfidence.ESTIMATED
     deadline: str = Field(default="Esta semana", description="When it must be done")
+
+    @field_validator("impact_eur", mode="before")
+    @classmethod
+    def _coerce_null_impact(cls, v: float | None) -> float:
+        return 0.0 if v is None else v
 
 
 class CategoryPerformance(BaseModel):
