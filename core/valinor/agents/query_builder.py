@@ -671,6 +671,15 @@ def build_queries(entity_map: dict, period: dict, profile: dict | None = None) -
                 "reason": f"Missing parameter: {e} — check entity key_columns in entity_map",
             })
 
+    # VAL-141 — append sales v2 analytics (RFM, HHI, Magic Matrix, deal-risk)
+    # so any caller of build_queries feeds the structured SalesReportV2 narrator.
+    try:
+        from valinor.queries.sales_v2 import append_to_query_pack
+        append_to_query_pack(query_pack, entity_map)
+    except Exception:
+        # Sales v2 queries are optional enrichment; failure must not break the pack.
+        pass
+
     return query_pack
 
 
