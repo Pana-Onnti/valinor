@@ -19,6 +19,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from valinor.agents.cartographer import run_cartographer
 from valinor.agents.query_builder import build_queries
 from valinor.knowledge_graph import build_knowledge_graph
+from valinor.verification import VerificationEngine
 from valinor.pipeline import (
     run_analysis_agents, execute_queries, run_narrators,
     compute_baseline, gate_calibration, reconcile_swarm,
@@ -322,10 +323,46 @@ async def main(client: str, period: str, source: str | None = None):
             f" [dim]({run_log['stages']['reconciliation']['duration_s']}s)[/dim]"
         )
 
+    # ═══ STAGE 3.6: VERIFICATION ═══
+    # Deterministic verification of agent claims against query_results +
+    # baseline + KG. Builds the number registry that narrators will read
+    # in Stage 4 to ground monetary values. VAL-161.
+    console.print("\n[bold]▸ Stage 3.6: Verification...[/bold]")
+    t0 = time.time()
+    verifier = VerificationEngine(query_results, baseline, kg)
+    verification_report = verifier.verify_findings(findings)
+    run_log["stages"]["verification"] = {
+        "duration_s": round(time.time() - t0, 1),
+        "total_claims": verification_report.total_claims,
+        "verified_claims": verification_report.verified_claims,
+        "failed_claims": verification_report.failed_claims,
+        "approximate_claims": verification_report.approximate_claims,
+        "unverifiable_claims": verification_report.unverifiable_claims,
+        "verification_rate": round(verification_report.verification_rate, 3),
+        "registry_size": len(verification_report.number_registry),
+        "issues": len(verification_report.issues),
+    }
+    console.print(
+        f"  [green]✓[/green] {verification_report.total_claims} claims verified | "
+        f"OK={verification_report.verified_claims} "
+        f"FAIL={verification_report.failed_claims} "
+        f"APPROX={verification_report.approximate_claims} "
+        f"UNVERIFIABLE={verification_report.unverifiable_claims} "
+        f"[dim](registry={len(verification_report.number_registry)})[/dim]"
+    )
+    if verification_report.failed_claims:
+        console.print(
+            f"  [yellow]⚠ {verification_report.failed_claims} claim(s) failed verification — "
+            "narrators will see them flagged via verification_report context.[/yellow]"
+        )
+
     # ═══ STAGE 4: NARRATORS ═══
     console.print("\n[bold]▸ Stage 4: Generating reports...[/bold]")
     t0 = time.time()
-    reports = await run_narrators(findings, entity_map, memory, config, baseline, query_results)
+    reports = await run_narrators(
+        findings, entity_map, memory, config, baseline, query_results,
+        verification_report=verification_report,
+    )
     stage_time = time.time() - t0
     run_log["stages"]["narrators"] = {
         "duration_s": round(stage_time, 1),
