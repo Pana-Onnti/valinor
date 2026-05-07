@@ -18,6 +18,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from valinor.agents.cartographer import run_cartographer
 from valinor.agents.query_builder import build_queries
+from valinor.knowledge_graph import build_knowledge_graph
 from valinor.pipeline import (
     run_analysis_agents, execute_queries, run_narrators,
     compute_baseline, gate_calibration, reconcile_swarm,
@@ -202,6 +203,21 @@ async def main(client: str, period: str, source: str | None = None):
         for w in calibration["warnings"]:
             console.print(f"  [yellow]  ↳ {w.get('entity','?')}: {w.get('detail','')[:100]}[/yellow]")
 
+    # ═══ STAGE 1.6: KNOWLEDGE GRAPH ═══
+    # Built once from the committed entity_map. Consumed by analysis agents
+    # (kg.to_prompt_context() in their system prompts) and by VerificationEngine
+    # in Stage 4 to ground numeric claims against schema reality.
+    kg = build_knowledge_graph(entity_map)
+    console.print(
+        f"  [green]✓[/green] Knowledge graph: {len(kg.tables)} tables, "
+        f"{len(kg.edges)} edges, {len(kg.concepts)} concepts"
+    )
+    run_log["stages"]["knowledge_graph"] = {
+        "tables": len(kg.tables),
+        "edges": len(kg.edges),
+        "concepts": len(kg.concepts),
+    }
+
     # ═══ STAGE 2: QUERY BUILDER ═══
     # (sales_v2 queries — RFM/HHI/Magic Matrix — are appended inside build_queries)
     console.print("\n[bold]▸ Stage 2: Query Builder...[/bold]")
@@ -263,7 +279,7 @@ async def main(client: str, period: str, source: str | None = None):
 
     console.print("\n[bold]▸ Stage 3: Analysis agents (parallel)...[/bold]")
     t0 = time.time()
-    findings = await run_analysis_agents(query_results, entity_map, memory, baseline)
+    findings = await run_analysis_agents(query_results, entity_map, memory, baseline, kg=kg)
     stage_time = time.time() - t0
     run_log["stages"]["agents"] = {
         "duration_s": round(stage_time, 1),

@@ -35,6 +35,7 @@ from api.adapters.exceptions import (  # noqa: E402
 from valinor.config import load_client_config, parse_period  # noqa: E402, F401
 from valinor.agents.cartographer import run_cartographer  # noqa: E402, F401
 from valinor.agents.query_builder import build_queries  # noqa: E402
+from valinor.knowledge_graph import build_knowledge_graph  # noqa: E402
 from valinor.pipeline import run_analysis_agents, execute_queries, compute_baseline  # noqa: E402
 from valinor.agents.narrators.executive import narrate_executive  # noqa: E402
 from valinor.deliver import deliver_reports  # noqa: E402
@@ -566,6 +567,25 @@ RETURN ONLY THE JSON OBJECT."""
             # Rerank entity map based on historical table weights
             entity_map = self.focus_ranker.rerank_entity_map(entity_map, profile)
 
+            # ═══ STAGE 1.6: KNOWLEDGE GRAPH ═══
+            # Built once from the committed entity_map. Consumed by analysis
+            # agents (kg.to_prompt_context() in their system prompts) and by
+            # VerificationEngine in Stage 4 to ground numeric claims against
+            # schema reality. VAL-161.
+            with tracer.stage("knowledge_graph") as _kg_span:
+                kg = build_knowledge_graph(entity_map)
+                _kg_span.set_attribute("tables", len(kg.tables))
+                _kg_span.set_attribute("edges", len(kg.edges))
+                _kg_span.set_attribute("concepts", len(kg.concepts))
+                results["stages"]["knowledge_graph"] = {
+                    "tables": len(kg.tables),
+                    "edges": len(kg.edges),
+                    "concepts": len(kg.concepts),
+                    "success": True,
+                }
+                await self._progress("knowledge_graph", 27,
+                                     f"Knowledge graph: {len(kg.tables)} tables, {len(kg.edges)} edges")
+
             # ═══ STAGE 1.8: DATA QUALITY GATE ═══
             with tracer.stage("data_quality_gate") as _dq_span:
                 await self._progress("data_quality", 28, "Running data quality checks...")
@@ -973,7 +993,7 @@ RETURN ONLY THE JSON OBJECT."""
             # Compute baseline (frozen brief with provenance-tagged numbers)
             baseline = compute_baseline(query_results)
 
-            findings = await run_analysis_agents(query_results, entity_map, memory, baseline)
+            findings = await run_analysis_agents(query_results, entity_map, memory, baseline, kg=kg)
             results["stages"]["analysis_agents"] = {
                 "agents_completed": list(findings.keys()),
                 "success": gate_analysis(findings)
