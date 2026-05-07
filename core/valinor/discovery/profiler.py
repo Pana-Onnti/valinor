@@ -15,21 +15,15 @@ References:
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 import structlog
 
+from core.valinor.sql_safety import is_safe_identifier as _is_safe_identifier
+
 logger = structlog.get_logger()
-
-_SAFE_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
-
-
-def _is_safe_identifier(name: str) -> bool:
-    """Validate that a string is a safe SQL identifier (table/column name)."""
-    return bool(name and _SAFE_IDENTIFIER_RE.match(name) and len(name) <= 128)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

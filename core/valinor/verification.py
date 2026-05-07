@@ -26,18 +26,9 @@ from typing import Any
 
 import structlog
 
+from core.valinor.sql_safety import is_safe_identifier as _is_safe_identifier
+
 logger = structlog.get_logger()
-
-# ═══════════════════════════════════════════════════════════════════════════
-# SQL SAFETY
-# ═══════════════════════════════════════════════════════════════════════════
-
-_SAFE_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
-
-
-def _is_safe_identifier(name: str) -> bool:
-    """Validate that a string is a safe SQL identifier (table/column name)."""
-    return bool(name and _SAFE_IDENTIFIER_RE.match(name) and len(name) <= 128)
 
 
 class Dimension(str, Enum):
@@ -153,19 +144,20 @@ class VerificationReport:
 
         return "\n".join(lines)
 
+    _CONFIDENCE_SCORES = {
+        "measured": 0.95,
+        "computed": 0.85,
+        "partial": 0.60,
+        "estimated": 0.50,
+        "degraded": 0.30,
+    }
+
     def _get_entry_confidence_score(self, label: str) -> float:
         """Get the confidence score for a registry entry based on its provenance."""
         entry = self.number_registry.get(label)
         if entry is None:
             return 0.0
-        _confidence_scores = {
-            "measured": 0.95,
-            "computed": 0.85,
-            "partial": 0.60,
-            "estimated": 0.50,
-            "degraded": 0.30,
-        }
-        return _confidence_scores.get(entry.confidence, 0.50)
+        return self._CONFIDENCE_SCORES.get(entry.confidence, 0.50)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
