@@ -49,15 +49,17 @@ pytest tests/ -x --tb=short                             # para en primer fallo
 PostgreSQL (260K invoices, 7K customers, 14 años)
   → DQ Gate (100/100)
   → Calibration (PASS)
+  → Knowledge Graph (anti-hallucination grounding)
   → Query Builder (8 queries)
   → Execute Queries (8/8 — DATE_TRUNC, EXTRACT funcionan en PG)
   → Baseline (€4.8M revenue, 9K invoices, 2K customers)
-  → 3 Agents REALES (analyst 8 + sentinel 9 + hunter 7 = 24 findings)
+  → 3 Agents REALES KG-grounded (analyst 8 + sentinel 9 + hunter 7 = 24 findings)
   → Reconciliation (0 conflicts)
-  → 4 Narrators REALES (CEO 3.7K + Controller 16K + Sales 11K + Executive 14K chars)
+  → Verification Engine (claims vs DB, Number Registry)
+  → 4 Narrators REALES registry-anchored (CEO 3.7K + Controller 16K + Sales 11K + Executive 14K chars)
 ```
 
-Resultado verificado: **90-100% de findings grounded** en datos reales.
+Resultado verificado: **90-100% de findings grounded** en datos reales, números monetarios anclados al Number Registry de la `VerificationEngine`.
 
 ### Output
 
@@ -131,13 +133,14 @@ Con datos reales (~9K invoices, 24 findings), los narrators tardan 30-160s. El d
 Stage 0:    DQ Gate              → test_production ✅ REAL (PostgreSQL)
 Stage 1:    Cartographer         → ⚠ No testeado (se usa entity_map fijo)
 Stage 1.5:  Guard Rail           → test_production ✅ REAL
+Stage 1.6:  Knowledge Graph      → test_production ✅ REAL (entity graph + concepts)
 Stage 2:    Query Builder        → test_production ✅ REAL
 Stage 2.5:  Execute Queries      → test_production ✅ REAL (8/8 en PG)
 Post-2.5:   Compute Baseline     → test_production ✅ REAL
-Stage 3:    Analysis Agents      → test_production ✅ REAL (3/3 Claude)
+Stage 3:    Analysis Agents      → test_production ✅ REAL (3/3 Claude, KG-grounded)
 Stage 3.5:  Reconciliation       → test_production ✅ REAL
-Stage 3.75: Narrator Context     → test_production ✅ REAL
-Stage 4:    Narrators            → test_production ✅ REAL (4/4 Claude)
+Stage 3.6:  Verification Engine  → test_production ✅ REAL (claims vs DB + Number Registry)
+Stage 4:    Narrators            → test_production ✅ REAL (4/4 Claude, registry-anchored)
 Stage 5:    Deliver              → ⚠ No testeado aisladamente
 ```
 

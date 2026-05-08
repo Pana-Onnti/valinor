@@ -7,13 +7,14 @@ against the real Gloria database on localhost:5432.
 ALL stages are REAL — zero mocks:
   Stage 0:    Data Quality Gate
   Stage 1.5:  Gate Calibration (guard rail)
+  Stage 1.6:  Knowledge Graph (anti-hallucination — entity graph + concepts)
   Stage 2:    Query Builder
   Stage 2.5:  Execute Queries (PostgreSQL — DATE_TRUNC, EXTRACT work)
   Post-2.5:   Compute Baseline
-  Stage 3:    Analysis Agents (analyst, sentinel, hunter — REAL Claude)
+  Stage 3:    Analysis Agents (analyst, sentinel, hunter — REAL Claude, KG-grounded)
   Stage 3.5:  Reconciliation
-  Stage 3.75: Narrator Context
-  Stage 4:    Narrators (CEO, controller, sales, executive — REAL Claude)
+  Stage 3.6:  Verification Engine (anti-hallucination — claims vs DB + Number Registry)
+  Stage 4:    Narrators (CEO, controller, sales, executive — REAL Claude, registry-anchored)
 
 Output saved to tests/output/production/ for analysis.
 
@@ -21,7 +22,7 @@ Requires:
   - Gloria PostgreSQL on localhost:5432 (user=tad, pass=tad, db=gloria)
   - Claude CLI or proxy running
 
-Refs: VAL-90
+Refs: VAL-90, VAL-161
 """
 from __future__ import annotations
 
@@ -280,7 +281,9 @@ class TestProductionPipeline:
         from valinor.pipeline_stages import compute_baseline, gate_calibration
         from valinor.pipeline import execute_queries, run_analysis_agents
         from valinor.pipeline_reconciliation import reconcile_swarm, _parse_findings_from_output
-        from valinor.pipeline_narrator import prepare_narrator_context, run_narrators
+        from valinor.pipeline_narrator import run_narrators
+        from valinor.knowledge_graph import build_knowledge_graph
+        from valinor.verification import VerificationEngine
         from valinor.quality.data_quality_gate import DataQualityGate
         from sqlalchemy import create_engine
 
@@ -322,6 +325,11 @@ class TestProductionPipeline:
         entity_map = _build_entity_map_from_gloria()
         print(f"  Entities: {list(entity_map['entities'].keys())}")
 
+        # ── Stage 1.6: Knowledge Graph (anti-hallucination grounding) ──
+        print("\n▸ Stage 1.6: Knowledge Graph...")
+        kg = build_knowledge_graph(entity_map)
+        print(f"  KG: {len(kg.tables)} tables, {len(kg.edges)} edges, {len(kg.concepts)} concepts")
+
         # ── Stage 1.5b: Gate Calibration ──
         print("\n▸ Stage 1.5b: Gate Calibration...")
         t0 = time.time()
@@ -360,11 +368,11 @@ class TestProductionPipeline:
 
         assert baseline["data_available"] is True
 
-        # ── Stage 3: REAL Analysis Agents ──
-        print("\n▸ Stage 3: Analysis agents (REAL Claude)...")
+        # ── Stage 3: REAL Analysis Agents (KG-grounded) ──
+        print("\n▸ Stage 3: Analysis agents (REAL Claude, KG-grounded)...")
         t0 = time.time()
         findings = await run_analysis_agents(
-            query_results, entity_map, None, baseline,
+            query_results, entity_map, None, baseline, kg=kg,
         )
         agents_time = time.time() - t0
 
@@ -392,19 +400,27 @@ class TestProductionPipeline:
         recon = findings["_reconciliation"]
         print(f"  Conflicts: {recon['conflicts_found']} [{time.time()-t0:.1f}s]")
 
-        # ── Stage 3.75: Narrator Context ──
-        print("\n▸ Stage 3.75: Narrator context...")
-        narrator_contexts = {}
-        for role in ("ceo", "controller", "sales", "executive"):
-            ctx = prepare_narrator_context(findings, verification_report=None, role=role)
-            narrator_contexts[role] = ctx
+        # ── Stage 3.6: Verification Engine (anti-hallucination) ──
+        print("\n▸ Stage 3.6: Verification Engine...")
+        t0 = time.time()
+        verifier = VerificationEngine(query_results, baseline, kg)
+        verification_report = verifier.verify_findings(findings)
+        print(
+            f"  Claims: {verification_report.total_claims} | "
+            f"VERIFIED={verification_report.verified_claims} "
+            f"FAILED={verification_report.failed_claims} "
+            f"APPROX={verification_report.approximate_claims} "
+            f"UNVERIFIABLE={verification_report.unverifiable_claims} "
+            f"(registry={len(verification_report.number_registry)}) [{time.time()-t0:.1f}s]"
+        )
 
-        # ── Stage 4: REAL Narrators ──
-        print("\n▸ Stage 4: Narrators (REAL Claude)...")
+        # ── Stage 4: REAL Narrators (registry-anchored) ──
+        print("\n▸ Stage 4: Narrators (REAL Claude, registry-anchored)...")
         t0 = time.time()
         reports = await run_narrators(
             findings, entity_map, None, client_config,
             baseline, query_results,
+            verification_report=verification_report,
             narrator_timeout=180,
         )
         print(f"  {len(reports)} reports generated [{time.time()-t0:.1f}s]")
@@ -450,6 +466,20 @@ class TestProductionPipeline:
                 "passed": calibration["passed"],
                 "entities_verified": calibration["entities_verified"],
             },
+            "knowledge_graph": {
+                "tables": len(kg.tables),
+                "edges": len(kg.edges),
+                "concepts": len(kg.concepts),
+            },
+            "verification": {
+                "total_claims": verification_report.total_claims,
+                "verified_claims": verification_report.verified_claims,
+                "failed_claims": verification_report.failed_claims,
+                "approximate_claims": verification_report.approximate_claims,
+                "unverifiable_claims": verification_report.unverifiable_claims,
+                "verification_rate": verification_report.verification_rate,
+                "registry_size": len(verification_report.number_registry),
+            },
             "summary": {
                 "queries_built": len(query_pack["queries"]),
                 "queries_executed": len(query_results["results"]),
@@ -460,6 +490,9 @@ class TestProductionPipeline:
                 "agents_with_findings": agents_ok,
                 "total_findings": total_findings,
                 "conflicts": recon["conflicts_found"],
+                "verified_claims": verification_report.verified_claims,
+                "failed_claims": verification_report.failed_claims,
+                "registry_size": len(verification_report.number_registry),
                 "reports_generated": len(reports),
             },
             "baseline": baseline,
@@ -487,7 +520,14 @@ class TestProductionPipeline:
         print(f"  DQ Score: {dq_report.overall_score:.0f}/100")
         print(f"  Queries: {len(query_results['results'])}/{len(query_pack['queries'])}")
         print(f"  Revenue: €{baseline.get('total_revenue', 0):,.0f}")
+        print(f"  KG: {len(kg.tables)} tables / {len(kg.edges)} edges / {len(kg.concepts)} concepts")
         print(f"  Agents: {agents_ok}/3 | Findings: {total_findings}")
+        print(
+            f"  Verification: {verification_report.verified_claims}/"
+            f"{verification_report.total_claims} VERIFIED "
+            f"(FAILED={verification_report.failed_claims}, "
+            f"registry={len(verification_report.number_registry)})"
+        )
         print(f"  Reports: {len(reports)} ({', '.join(reports.keys())})")
         print(f"  Output: {output_path}")
         print(f"{'='*70}")
@@ -495,6 +535,17 @@ class TestProductionPipeline:
         # ── Assertions ──
         assert total_findings > 0, "Zero findings"
         assert len(reports) >= 3, f"Only {len(reports)} reports generated"
+
+        # KG must be non-empty (Stage 1.6 wired)
+        assert len(kg.tables) > 0, "Knowledge Graph empty — Stage 1.6 not wired"
+
+        # Verification must have processed at least one claim (Stage 3.6 wired)
+        assert verification_report.total_claims > 0, (
+            "Verification produced zero claims — Stage 3.6 not wired or findings malformed"
+        )
+        assert len(verification_report.number_registry) > 0, (
+            "Number Registry is empty — narrators have nothing to anchor on"
+        )
 
         # At least 2 reports must be real (not error/timeout)
         real_reports = {
