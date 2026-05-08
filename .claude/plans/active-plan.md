@@ -44,10 +44,18 @@
 
 ## Pendientes próxima sesión
 
-1. **Verificar suite completa verde al final del run en background.** El log vive en `/tmp/val161_full_suite.log`. Confirmar 0 fallos antes de mergear.
-2. **Mergear `nicolasbaseggiodev/val-161-anti-hallucination-integration → develop`** (push directo OK por política del 2026-04-24). Cerrar VAL-161 en Linear.
-3. **Decidir VAL-163 (A/B controlado)**: si vale la pena medir el delta marginal del Number Registry, crear el issue. Si no, el closure de VAL-161 queda como está.
-4. **Decidir prioridad de VAL-162** vs el siguiente issue urgent del backlog (GRO-15 SYSCOP, VAL-121 Gerardo, GRO-11 YC application).
+### Suite completa: 2061 passed / 1 failed / 5 skipped (40 min)
+
+El único fallo es `test_pipeline_production_matrix.py::TestProductionMatrix::test_production_pipeline[gloria-1_month-rep2]` — 3/4 narrators timeout 180s (solo CEO completa). Mismo síntoma de VAL-162. **NO es regresión de VAL-161** — los tests editados por este sprint (`test_pipeline_production.py`, `test_anti_hallucination_wiring.py`) están verdes. Comment con evidencia agregado a VAL-162.
+
+Bug colateral observable: `cross_sell_matrix` query falla por `relation "invoice_lines" does not exist` en el período 1_month — query template referencia `invoice_lines` ausente del entity_map. Pre-existente, fuera de scope de VAL-161.
+
+### Decisión a tomar próxima sesión
+
+1. **Mergear VAL-161 → develop sabiendo que VAL-162 deja `test_pipeline_production_matrix.py` rojo** hasta que se arregle el proxy. Pragmatic — separa concerns, branch lista. **Recomendado** porque mezclar fix de timeout con anti-hallucination wiring rompe trazabilidad.
+2. **O**: arreglar VAL-162 primero (proxy concurrencia + timeout adaptativo) y luego mergear ambos juntos. Más limpio si querés evitar que develop tenga un test rojo.
+3. **Decidir VAL-163 (A/B controlado del Number Registry)**: si vale medir el delta marginal real, crear el issue. Si no, el closure de VAL-161 queda como está.
+4. **Decidir prioridad de VAL-162** vs los urgent del backlog (GRO-15 SYSCOP, VAL-121 Gerardo, GRO-11 YC application).
 
 ---
 
