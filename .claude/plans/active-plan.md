@@ -1,96 +1,80 @@
-# Active Plan — Sprint VAL-161 (Anti-Hallucination Wiring) shipped on branch
+# Active Plan — VAL-161 closed (claim downgraded), branch ready to merge
 
-**Última actualización:** 2026-05-07
-**Branch actual:** `nicolasbaseggiodev/val-161-anti-hallucination-integration` (4 commits sobre develop)
-**Foco:** sprint terminado en branch — pendiente decidir merge a develop
+**Última actualización:** 2026-05-07 (cierre de sesión)
+**Branch actual:** `nicolasbaseggiodev/val-161-anti-hallucination-integration` (6 commits ahead de develop, 0 behind)
+**Foco:** sprint cerrado en branch, listo para mergear a develop
 
 ---
 
-## Sesión 2026-05-07 — VAL-161 closure on branch
+## Sesión 2026-05-07 (cont.) — VAL-161 production test fix + adversarial validation
 
-**Duración:** sesión activa ~2h.
+**Duración:** ~3h sumando ambas mitades.
 
-### Qué se hizo (en orden)
+### Qué se hizo
 
-1. Reautoricé Linear MCP (token había expirado en sesión anterior).
-2. Creé `VAL-161` (Urgent, In Progress) en team Valinor — "Wire Anti-Hallucination v1 (KG + VerificationEngine) into production pipeline".
-3. Detecté WIP no documentado en working tree (sql_safety extract + KG path cache + confidence_scores hoist) — el usuario decidió commitearlo bajo VAL-161 como hotfix antes de arrancar.
-4. Branch `nicolasbaseggiodev/val-161-anti-hallucination-integration` desde develop.
-5. **Pasos 1–7 del plan ejecutados, 4 commits limpios sobre la branch:**
-   - `0465713d` refactor(core/valinor): extract sql_safety + KG path cache (+38/-37, 5 archivos)
-   - `b373d406` feat(valinor): wire SchemaKnowledgeGraph into prod pipeline (+38/-2, run.py + valinor_adapter.py)
-   - `8f9ecb1f` feat(valinor): instantiate VerificationEngine and feed report to narrators (+71/-2, run.py + valinor_adapter.py)
-   - `464ae07d` test(valinor): VAL-161 anti-hallucination wiring regression (+238, tests/test_anti_hallucination_wiring.py)
-6. Suite completa verde en cada paso. Cierre: **3266 passed, 6 skipped (20:48)** — sin regresiones.
-7. Memoria sincronizada: `project_anti_hallucination.md` reescrito al estado wired, `MEMORY.md` index sin cambios estructurales.
+1. **Auditoría del cierre previo**: el production test (`tests/test_pipeline_production.py`) reconstruía el pipeline a mano stage por stage pero **no ejercitaba el wiring de VAL-161**: pasaba `verification_report=None` y `kg=None` hardcoded. Hubiera pasado idéntico aunque borraras los 5 commits previos del sprint.
+2. **Fix surgical** del test (commit `bc12e610`): agregadas Stage 1.6 (KG) y Stage 3.6 (VerificationEngine) en posición canónica; `kg=kg` propagado a `run_analysis_agents`; `verification_report` propagado a `run_narrators`; assertions sobre `kg.tables > 0`, `verification.total_claims > 0`, registry no-vacío. Output JSON ampliado con stats de KG y verification. Docs alineadas (`docs/TESTING.md` + `.claude/skills/production-test/SKILL.md` agregan Stages 1.6 y 3.6).
+3. **Run real contra Gloria PG (513s, PASSED)**: KG 7 tablas / 3 edges / 6 concepts; Verification 33 claims (19 VERIFIED / 14 UNVERIFIABLE / 0 FAILED); registry 6 entradas inyectado en los 4 narrators.
+4. **VAL-162 creado** (priority High, Backlog): timeouts del proxy (analyst CLI 300s) + narrators (controller+sales 180s). Pre-existentes a VAL-161, expuestos al ejercitar el wiring.
+5. **Audit adversarial**: agente skeptical comparando outputs PRE (2026-04-20) vs POST (2026-05-07). Smoking gun: las 5 queries que aparecen "nuevas y grounded" en POST (`churn_risk_scoring`, `concentration_hhi`, `concentration_top_customers`, `cross_sell_matrix`, `rfm_segmentation`) son atribuibles a **VAL-141 fixes**, no a VAL-161. PRE CEO ya retractaba con fraseo equivalente al POST. **Claim de "VAL-161 mejora calidad anti-hallucination en runs reales" downgraded a "wiring entregado y verificado; delta marginal sin medir aún".**
+6. **Decision Log entry** registrada (2026-05-07 — VAL-161 closure, claim downgraded).
+7. **VAL-161 comment** con resumen ejecutivo del cierre.
 
 ### Decisiones técnicas tomadas
 
-- **WIP no documentado bajo VAL-161 como hotfix** (en lugar de issue separado). Razón: refactors chicos (sql_safety extract, KG path memoization, _CONFIDENCE_SCORES hoist), trazables al sprint, sin churn extra.
-- **No tocar VAL-147/146/144 (paper)** ni ANN-1 mientras el sprint corre. Estado actual: siguen en *In Progress* en Linear pero el plan los marca pausados. Sincronizar Linear queda como TODO de cierre.
-- **VerificationEngine pasa solo `(query_results, baseline, kg)`** — sin `connection_string`/`entity_map` opcionales (los acepta para active re-querying contra DB con timeout 5s, fuera de scope del sprint para mantener blast radius mínimo). Apertura para follow-up sprint.
-- **SaaS sigue corriendo solo `narrate_executive`** — out of scope explícito del sprint. Los otros 3 narrators (CEO/Controller/Sales) ya aceptan `verification_report` en sus signatures, pero solo `run_narrators` (CLI) los invoca; en SaaS sigue una sola llamada directa a `narrate_executive`.
+- **Honestar el claim de VAL-161** en vez de venderlo. El sprint entrega plumbing, no quality improvement comprobable en runs reales. Engineering theater evitado.
+- **VAL-162 como issue separado**, no como hotfix dentro de VAL-161. Los timeouts son pre-existentes y mezclar tuning de infra con anti-hallucination wiring rompe trazabilidad.
+- **VAL-163 como candidato** (no creado aún): A/B controlado del Number Registry sobre los mismos `findings`/`query_results` (con y sin `verification_report`). Ese sería el sprint que justifica la afirmación cualitativa.
+- **`tests/test_pipeline_production.py` queda como "main test"** del pipeline de producción, ejercitando ahora todas las stages.
 
-### Estado de la branch
+### Estado del branch
 
-- 4 commits ahead of develop, 0 behind. Hooks OK (flake8 + Refs: VAL-XX validados en cada commit).
-- `web/tsconfig.tsbuildinfo` y `.claude/*` sin commitear (build artifact + local config).
-- `.claude/plans/active-plan.md` (este archivo) modificado sin commit — se incluye en el último commit de cierre.
-
-### Pendientes de cierre (esta sesión, antes del end-session)
-
-1. Comment en `VAL-161` con resumen de los 4 commits + DoD checklist marcada.
-2. Commit final con `.claude/plans/active-plan.md` y `MEMORY.md` (si cambió) → `chore(docs): VAL-161 sprint closure on branch`.
-3. Decisión usuario: merge `nicolasbaseggiodev/val-161-anti-hallucination-integration → develop` (push directo a develop está OK por política, no requiere PR).
-4. End-session.
-
-### Blockers
-
-- Ninguno actual. Linear conectado, tests verdes, branch limpia.
+- 6 commits ahead de develop, 0 behind:
+  - `0465713d` refactor sql_safety + KG path cache
+  - `b373d406` wire SchemaKnowledgeGraph into prod pipeline
+  - `8f9ecb1f` instantiate VerificationEngine + feed narrators
+  - `464ae07d` test anti-hallucination wiring regression (sintético)
+  - `0aad7b40` chore docs VAL-161 sprint closure
+  - `bc12e610` test production test exercises wired KG+verification (commit del cierre)
+- Hooks OK en cada commit (Refs: VAL-161 validado).
+- Suite completa al cierre de sesión: corriendo en background, **62% verde, sin fallos, solo skips esperados** (`test_pipeline_periods` 3 OK, `test_pipeline_integration` 100% OK, `test_narrators` OK).
+- Working tree limpio salvo artifacts esperados (`web/tsconfig.tsbuildinfo`, `.claude/hooks/`, `.claude/scheduled_tasks.lock`, `.claude/settings.json`, `.claude/skills/karpathy-guidelines/`).
 
 ---
 
-## Sprint plan (referencia, ya ejecutado)
+## Pendientes próxima sesión
 
-### Objetivo
-Integrar `knowledge_graph.py` + `verification.py` al pipeline de producción (CLI + SaaS) con narrators consumiendo el `verification_report` y el Number Registry como única fuente de números monetarios.
+1. **Verificar suite completa verde al final del run en background.** El log vive en `/tmp/val161_full_suite.log`. Confirmar 0 fallos antes de mergear.
+2. **Mergear `nicolasbaseggiodev/val-161-anti-hallucination-integration → develop`** (push directo OK por política del 2026-04-24). Cerrar VAL-161 en Linear.
+3. **Decidir VAL-163 (A/B controlado)**: si vale la pena medir el delta marginal del Number Registry, crear el issue. Si no, el closure de VAL-161 queda como está.
+4. **Decidir prioridad de VAL-162** vs el siguiente issue urgent del backlog (GRO-15 SYSCOP, VAL-121 Gerardo, GRO-11 YC application).
 
-### Pasos completados
+---
 
-- [x] **Paso 1** — KG construido después del Cartographer en CLI y SaaS, shape logueada (`tables`/`edges`/`concepts`).
-- [x] **Paso 2** — `kg=kg` propagado a `run_analysis_agents()`. Analyst/Sentinel/Hunter ya inyectaban `kg.to_prompt_context()` en sus prompts.
-- [x] **Paso 3** — `VerificationEngine(query_results, baseline, kg)` instanciado como Stage 3.6 (post-reconciliación, pre-narrators) en CLI y SaaS.
-- [x] **Paso 4** — `verification_report=verification_report` pasado a `run_narrators` (CLI) y `narrate_executive` (SaaS). Los 4 narrators ya inyectaban `to_prompt_context()` como "NUMBER REGISTRY — USE ONLY THESE VALUES".
-- [x] **Paso 5** — Number Registry como única fuente: cubierto implícitamente por Paso 4 (los 4 narrators ya leen del registry vía `to_prompt_context()`).
-- [x] **Paso 6** — `tests/test_anti_hallucination_wiring.py`: 4 tests verdes — 2 static checks + 1 KG sanity + 1 functional Gloria regression ($13.5M / 4854 → not VERIFIED, registry anchored on $3.27M / 616).
-- [x] **Paso 7** — Memoria sincronizada (`project_anti_hallucination.md` → wired). Plan en este archivo. Falta solo end-session.
+## Backlog próximo (sin cambios desde sesión anterior)
 
-### Definition of done
+### Urgent / High
 
-- [x] KG construido en cada run (visible en `run_log["stages"]["knowledge_graph"]` y `results["stages"]["knowledge_graph"]`)
-- [x] VerificationReport con `total_claims > 0` en runs reales (vía Stage 3.6)
-- [x] `verification_report.to_prompt_context()` en prompts de los 4 narrators (ya implementado, ahora alimentado)
-- [x] Test regresión Gloria pasa (`test_anti_hallucination_wiring.py`)
-- [x] `pytest tests/ -v` pasa completo (3266 passed, 6 skipped)
-- [x] Memoria sincronizada
+- **VAL-162** (creado hoy, High): timeouts pipeline (analyst CLI 300s + narrators 180s).
+- GRO-15 / VAL-121 (Urgent): SYSCOP Inventory Agent — blockeado por creds Gerardo.
+- GRO-11 (Urgent): YC application (deadline 2026-08-01, plenty time).
 
-### Out of scope (siguen como follow-up)
+### Paper (Medium, suspendidos)
 
-- Active re-querying contra DB en VerificationEngine (acepta `connection_string`/`entity_map` pero no los pasamos en este sprint).
+- VAL-147 / VAL-146 / VAL-144: viven en repo `d4c-paper/` no presente local. Sincronizar Linear queda como TODO de cierre.
+- ANN-1: Annatar roadmap, pausado.
+
+### Out of scope (siguen como follow-up de VAL-161)
+
+- A/B controlado real del Number Registry (candidato VAL-163).
+- Active re-querying contra DB en VerificationEngine (acepta `connection_string`/`entity_map` pero no se pasan).
 - SaaS corriendo los 4 narrators (sigue solo Executive — issue separado si surge).
-- Performance tuning del KG/Verification.
-- Sincronizar paper issues (VAL-147/146/144) y ANN-1 con el pivot 2026-04-29 — TODO al volver a esos tracks.
+- Performance tuning del KG/Verification (no es bottleneck actual).
 
 ---
 
-## Otros hallazgos del audit 2026-04-27 (queue, no este sprint)
+## Hallazgos del audit 2026-04-27 (queue, no este sprint)
 
 - Backend: 50 findings en `/tmp/valinor-backend-findings.md` (5 críticos: race demo cache, exception swallowing, hexagonal violation `data_quality_gate.py:174`, DQ degrada exceptions a WARNING, bare except verification.py:1207)
 - Frontend: 22 findings en `/tmp/valinor-frontend-findings.md` (5 críticos: untyped API, stale closure polling, JWT plain en localStorage, FileUpload a11y, ErrorBoundary mistype)
 - Doc-vs-code: 12 gaps en `/tmp/valinor-backend-architecture.md`
-- Decisiones recientes: 57 en `/tmp/valinor-recent-decisions.md`
-
-## Sprints relacionados (suspendidos, sin cambios)
-
-- Sprint SYSCOP: blockeado por creds Gerardo
-- Sprint Paper (VAL-144/146/147): vive en repo `d4c-paper/` no presente local
