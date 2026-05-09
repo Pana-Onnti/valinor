@@ -6,6 +6,7 @@ All external dependencies (Redis, MetadataStorage, supabase, slowapi …) are
 mocked/stubbed so that tests run without a full Docker environment.
 """
 
+import asyncio
 import json
 import sys
 import types
@@ -1043,3 +1044,45 @@ class TestAuditEndpoints:
         # All returned events must match the requested event_type
         for event in data["events"]:
             assert event.get("event_type") == "analysis_started"
+
+
+# ---------------------------------------------------------------------------
+# VAL-164: Demo cache TOCTOU race regression
+# ---------------------------------------------------------------------------
+
+
+class TestDemoRace:
+    @pytest.mark.asyncio
+    async def test_concurrent_run_requests_serialize_via_lock(self, client):
+        """Two concurrent POST /api/demo/run must NOT both spawn a pipeline.
+
+        Without the lock, both requests pass the idle-status guard before either
+        rewrites _demo_cache, and two pipelines start in parallel.
+        """
+        from api.routers import demo as demo_module
+
+        demo_module._demo_cache = {
+            "job_id": None,
+            "status": "idle",
+            "results": None,
+            "error": None,
+            "started_at": None,
+            "completed_at": None,
+        }
+
+        with patch.object(demo_module, "_run_demo_pipeline", new=AsyncMock(return_value=None)):
+            r1, r2 = await asyncio.gather(
+                client.post("/api/demo/run"),
+                client.post("/api/demo/run"),
+            )
+
+        assert r1.status_code == 202
+        assert r2.status_code == 202
+
+        bodies = [r1.json(), r2.json()]
+        already_in_progress = [b for b in bodies if "already in progress" in b.get("message", "")]
+        started = [b for b in bodies if "Demo analysis started" in b.get("message", "")]
+
+        assert len(started) == 1, f"Expected exactly one fresh start, got: {bodies}"
+        assert len(already_in_progress) == 1, f"Expected exactly one 'in progress' reply, got: {bodies}"
+        assert started[0]["job_id"] == already_in_progress[0]["job_id"]
