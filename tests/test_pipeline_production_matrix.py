@@ -438,7 +438,7 @@ class TestProductionMatrix:
         reports = await run_narrators(
             findings, entity_map, None, client_config,
             baseline, query_results,
-            narrator_timeout=180,
+            narrator_timeout=920,
         )
         narrator_time = time.time() - t0
         print(f"    {len(reports)} reports generated [{narrator_time:.1f}s]")

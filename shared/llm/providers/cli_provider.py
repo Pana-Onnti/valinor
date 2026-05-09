@@ -33,7 +33,7 @@ class ClaudeCliProvider(LLMProvider):
     def __init__(self, config: dict):
         super().__init__(config)
         self.cli_path = config.get("cli_path") or shutil.which("claude") or "claude"
-        self.timeout = int(config.get("timeout", 300))
+        self.timeout = int(config.get("timeout", 900))
         self._use_proxy: Optional[bool] = None  # resolved at initialize()
 
     async def initialize(self) -> None:

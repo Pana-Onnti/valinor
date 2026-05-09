@@ -12,7 +12,7 @@ import sys
 import json
 import asyncio
 import shutil
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 CLAUDE_BIN = shutil.which("claude") or "claude"
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8099
@@ -55,7 +55,7 @@ class ClaudeProxyHandler(BaseHTTPRequestHandler):
                 [CLAUDE_BIN, "--print", "--model", model],
                 input=prompt.encode(),
                 capture_output=True,
-                timeout=300,
+                timeout=960,
             )
             if result.returncode != 0:
                 err = result.stderr.decode().strip()
@@ -77,7 +77,7 @@ class ClaudeProxyHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("0.0.0.0", PORT), ClaudeProxyHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), ClaudeProxyHandler)
     print(f"Claude CLI Proxy listening on http://0.0.0.0:{PORT}")
     print(f"Using CLI: {CLAUDE_BIN}")
     print("Press Ctrl+C to stop.")

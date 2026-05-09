@@ -421,7 +421,7 @@ class TestProductionPipeline:
             findings, entity_map, None, client_config,
             baseline, query_results,
             verification_report=verification_report,
-            narrator_timeout=180,
+            narrator_timeout=920,
         )
         print(f"  {len(reports)} reports generated [{time.time()-t0:.1f}s]")
 

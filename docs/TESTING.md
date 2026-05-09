@@ -123,9 +123,21 @@ Las queries usan `DATE_TRUNC`, `EXTRACT`, `::date` — PostgreSQL nativo. En SQL
 
 Tests en SQLite son útiles para stages deterministas, pero para evaluar la calidad real del análisis: **usar PostgreSQL**.
 
-### Narrators necesitan timeout >60s
+### Budget de timeouts (post VAL-162)
 
-Con datos reales (~9K invoices, 24 findings), los narrators tardan 30-160s. El default de 60s es poco para producción. El test usa 180s.
+Capas (top → bottom):
+
+| Capa | Default | Var/Arch |
+|------|---------|----------|
+| `narrator_timeout` (asyncio wait_for) | 60s default, **920s en tests E2E** | `core/valinor/pipeline_narrator.py:181` + tests |
+| `cli_provider.timeout` (subprocess CLI o urlopen) | **900s** | `CLAUDE_CLI_TIMEOUT` env, `shared/llm/providers/cli_provider.py:36` |
+| `claude_proxy.py` subprocess | **960s** | `scripts/claude_proxy.py:58` |
+
+Por qué 900s para CLI: con `verification_report` cargado, el narrator `reporte_ventas` (Sales V2 — JSON estructurado con `legacy_customer_queries` extra grande) puede demandar >540s entre rate-limit upstream + inference. 900s = 15 min — generoso, pero el SaaS solo corre `executive` (254s observados), así que el límite alto no afecta latencia de prod real. Las capas arriba siempre dan más buffer que la de abajo para que el error que se propague sea el de la capa más interna (mensaje claro de "claude CLI timed out after 900s").
+
+### Proxy `claude_proxy.py` debe ser concurrente
+
+`scripts/claude_proxy.py` corre con `ThreadingHTTPServer` para soportar ≥3 requests Sonnet en paralelo (los 3 analysts del pipeline + los 4 narrators). Con `HTTPServer` plano serializaba — la última request del batch se quedaba sin budget y pegaba timeout aunque internamente fuera rápida.
 
 ## Pipeline completo vs cobertura
 

@@ -73,7 +73,7 @@ class LLMConfig:
             },
             cli_config={
                 "cli_path": os.getenv("CLAUDE_CLI_PATH", "claude"),
-                "timeout": int(os.getenv("CLAUDE_CLI_TIMEOUT", "300")),
+                "timeout": int(os.getenv("CLAUDE_CLI_TIMEOUT", "900")),
             },
             enable_fallback=os.getenv("LLM_ENABLE_FALLBACK", "true").lower() == "true",
             fallback_provider=ProviderType(os.getenv("LLM_FALLBACK_PROVIDER", ProviderType.ANTHROPIC_API.value)) if os.getenv("LLM_FALLBACK_PROVIDER") else None,
