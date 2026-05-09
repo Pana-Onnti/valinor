@@ -1,83 +1,64 @@
-# Active Plan — VAL-161 closed (claim downgraded), branch ready to merge
+# Active Plan — VAL-161 + VAL-162 closed, VAL-163 created
 
-**Última actualización:** 2026-05-07 (cierre de sesión)
-**Branch actual:** `nicolasbaseggiodev/val-161-anti-hallucination-integration` (6 commits ahead de develop, 0 behind)
-**Foco:** sprint cerrado en branch, listo para mergear a develop
+**Última actualización:** 2026-05-08 (cierre de sesión)
+**Branch actual:** `nicolasbaseggiodev/val-162-pipeline-timeouts` (1 commit ahead de develop, ya pusheado)
+**develop:** al día — `bd18d2c0` fix(infra): VAL-162 proxy concurrency + relaxed CLI timeout budget
 
 ---
 
-## Sesión 2026-05-07 (cont.) — VAL-161 production test fix + adversarial validation
-
-**Duración:** ~3h sumando ambas mitades.
+## Sesión 2026-05-08 — VAL-161 merge + VAL-162 fix + VAL-163 spawn
 
 ### Qué se hizo
 
-1. **Auditoría del cierre previo**: el production test (`tests/test_pipeline_production.py`) reconstruía el pipeline a mano stage por stage pero **no ejercitaba el wiring de VAL-161**: pasaba `verification_report=None` y `kg=None` hardcoded. Hubiera pasado idéntico aunque borraras los 5 commits previos del sprint.
-2. **Fix surgical** del test (commit `bc12e610`): agregadas Stage 1.6 (KG) y Stage 3.6 (VerificationEngine) en posición canónica; `kg=kg` propagado a `run_analysis_agents`; `verification_report` propagado a `run_narrators`; assertions sobre `kg.tables > 0`, `verification.total_claims > 0`, registry no-vacío. Output JSON ampliado con stats de KG y verification. Docs alineadas (`docs/TESTING.md` + `.claude/skills/production-test/SKILL.md` agregan Stages 1.6 y 3.6).
-3. **Run real contra Gloria PG (513s, PASSED)**: KG 7 tablas / 3 edges / 6 concepts; Verification 33 claims (19 VERIFIED / 14 UNVERIFIABLE / 0 FAILED); registry 6 entradas inyectado en los 4 narrators.
-4. **VAL-162 creado** (priority High, Backlog): timeouts del proxy (analyst CLI 300s) + narrators (controller+sales 180s). Pre-existentes a VAL-161, expuestos al ejercitar el wiring.
-5. **Audit adversarial**: agente skeptical comparando outputs PRE (2026-04-20) vs POST (2026-05-07). Smoking gun: las 5 queries que aparecen "nuevas y grounded" en POST (`churn_risk_scoring`, `concentration_hhi`, `concentration_top_customers`, `cross_sell_matrix`, `rfm_segmentation`) son atribuibles a **VAL-141 fixes**, no a VAL-161. PRE CEO ya retractaba con fraseo equivalente al POST. **Claim de "VAL-161 mejora calidad anti-hallucination en runs reales" downgraded a "wiring entregado y verificado; delta marginal sin medir aún".**
-6. **Decision Log entry** registrada (2026-05-07 — VAL-161 closure, claim downgraded).
-7. **VAL-161 comment** con resumen ejecutivo del cierre.
+1. **VAL-161 mergeado a develop** (8 commits FF, último `af3224e0`). Branch limpia, push directo a develop sin PR.
+2. **VAL-161 cerrado en Linear** con closure honest: wiring entregado, claim cualitativo downgraded.
+3. **VAL-163 creado** (Medium, asignado, blocked by VAL-162, related to VAL-161): A/B controlado del Number Registry para medir delta marginal real.
+4. **VAL-162 atacado y cerrado**:
+   - Proxy `scripts/claude_proxy.py`: `HTTPServer` → `ThreadingHTTPServer`, subprocess timeout 300→960s. Validado con micro-test: 3 Haiku paralelos 6.1s vs 17.5s suma (CONCURRENT).
+   - CLI timeout default 300→900s en `cli_provider.py`, `config.py`, `monkey_patch.py` (×2 sites).
+   - `narrator_timeout` 180→920s en ambos production tests.
+   - `docs/TESTING.md` actualizado con tabla de budgets por capa.
+5. **3 production tests E2E reales corridos** (overkill, lección aprendida — ver `feedback_test_velocity.md`):
+   - Run 1 (cli=300s, narrator=320s): 627s, 2/4 narrators OK (ceo + executive). Controller cayó.
+   - Run 2 (cli=540s, narrator=560s): 855s, 3/4 narrators OK (controller pasa de 38 chars → 18.8K).
+   - Run 3 (cli=900s, narrator=920s): 1220s, 3/4 narrators OK. **Sales sigue cayendo al fallback exact (679 chars)** en los 3 runs — NO es timeout puro, prompt size + upstream rate-limit.
+6. **VAL-162 mergeado a develop** (commit `bd18d2c0`) y cerrado en Linear con nota honesta.
+7. **Suite excl. production tests** corriendo en background (no quemar tokens en E2E lento).
 
-### Decisiones técnicas tomadas
+### Decisiones técnicas
 
-- **Honestar el claim de VAL-161** en vez de venderlo. El sprint entrega plumbing, no quality improvement comprobable en runs reales. Engineering theater evitado.
-- **VAL-162 como issue separado**, no como hotfix dentro de VAL-161. Los timeouts son pre-existentes y mezclar tuning de infra con anti-hallucination wiring rompe trazabilidad.
-- **VAL-163 como candidato** (no creado aún): A/B controlado del Number Registry sobre los mismos `findings`/`query_results` (con y sin `verification_report`). Ese sería el sprint que justifica la afirmación cualitativa.
-- **`tests/test_pipeline_production.py` queda como "main test"** del pipeline de producción, ejercitando ahora todas las stages.
+- **No abrir VAL-164 para sales narrator** todavía. Se crea solo si vuelve como blocker en otro sprint. Razón: sales JSON pesado + Plan Max rate-limit es investigación dedicada, no urgente.
+- **No revertir cli=900s a 540s**: SaaS prod solo corre executive (~254s), así que el budget alto no afecta latencia real. Si bite alguna vez, una línea fix.
+- **Memoria nueva `feedback_test_velocity.md`**: capturar el hábito de no iterar tests E2E en cascada bumpeando timeouts.
 
 ### Estado del branch
 
-- 6 commits ahead de develop, 0 behind:
-  - `0465713d` refactor sql_safety + KG path cache
-  - `b373d406` wire SchemaKnowledgeGraph into prod pipeline
-  - `8f9ecb1f` instantiate VerificationEngine + feed narrators
-  - `464ae07d` test anti-hallucination wiring regression (sintético)
-  - `0aad7b40` chore docs VAL-161 sprint closure
-  - `bc12e610` test production test exercises wired KG+verification (commit del cierre)
-- Hooks OK en cada commit (Refs: VAL-161 validado).
-- Suite completa al cierre de sesión: corriendo en background, **62% verde, sin fallos, solo skips esperados** (`test_pipeline_periods` 3 OK, `test_pipeline_integration` 100% OK, `test_narrators` OK).
-- Working tree limpio salvo artifacts esperados (`web/tsconfig.tsbuildinfo`, `.claude/hooks/`, `.claude/scheduled_tasks.lock`, `.claude/settings.json`, `.claude/skills/karpathy-guidelines/`).
+- VAL-162 branch: 1 commit pusheado a develop. Working tree limpio salvo artifacts esperados (`web/tsconfig.tsbuildinfo`, `.claude/`).
+- VAL-161 branch + commits ya mergeados.
+- develop al día con todo.
 
 ---
 
 ## Pendientes próxima sesión
 
-### Suite completa: 2061 passed / 1 failed / 5 skipped (40 min)
+### Inmediato
 
-El único fallo es `test_pipeline_production_matrix.py::TestProductionMatrix::test_production_pipeline[gloria-1_month-rep2]` — 3/4 narrators timeout 180s (solo CEO completa). Mismo síntoma de VAL-162. **NO es regresión de VAL-161** — los tests editados por este sprint (`test_pipeline_production.py`, `test_anti_hallucination_wiring.py`) están verdes. Comment con evidencia agregado a VAL-162.
+- **Suite excl. production tests**: validar que pasa (corriendo en background al cierre). Si rojo, investigar.
+- Decidir si limpiar el branch `nicolasbaseggiodev/val-161-anti-hallucination-integration` localmente (ya mergeado).
 
-Bug colateral observable: `cross_sell_matrix` query falla por `relation "invoice_lines" does not exist` en el período 1_month — query template referencia `invoice_lines` ausente del entity_map. Pre-existente, fuera de scope de VAL-161.
+### Linear queue siguiente
 
-### Decisión a tomar próxima sesión
+1. **VAL-163** (Medium, ya creado, blocked by VAL-162): A/B Number Registry. Ya destrabado al cerrar VAL-162.
+2. **GRO-15 / VAL-121** (Urgent): SYSCOP — bloqueado por creds Gerardo, fuera de control nuestro hasta que él responda.
+3. **GRO-11** (Urgent): YC application — deadline 2026-08-01, no urgente todavía.
+4. Sales narrator deep-dive si surge (potencial VAL-164).
 
-1. **Mergear VAL-161 → develop sabiendo que VAL-162 deja `test_pipeline_production_matrix.py` rojo** hasta que se arregle el proxy. Pragmatic — separa concerns, branch lista. **Recomendado** porque mezclar fix de timeout con anti-hallucination wiring rompe trazabilidad.
-2. **O**: arreglar VAL-162 primero (proxy concurrencia + timeout adaptativo) y luego mergear ambos juntos. Más limpio si querés evitar que develop tenga un test rojo.
-3. **Decidir VAL-163 (A/B controlado del Number Registry)**: si vale medir el delta marginal real, crear el issue. Si no, el closure de VAL-161 queda como está.
-4. **Decidir prioridad de VAL-162** vs los urgent del backlog (GRO-15 SYSCOP, VAL-121 Gerardo, GRO-11 YC application).
+### Out of scope persistente
 
----
-
-## Backlog próximo (sin cambios desde sesión anterior)
-
-### Urgent / High
-
-- **VAL-162** (creado hoy, High): timeouts pipeline (analyst CLI 300s + narrators 180s).
-- GRO-15 / VAL-121 (Urgent): SYSCOP Inventory Agent — blockeado por creds Gerardo.
-- GRO-11 (Urgent): YC application (deadline 2026-08-01, plenty time).
-
-### Paper (Medium, suspendidos)
-
-- VAL-147 / VAL-146 / VAL-144: viven en repo `d4c-paper/` no presente local. Sincronizar Linear queda como TODO de cierre.
-- ANN-1: Annatar roadmap, pausado.
-
-### Out of scope (siguen como follow-up de VAL-161)
-
-- A/B controlado real del Number Registry (candidato VAL-163).
+- A/B controlado del Number Registry → VAL-163 ya creado.
 - Active re-querying contra DB en VerificationEngine (acepta `connection_string`/`entity_map` pero no se pasan).
 - SaaS corriendo los 4 narrators (sigue solo Executive — issue separado si surge).
-- Performance tuning del KG/Verification (no es bottleneck actual).
+- Sales narrator: prompt diet, Haiku fallback, medir rate-limit.
 
 ---
 
