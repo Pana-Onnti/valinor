@@ -17,9 +17,11 @@ import os
 from typing import Optional
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
+
+from api.deps import limiter
 
 logger = structlog.get_logger()
 
@@ -110,8 +112,13 @@ async def _get_portal_client(
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/verify", response_model=VerifyResponse)
-async def verify_token(req: TokenVerifyRequest):
-    """Verify an access token and return a JWT + client info."""
+@limiter.limit("10/minute")
+async def verify_token(request: Request, req: TokenVerifyRequest):
+    """Verify an access token and return a JWT + client info.
+
+    Rate-limited (10/min per IP) because this is an unauthenticated
+    token-guessing / brute-force surface.
+    """
     tokens = _get_portal_tokens()
 
     if req.token not in tokens:

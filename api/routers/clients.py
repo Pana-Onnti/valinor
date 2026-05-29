@@ -12,9 +12,11 @@ from typing import Optional
 from datetime import datetime, timezone
 from collections import defaultdict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 import structlog
+
+from api.deps import limiter
 
 logger = structlog.get_logger()
 
@@ -130,7 +132,8 @@ async def patch_client_refinement(client_name: str, body: dict):
 
 
 @router.get("/clients", tags=["Clients"])
-async def list_clients():
+@limiter.limit("30/minute")
+async def list_clients(request: Request):
     """List all clients that have profiles."""
     profile_dir = "/tmp/valinor_profiles"
     os.makedirs(profile_dir, exist_ok=True)

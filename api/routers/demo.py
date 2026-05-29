@@ -21,7 +21,7 @@ import structlog
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from api.deps import get_redis
+from api.deps import get_redis, limiter
 
 logger = structlog.get_logger()
 
@@ -140,6 +140,7 @@ async def _run_demo_pipeline(job_id: str) -> None:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/run", summary="Run demo analysis")
+@limiter.limit("10/minute")
 async def run_demo(
     request: Request,
     background_tasks: BackgroundTasks,

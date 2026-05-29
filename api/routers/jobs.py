@@ -21,7 +21,7 @@ import structlog
 import redis.asyncio as redis
 
 from api.models import AnalysisRequest, JobStatus, AgentStatus
-from api.deps import get_redis, get_limiter  # noqa: F401
+from api.deps import get_redis, limiter
 from shared.events.pipeline_events import (
     subscribe_pipeline_events,
     get_agent_statuses,
@@ -65,6 +65,7 @@ _RESULTS_CACHE_TTL = 300  # seconds (5 minutes)
 
 
 @router.post("/analyze", response_model=Dict[str, str], summary="Start analysis", tags=["Analysis"])
+@limiter.limit("5/minute")
 async def start_analysis(
     request: Request,
     body: AnalysisRequest,
@@ -128,19 +129,25 @@ async def start_analysis(
 
         # Per-client concurrent job limit: max 2 running jobs per client_name
         running_count = 0
-        async for key in redis_client.scan_iter("job:*"):
-            if b":" in key[4:] if isinstance(key, bytes) else ":" in key[4:]:
-                continue  # skip job:UUID:sub-key entries
-            try:
+        try:
+            async for key in redis_client.scan_iter("job:*"):
+                if b":" in key[4:] if isinstance(key, bytes) else ":" in key[4:]:
+                    continue  # skip job:UUID:sub-key entries
                 job_status_val = await redis_client.hget(key, "status")
-            except Exception:
-                continue
-            if job_status_val == "running":
-                job_client = await redis_client.hget(key, "client_name")
-                if job_client == client_name:
-                    running_count += 1
-                    if running_count >= 2:
-                        break
+                if job_status_val == "running":
+                    job_client = await redis_client.hget(key, "client_name")
+                    if job_client == client_name:
+                        running_count += 1
+                        if running_count >= 2:
+                            break
+        except redis.RedisError as exc:
+            # Fail closed: a Redis fault here must not let the request bypass the
+            # concurrency cap by silently under-counting running jobs.
+            logger.warning("concurrent_job_count_failed", error=str(exc), client=client_name)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Could not verify concurrent job limit; please retry",
+            )
         if running_count >= 2:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -305,7 +312,8 @@ async def get_job_status(
 
 
 @router.get("/jobs/{job_id}/stream", summary="Stream job progress via SSE")
-async def stream_job_progress(job_id: str):
+@limiter.limit("10/minute")
+async def stream_job_progress(request: Request, job_id: str):
     """
     Server-Sent Events stream for real-time job progress.
 

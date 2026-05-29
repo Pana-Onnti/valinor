@@ -64,7 +64,7 @@ _stub_missing("slowapi", "slowapi.util", "slowapi.errors")
 _slowapi = sys.modules["slowapi"]
 
 class _FakeLimiter:
-    def __init__(self, key_func=None):
+    def __init__(self, key_func=None, **kwargs):
         pass
     def limit(self, rate: str):
         def decorator(func):
@@ -397,6 +397,25 @@ class TestAnalyzeEndpoint:
         else:
             # Some versions may serialize detail as string
             assert "too_many_concurrent" in str(detail)
+
+    @pytest.mark.asyncio
+    async def test_analyze_fails_closed_when_redis_errors_in_concurrency_check(
+        self, client, redis_mock
+    ):
+        """A Redis fault while counting running jobs must fail CLOSED (503), not
+        silently let the request bypass the per-client concurrency cap."""
+        import redis.exceptions
+
+        async def _scan_one(*args, **kwargs):
+            yield "job:aaaa"
+
+        redis_mock.scan_iter = _scan_one
+        redis_mock.hget = AsyncMock(
+            side_effect=redis.exceptions.ConnectionError("redis down")
+        )
+
+        response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
+        assert response.status_code == 503
 
     @pytest.mark.asyncio
     async def test_analyze_invalid_client_name_special_chars(self, client):
@@ -1086,3 +1105,66 @@ class TestDemoRace:
         assert len(started) == 1, f"Expected exactly one fresh start, got: {bodies}"
         assert len(already_in_progress) == 1, f"Expected exactly one 'in progress' reply, got: {bodies}"
         assert started[0]["job_id"] == already_in_progress[0]["job_id"]
+
+
+# ---------------------------------------------------------------------------
+# VAL-107: per-tenant rate limiting wiring
+# ---------------------------------------------------------------------------
+
+
+class TestRateLimitWiring:
+    """The slowapi backend itself is upstream-tested; what is OURS to verify is
+    (a) the per-tenant key function and (b) that each sensitive endpoint actually
+    carries the intended @limiter.limit decorator. The spy _FakeLimiter records
+    the applied rate on the endpoint function as `._ratelimits`.
+    """
+
+    def test_key_prefers_tenant_header(self):
+        from api.deps import _rate_limit_key
+
+        req = types.SimpleNamespace(headers={"X-Tenant-ID": "acme"})
+        assert _rate_limit_key(req) == "tenant:acme"
+
+    def test_key_falls_back_to_remote_address_without_header(self):
+        from api.deps import _rate_limit_key
+
+        # get_remote_address is stubbed to return "127.0.0.1" at module load.
+        req = types.SimpleNamespace(headers={})
+        assert _rate_limit_key(req) == "127.0.0.1"
+
+    def test_sensitive_endpoints_are_rate_limited(self):
+        """Static source check (robust to test import order, which decides whether
+        the real limiter or the spy fake decorated the routers): each sensitive
+        endpoint must carry a `@limiter.limit("<rate>")` decorator directly above
+        its def."""
+        from pathlib import Path
+
+        api_dir = Path(__file__).resolve().parent.parent / "api" / "routers"
+        # (file, endpoint def name, expected rate)
+        expected = [
+            ("jobs.py", "start_analysis", "5/minute"),
+            ("jobs.py", "stream_job_progress", "10/minute"),
+            ("nl_query.py", "nl_query", "20/minute"),
+            ("clients.py", "list_clients", "30/minute"),
+            ("portal.py", "verify_token", "10/minute"),
+            ("demo.py", "run_demo", "10/minute"),
+        ]
+        for filename, func, rate in expected:
+            lines = (api_dir / filename).read_text().splitlines()
+            def_idx = next(
+                (i for i, ln in enumerate(lines)
+                 if ln.lstrip().startswith(("def " + func, "async def " + func))),
+                None,
+            )
+            assert def_idx is not None, f"{func} not found in {filename}"
+            # Walk back over the decorator stack directly above the def.
+            decorators = []
+            j = def_idx - 1
+            while j >= 0 and (lines[j].lstrip().startswith("@") or not lines[j].strip()):
+                if lines[j].lstrip().startswith("@"):
+                    decorators.append(lines[j].strip())
+                j -= 1
+            assert any(f'@limiter.limit("{rate}")' in d for d in decorators), (
+                f"{func} in {filename} missing @limiter.limit(\"{rate}\"); "
+                f"decorators found: {decorators}"
+            )

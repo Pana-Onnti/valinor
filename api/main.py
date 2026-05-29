@@ -25,8 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 import structlog
 import redis.asyncio as redis
@@ -49,7 +48,7 @@ from api.routers.upload import router as upload_router  # noqa: E402
 from api.routers.demo import router as demo_router  # noqa: E402
 from api.logging_config import setup_logging  # noqa: E402
 from api.metrics import PrometheusMiddleware, metrics_response  # noqa: E402, F401
-from api.deps import set_redis_client, set_limiter  # noqa: E402
+from api.deps import set_redis_client, limiter  # noqa: E402
 
 # Re-export models for backward compatibility (tests import from api.main)
 from api.models import (  # noqa: F401, E402
@@ -177,10 +176,8 @@ Implementa estandares de: Renaissance Technologies, Bloomberg Terminal, ECB, Big
 
 # ═══ RATE LIMITER ═══
 
-limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-set_limiter(limiter)
 
 
 # ═══ MIDDLEWARE ═══
