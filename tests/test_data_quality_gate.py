@@ -951,3 +951,66 @@ class TestDataQualityReportAdditional:
         r = self._r(70.0, "PROCEED_WITH_WARNINGS")
         r.warnings.extend(["warn_a", "warn_b"])
         assert len(r.warnings) == 2
+
+
+# ---------------------------------------------------------------------------
+# Crashed-check handling — gate must fail CLOSED, not open (anti-hallucination
+# moat). A check that raises could not verify its dimension, so it must be
+# treated at the worst-case severity it guards, never silently downgraded to a
+# low-impact WARNING.
+# ---------------------------------------------------------------------------
+
+def _crashing(method_name: str):
+    """A stand-in check method that raises, with a real __name__ so the gate's
+    crash handler can derive the check_name (mirrors a real bound method)."""
+    def _raise(*args, **kwargs):
+        raise RuntimeError("boom")
+    _raise.__name__ = method_name
+    return _raise
+
+
+class TestCrashedCheckFailsClosed:
+    def test_crashed_fatal_check_halts(self, bare_engine):
+        """A crashed FATAL check (accounting_balance) must HALT the gate, not
+        degrade to a 6-point PROCEED_WITH_WARNINGS."""
+        gate = DataQualityGate(bare_engine, "2025-01-01", "2025-12-31")
+        with _mock_all_checks(gate, {}):
+            with patch.object(gate, "_check_accounting_balance",
+                              _crashing("_check_accounting_balance")):
+                report = gate.run()
+
+        assert report.gate_decision == "HALT"
+        crashed = next(c for c in report.checks if c.check_name == "accounting_balance")
+        assert crashed.passed is False
+        assert crashed.severity == "FATAL"
+        assert crashed.score_impact == DataQualityGate.SCORE_WEIGHTS["accounting_balance"]
+        assert report.blocking_issues, "crashed FATAL check must add a blocking issue"
+
+    def test_crashed_critical_check_not_downgraded_to_warning(self, bare_engine):
+        """A crashed CRITICAL check (null_density) keeps CRITICAL severity and
+        full deduction — not WARNING + weight//3."""
+        gate = DataQualityGate(bare_engine, "2025-01-01", "2025-12-31")
+        with _mock_all_checks(gate, {}):
+            with patch.object(gate, "_check_null_density",
+                              _crashing("_check_null_density")):
+                report = gate.run()
+
+        crashed = next(c for c in report.checks if c.check_name == "null_density")
+        assert crashed.severity == "CRITICAL"
+        assert crashed.score_impact == DataQualityGate.SCORE_WEIGHTS["null_density"]
+
+    def test_crashed_aliased_check_uses_correct_weight(self, bare_engine):
+        """cross_table_reconciliation's method name differs from its SCORE_WEIGHTS
+        key; a crash must still apply the real weight (15) via the alias map, not
+        the fallback 5."""
+        gate = DataQualityGate(bare_engine, "2025-01-01", "2025-12-31")
+        with _mock_all_checks(gate, {}):
+            with patch.object(gate, "_check_cross_table_reconciliation",
+                              _crashing("_check_cross_table_reconciliation")):
+                report = gate.run()
+
+        crashed = next(
+            c for c in report.checks if c.check_name == "cross_table_reconciliation"
+        )
+        assert crashed.severity == "CRITICAL"
+        assert crashed.score_impact == DataQualityGate.SCORE_WEIGHTS["cross_table_reconcile"]

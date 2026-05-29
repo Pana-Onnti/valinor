@@ -40,6 +40,24 @@ from shared.utils.sql_sanitizer import sanitize_base_filter  # VAL-49
 
 
 # ---------------------------------------------------------------------------
+# Metrics port (dependency inversion)
+# ---------------------------------------------------------------------------
+# The Domain must never import Infrastructure (hexagonal rule). Instead of
+# `from api.metrics import DQ_CHECKS_TOTAL`, the api layer registers a sink here
+# at startup (see api/metrics.py). If nothing registers one (e.g. core/run.py
+# standalone), metrics are silently disabled — the gate stays fully decoupled.
+# Hook signature: (check_name: str, passed: bool) -> None
+_dq_metrics_hook = None
+
+
+def set_dq_metrics_hook(hook) -> None:
+    """Register an observer for DQ check results. Called by the Infrastructure
+    layer (api) so the Domain need not know about Prometheus/api.metrics."""
+    global _dq_metrics_hook
+    _dq_metrics_hook = hook
+
+
+# ---------------------------------------------------------------------------
 # Result dataclasses
 # ---------------------------------------------------------------------------
 
@@ -108,6 +126,30 @@ class DataQualityGate:
         "receivables_cointegration":      5,
     }
 
+    # Severity to assign when a check CRASHES, keyed by the check_name produced by
+    # `method.__name__.replace("_check_", "")`. A crash means the dimension could
+    # not be verified, so it is treated at the worst-case severity that check
+    # guards on a real failure — never silently downgraded to WARNING. This makes
+    # a crashed integrity check (schema/accounting) fail closed (HALT) instead of
+    # fail open. Names not listed default to CRITICAL.
+    CRASH_SEVERITY = {
+        "schema_integrity":                  "FATAL",
+        "accounting_balance":                "FATAL",
+        "null_density":                      "CRITICAL",
+        "duplicate_rate":                    "CRITICAL",
+        "cross_table_reconciliation":        "CRITICAL",
+        "outlier_screen":                    "WARNING",
+        "benford_compliance":                "WARNING",
+        "temporal_consistency":              "WARNING",
+        "receivables_revenue_cointegration": "WARNING",
+    }
+
+    # SCORE_WEIGHTS keys for the two checks whose method name differs from the key.
+    _WEIGHT_ALIASES = {
+        "cross_table_reconciliation":        "cross_table_reconcile",
+        "receivables_revenue_cointegration": "receivables_cointegration",
+    }
+
     # ERP → required tables for schema integrity check
     ERP_CORE_TABLES = {
         "odoo": {
@@ -170,40 +212,39 @@ class DataQualityGate:
             self._check_receivables_revenue_cointegration,
         ]
 
-        try:
-            from api.metrics import DQ_CHECKS_TOTAL
-            _dq_metrics = True
-        except ImportError:
-            _dq_metrics = False
-
         for method in check_methods:
             try:
                 check = method()
             except Exception as e:
                 import structlog as _sl
-                _sl.get_logger().warning(
+                _sl.get_logger().exception(
                     "dq_gate.check_error",
                     check=method.__name__,
                     error=str(e),
                 )
+                name = method.__name__.replace("_check_", "")
+                # A crashed check could not verify its dimension → fail closed at
+                # the worst-case severity that check guards, with full deduction.
+                crash_severity = self.CRASH_SEVERITY.get(name, "CRITICAL")
+                weight = self.SCORE_WEIGHTS.get(
+                    name, self.SCORE_WEIGHTS.get(self._WEIGHT_ALIASES.get(name, ""), 5)
+                )
                 check = QualityCheckResult(
-                    check_name=method.__name__.replace("_check_", ""),
+                    check_name=name,
                     passed=False,
-                    score_impact=self.SCORE_WEIGHTS.get(
-                        method.__name__.replace("_check_", ""), 5
-                    ) // 3,  # Partial deduction for crashed checks
-                    severity="WARNING",
-                    detail=f"Check crashed (error treated as warning): {e}",
-                    recommendation="Investigate why this check failed. "
-                                   "The check may need schema or config adjustments.",
+                    score_impact=weight,
+                    severity=crash_severity,
+                    detail=f"Check crashed and could not verify data "
+                           f"(treated as {crash_severity}): {e}",
+                    recommendation="Investigate why this check crashed. The gate "
+                                   "fails closed because the dimension could not be verified.",
                 )
 
-            if _dq_metrics:
-                result_label = "passed" if check.passed else "failed"
-                DQ_CHECKS_TOTAL.labels(
-                    check_name=check.check_name,
-                    result=result_label,
-                ).inc()
+            if _dq_metrics_hook is not None:
+                try:
+                    _dq_metrics_hook(check.check_name, check.passed)
+                except Exception:
+                    pass  # metrics must never break the gate
 
             report.checks.append(check)
             if not check.passed:

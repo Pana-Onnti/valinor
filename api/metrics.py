@@ -52,6 +52,20 @@ DQ_CHECKS_TOTAL = Counter(
     ["check_name", "result"],  # result: passed | failed | warning
 )
 
+# Wire the DQ gate's metrics port to this counter (dependency inversion — the
+# Domain gate exposes set_dq_metrics_hook so it never imports api.metrics).
+try:
+    from core.valinor.quality.data_quality_gate import set_dq_metrics_hook
+
+    set_dq_metrics_hook(
+        lambda check_name, passed: DQ_CHECKS_TOTAL.labels(
+            check_name=check_name,
+            result="passed" if passed else "failed",
+        ).inc()
+    )
+except Exception:  # pragma: no cover - metrics wiring must never break startup
+    pass
+
 # ── HTTP ───────────────────────────────────────────────────────────────────────
 
 HTTP_REQUESTS_TOTAL = Counter(
