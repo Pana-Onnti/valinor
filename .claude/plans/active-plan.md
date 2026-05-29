@@ -1,69 +1,64 @@
-# Active Plan — VAL-161 + VAL-162 closed, VAL-163 created
+# Active Plan — Audit hardening sprint (2026-05-29)
 
-**Última actualización:** 2026-05-08 (cierre de sesión)
-**Branch actual:** `nicolasbaseggiodev/val-162-pipeline-timeouts` (1 commit ahead de develop, ya pusheado)
-**develop:** al día — `bd18d2c0` fix(infra): VAL-162 proxy concurrency + relaxed CLI timeout budget
+**Última actualización:** 2026-05-29
+**Branch actual:** `nicolasbaseggiodev/audit-demo-cache-race`
+**develop:** `bd18d2c0` (VAL-162). Esta branch tiene VAL-164 (demo lock) + el trabajo de abajo, aún sin mergear.
 
 ---
 
-## Sesión 2026-05-08 — VAL-161 merge + VAL-162 fix + VAL-163 spawn
+## Sesión 2026-05-29 — Audit workflow + VAL-107 + 3 fixes backend + harness
 
 ### Qué se hizo
 
-1. **VAL-161 mergeado a develop** (8 commits FF, último `af3224e0`). Branch limpia, push directo a develop sin PR.
-2. **VAL-161 cerrado en Linear** con closure honest: wiring entregado, claim cualitativo downgraded.
-3. **VAL-163 creado** (Medium, asignado, blocked by VAL-162, related to VAL-161): A/B controlado del Number Registry para medir delta marginal real.
-4. **VAL-162 atacado y cerrado**:
-   - Proxy `scripts/claude_proxy.py`: `HTTPServer` → `ThreadingHTTPServer`, subprocess timeout 300→960s. Validado con micro-test: 3 Haiku paralelos 6.1s vs 17.5s suma (CONCURRENT).
-   - CLI timeout default 300→900s en `cli_provider.py`, `config.py`, `monkey_patch.py` (×2 sites).
-   - `narrator_timeout` 180→920s en ambos production tests.
-   - `docs/TESTING.md` actualizado con tabla de budgets por capa.
-5. **3 production tests E2E reales corridos** (overkill, lección aprendida — ver `feedback_test_velocity.md`):
-   - Run 1 (cli=300s, narrator=320s): 627s, 2/4 narrators OK (ceo + executive). Controller cayó.
-   - Run 2 (cli=540s, narrator=560s): 855s, 3/4 narrators OK (controller pasa de 38 chars → 18.8K).
-   - Run 3 (cli=900s, narrator=920s): 1220s, 3/4 narrators OK. **Sales sigue cayendo al fallback exact (679 chars)** en los 3 runs — NO es timeout puro, prompt size + upstream rate-limit.
-6. **VAL-162 mergeado a develop** (commit `bd18d2c0`) y cerrado en Linear con nota honesta.
-7. **Suite excl. production tests** corriendo en background (no quemar tokens en E2E lento).
+1. **Workflow dinámico de auditoría** (8 subsistemas en paralelo → verificación adversaria → síntesis, 32 agentes). Reconstruyó los findings perdidos del audit 2026-04-27 (los `/tmp/*.md` ya no existían) y los priorizó con verificación contra el árbol vivo. 43 findings crudos → 13 críticos/altos confirmados como reales y sin arreglar.
 
-### Decisiones técnicas
+2. **VAL-107 — rate limiting activado y cerrado** (era Urgent, Todo):
+   - `limiter` singleton movido a `api/deps.py` con key per-tenant (`_rate_limit_key`: header `X-Tenant-ID`, fallback IP) + `retry_after="delta-seconds"` (429 lleva Retry-After).
+   - Decorators `@limiter.limit` en 6 endpoints: `start_analysis` 5/min, `stream_job_progress` 10/min, `nl_query` 20/min, `list_clients` 30/min, `verify_token` (portal, brute-force) 10/min, `run_demo` 10/min.
+   - Tests: `TestRateLimitWiring` en `test_api_endpoints.py` — key-func + chequeo estático de presencia de decorators (robusto a import-order; el stub `_FakeLimiter` strippea decorators y poluciona `slowapi.errors` globalmente, por eso NO se testea enforcement real en-proceso).
 
-- **No abrir VAL-164 para sales narrator** todavía. Se crea solo si vuelve como blocker en otro sprint. Razón: sales JSON pesado + Plan Max rate-limit es investigación dedicada, no urgente.
-- **No revertir cli=900s a 540s**: SaaS prod solo corre executive (~254s), así que el budget alto no afecta latencia real. Si bite alguna vez, una línea fix.
-- **Memoria nueva `feedback_test_velocity.md`**: capturar el hábito de no iterar tests E2E en cascada bumpeando timeouts.
+3. **3 fixes backend quirúrgicos (verificados por el workflow):**
+   - **`api/routers/jobs.py`** (HIGH): el conteo de jobs concurrentes tragaba errores Redis con `except: continue` → bypass del cap de 2 jobs. Ahora **fail-closed**: `except redis.RedisError` → log + HTTP 503. Test: `test_analyze_fails_closed_when_redis_errors_in_concurrency_check`.
+   - **`core/valinor/quality/data_quality_gate.py`** (HIGH): un check FATAL crasheado se degradaba a WARNING con peso//3 → el gate emitía PROCEED en vez de HALT (fail-open en el moat anti-alucinación). Ahora un check crasheado se trata con la **peor severidad que vigila** (mapa `CRASH_SEVERITY`) + peso completo (con `_WEIGHT_ALIASES` para los 2 checks cuyo nombre de método difiere de la key) + `logger.exception`. Tests: `TestCrashedCheckFailsClosed` (3).
+   - **`core/valinor/quality/data_quality_gate.py:174`** (MEDIUM): violación hexagonal `from api.metrics import DQ_CHECKS_TOTAL` (el único `from api` en todo core/). Resuelto por **inversión de dependencia**: el Domain expone `set_dq_metrics_hook(hook)`; `api/metrics.py` registra el sink al cargar. Domain ya no importa Infrastructure.
 
-### Estado del branch
+4. **Harness del entorno:**
+   - `.claude/hooks/*.sh` (commit-refs-check, commit-linear-sync, plan-freshness) ahora versionados; `plan-freshness.sh` usa `$CLAUDE_PROJECT_DIR` (portable).
+   - `.claude/settings.json` versionado y portable (`$CLAUDE_PROJECT_DIR` en vez de path absoluto).
+   - `.claude/skills/karpathy-guidelines/` versionado.
+   - `.gitignore`: añadido `.claude/scheduled_tasks.lock` + `.claude/*.lock`.
+   - `scripts/claude_proxy.py`: host/timeout/token configurables por env (`CLAUDE_PROXY_HOST`, `CLAUDE_PROXY_TIMEOUT`, `CLAUDE_PROXY_TOKEN`). Defaults sin cambios (0.0.0.0, 960s — respeta VAL-162; auth opt-in).
 
-- VAL-162 branch: 1 commit pusheado a develop. Working tree limpio salvo artifacts esperados (`web/tsconfig.tsbuildinfo`, `.claude/`).
-- VAL-161 branch + commits ya mergeados.
-- develop al día con todo.
+### Findings stale / descartados (NO re-investigar)
+
+- VAL-164 (demo cache race) — ya arreglado (commit 125ac141, `_demo_lock`).
+- Audit api-2 (portal bare-except JWT→static-token) y api-4 (`body: dict`) — `portal.py` ya refactorizado a Pydantic `TokenVerifyRequest` + `Depends`. Resueltos.
+
+---
+
+## Backlog verificado (queue, no este sprint)
+
+| Rank | Finding | Sev | Esfuerzo | Linear |
+|------|---------|-----|----------|--------|
+| 5 | Externalizar SYSTEM_PROMPTs hardcoded (inventory.py, narrators sales/controller/ceo) a `.claude/skills/*.md` | low | medium | VAL-106 |
+| 6 | JWT portal en localStorage plano → httpOnly cookie (XSS) | medium | medium (backend) | — |
+| 7 | `verification.py` daemon-thread query: dispose engine en timeout / statement_timeout | low | medium | — |
+| 8 | `FileUpload.tsx` notify en render → useEffect | low | small | VAL-119 |
+| — | Cloudflare Worker edge rate limiting (TODO, solo loggea) | medium | large | infra ticket aparte |
+| — | 500-handler test coverage gap | low | small | — |
+
+### Out of scope persistente (otros repos/productos)
+
+- VAL-144/146/147 — research paper (repo d4c-paper).
+- GRO-15/GRO-25 — SYSCOP (repo Pana-Onnti/syscop-agent, live prod).
+- ANN-1 — Annatar (repo separado).
+- VAL-106 (externalizar prompts), VAL-119 (catálogo versionado) — siguen Todo/Urgent.
 
 ---
 
 ## Pendientes próxima sesión
 
-### Inmediato
-
-- **Suite excl. production tests**: validar que pasa (corriendo en background al cierre). Si rojo, investigar.
-- Decidir si limpiar el branch `nicolasbaseggiodev/val-161-anti-hallucination-integration` localmente (ya mergeado).
-
-### Linear queue siguiente
-
-1. **VAL-163** (Medium, ya creado, blocked by VAL-162): A/B Number Registry. Ya destrabado al cerrar VAL-162.
-2. **GRO-15 / VAL-121** (Urgent): SYSCOP — bloqueado por creds Gerardo, fuera de control nuestro hasta que él responda.
-3. **GRO-11** (Urgent): YC application — deadline 2026-08-01, no urgente todavía.
-4. Sales narrator deep-dive si surge (potencial VAL-164).
-
-### Out of scope persistente
-
-- A/B controlado del Number Registry → VAL-163 ya creado.
-- Active re-querying contra DB en VerificationEngine (acepta `connection_string`/`entity_map` pero no se pasan).
-- SaaS corriendo los 4 narrators (sigue solo Executive — issue separado si surge).
-- Sales narrator: prompt diet, Haiku fallback, medir rate-limit.
-
----
-
-## Hallazgos del audit 2026-04-27 (queue, no este sprint)
-
-- Backend: 50 findings en `/tmp/valinor-backend-findings.md` (5 críticos: race demo cache, exception swallowing, hexagonal violation `data_quality_gate.py:174`, DQ degrada exceptions a WARNING, bare except verification.py:1207)
-- Frontend: 22 findings en `/tmp/valinor-frontend-findings.md` (5 críticos: untyped API, stale closure polling, JWT plain en localStorage, FileUpload a11y, ErrorBoundary mistype)
-- Doc-vs-code: 12 gaps en `/tmp/valinor-backend-architecture.md`
+- **Mergear esta branch a develop** una vez verde la suite (excl. production E2E).
+- Cerrar VAL-107 en Linear con la nota de scope real (6 endpoints + per-tenant + Retry-After + test).
+- Documentar la política de crash-handling del DQ gate en `DOMAIN_MODEL.md`/`ARCHITECTURE.md` (check FATAL/CRITICAL crasheado → HALT, no degradar a WARNING).
+- VAL-106 / VAL-119 siguen siendo la cola Urgent in-repo.

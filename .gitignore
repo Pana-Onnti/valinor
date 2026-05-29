@@ -3,6 +3,10 @@ node_modules/
 .pnp
 .pnp.js
 
+# Claude Code local/runtime artifacts (settings.local.json is ignored globally)
+.claude/scheduled_tasks.lock
+.claude/*.lock
+
 # Testing
 coverage/
 *.lcov
