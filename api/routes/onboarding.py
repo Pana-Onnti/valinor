@@ -5,6 +5,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 import re
+import socket
+import ipaddress
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
@@ -387,44 +389,69 @@ async def validate_period(body: dict):
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
 
-_PRIVATE_RANGES = [
-    re.compile(r'^127\.'),
-    re.compile(r'^10\.'),
-    re.compile(r'^192\.168\.'),
-    re.compile(r'^172\.(1[6-9]|2\d|3[01])\.'),
-    re.compile(r'^0\.'),
-    re.compile(r'^169\.254\.'),
-    re.compile(r'^::1$'),
-    re.compile(r'^fc00:', re.IGNORECASE),
-    re.compile(r'^fe80:', re.IGNORECASE),
-]
-
 _ALLOWED_HOSTNAME = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$')
+
+# Names that always point at a host-local / internal target — blocked by name
+# (offline-safe; getaddrinfo would catch most of these too).
+_BLOCKED_HOSTNAMES = {
+    "localhost", "localhost.localdomain", "ip6-localhost",
+    "metadata", "metadata.google.internal",
+    "instance-data", "instance-data.ec2.internal",
+}
+
+
+def _ip_is_blocked(ip_str: str) -> bool:
+    """True if ip_str parses to a private/loopback/link-local/reserved/multicast/unspecified IP."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return (ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_reserved or ip.is_multicast or ip.is_unspecified)
 
 
 def _validate_ssh_host(host: str) -> None:
     """
-    ZeroTrustValidator: block RFC-1918 / loopback addresses to prevent
-    SSRF via SSH tunnel. Only public hostnames and IPs are allowed.
-    Raises HTTPException(400) on violation.
+    Zero-trust SSRF guard (VAL-108): reject any host that IS, or RESOLVES TO, a
+    private / loopback / link-local / reserved address. Uses ipaddress + getaddrinfo,
+    so IP literals in every encoding (dotted/decimal/hex/octal/IPv6/IPv4-mapped) and
+    hostnames that resolve to internal addresses are all caught — not just dotted-quad
+    regexes. Raises HTTPException(400) on violation.
     """
     if not host or len(host) > 253:
         raise HTTPException(status_code=400, detail="Invalid host value")
 
-    # Block private/loopback ranges
-    for pattern in _PRIVATE_RANGES:
-        if pattern.match(host):
+    h = host.strip().lower().strip("[]")  # tolerate IPv6 brackets
+    if h in _BLOCKED_HOSTNAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Host '{host}' is not allowed (zero-trust policy)",
+        )
+
+    # Direct IP literal (dotted IPv4 / IPv6) that is internal.
+    if _ip_is_blocked(h):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Host '{host}' is in a reserved/private range (zero-trust policy)",
+        )
+
+    # Resolve to IP(s). getaddrinfo also canonicalizes integer/hex/octal IP forms
+    # (e.g. 2130706433, 0x7f000001 -> 127.0.0.1), so encoded-loopback bypasses get
+    # caught here. Unresolvable at validation time -> don't hard-fail (connect will).
+    try:
+        resolved = {info[4][0] for info in socket.getaddrinfo(h, None)}
+    except (socket.gaierror, OSError, UnicodeError):
+        resolved = set()
+    for ip_str in resolved:
+        if _ip_is_blocked(ip_str):
             raise HTTPException(
                 status_code=400,
-                detail=f"Host '{host}' is in a reserved/private range and is not allowed (zero-trust policy)"
+                detail=f"Host '{host}' resolves to a reserved/private address (zero-trust policy)",
             )
 
-    # Allow numeric IPs (basic check) or valid hostnames
-    if not _ALLOWED_HOSTNAME.match(host):
-        # Could be a raw IP — let it through, private ranges already blocked above
-        ip_pattern = re.compile(r'^\d{1,3}(\.\d{1,3}){3}$')
-        if not ip_pattern.match(host):
-            raise HTTPException(status_code=400, detail=f"Invalid hostname format: '{host}'")
+    # Hostnames that didn't resolve must still look like hostnames.
+    if not resolved and not _ALLOWED_HOSTNAME.match(h):
+        raise HTTPException(status_code=400, detail=f"Invalid hostname format: '{host}'")
 
 
 def _ping_postgres_via_channel(channel, dbname: str, user: str, password: str) -> bool:

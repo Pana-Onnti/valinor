@@ -10,6 +10,7 @@ Usage:
 """
 
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -58,7 +59,7 @@ async def verify_api_key(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if credentials.credentials != expected_key:
+    if not secrets.compare_digest(credentials.credentials, expected_key):
         logger.warning(
             "auth.invalid_key",
             path=request.url.path,

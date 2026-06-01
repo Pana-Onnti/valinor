@@ -126,6 +126,15 @@ async def lifespan(app: FastAPI):
         set_redis_client(redis_client)
         await metadata_storage.health_check()
         logger.info("Metadata storage initialized")
+        # VAL-108: be loud when the API-key gate is unconfigured. Without VALINOR_API_KEY,
+        # verify_api_key is a no-op and every protected router is open.
+        if not os.getenv("VALINOR_API_KEY"):
+            if os.getenv("APP_ENV") == "production":
+                logger.error("auth.unconfigured",
+                             detail="VALINOR_API_KEY unset in production — API is UNAUTHENTICATED")
+            else:
+                logger.warning("auth.dev_mode",
+                               detail="VALINOR_API_KEY unset — API auth disabled (dev-mode)")
     except Exception as e:
         logger.error("Startup failed", error=str(e))
         raise
