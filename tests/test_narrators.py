@@ -429,6 +429,7 @@ class TestNarratorAgentImports:
 # TestNarratorAgentStubBehavior
 # ---------------------------------------------------------------------------
 
+@pytest.mark.live  # VAL-171: calls real narrators (proxy up => real LLM) — gated by --run-slow
 class TestNarratorAgentStubBehavior:
     """
     Tests that narrator agents return an empty string (not raise) when the

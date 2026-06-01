@@ -66,6 +66,9 @@ GLORIA_AVAILABLE = _pg_available(GLORIA_CONN)
 HARDIS_AVAILABLE = _pg_available(HARDIS_CONN)
 LLM_IS_AVAILABLE = _llm_available()
 
+# VAL-171: whole-file real-pipeline matrix test (real Claude agents + Gloria). Gated by --run-slow.
+pytestmark = pytest.mark.live
+
 
 def _install_real_sdk():
     os.environ["LLM_PROVIDER"] = "console_cli"

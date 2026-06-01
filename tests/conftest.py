@@ -394,6 +394,13 @@ def pytest_configure(config):
         config._valinor_reporter = reporter
         config.pluginmanager.register(reporter, "valinor-progress")
 
+    # Safety net + slow gate (VAL-171): a default --timeout=45 (pytest.ini) means no test
+    # can hang the suite/CI — a stuck/unmarked real-LLM test fails instead of blocking
+    # forever. But the real-pipeline tests run under --run-slow legitimately take minutes,
+    # so disable the timeout there.
+    if config.getoption("--run-slow", default=False):
+        config.option.timeout = 0
+
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):

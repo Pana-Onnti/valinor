@@ -49,6 +49,10 @@ def _llm_available() -> bool:
 
 LLM_IS_AVAILABLE = _llm_available()
 
+# VAL-171: whole-file real-pipeline test (real Claude agents). Gated by --run-slow so a
+# plain `pytest` skips it instead of making real LLM calls whenever the host proxy is up.
+pytestmark = pytest.mark.live
+
 OUTPUT_DIR = Path(__file__).parent / "output" / "periods"
 
 

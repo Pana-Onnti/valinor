@@ -69,6 +69,9 @@ def _llm_available() -> bool:
 PG_IS_AVAILABLE = _pg_available()
 LLM_IS_AVAILABLE = _llm_available()
 
+# VAL-171: whole-file real-pipeline test (real Claude agents + Gloria). Gated by --run-slow.
+pytestmark = pytest.mark.live
+
 
 def _install_real_sdk():
     os.environ["LLM_PROVIDER"] = "console_cli"

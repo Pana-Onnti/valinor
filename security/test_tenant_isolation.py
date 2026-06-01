@@ -168,6 +168,7 @@ class TestEntityMapTenantIsolation:
 
 # ── NL Query Tenant Isolation Tests ──────────────────────────────────────────
 
+@pytest.mark.live  # VAL-171: builds real NL/Vanna adapters (LLM) — gated by --run-slow
 class TestNLQueryTenantIsolation:
     """Tests that NL query endpoint scopes results to the requesting tenant."""
 
