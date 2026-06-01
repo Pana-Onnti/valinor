@@ -97,6 +97,24 @@ Pulumi.*.yaml
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?__pycache__/
+*.sw?
+
+# Python (parity with .dockerignore — VAL-167)
+__pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+venv/
+.venv/
+env/
+
+# Generated output / build artifacts
 tests/output/
+/output/
+web/*.tsbuildinfo
+
+# Secrets / keys (never commit — see CLAUDE.md non-negotiable #5)
+ssh_keys/
