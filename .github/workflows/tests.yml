@@ -76,7 +76,7 @@ jobs:
 
       - name: Run tests with coverage and JSON report
         run: |
-          pytest tests/ \
+          pytest tests security \
             --cov=api --cov=shared --cov=core \
             --cov-report=xml \
             --cov-report=term-missing \

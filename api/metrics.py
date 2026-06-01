@@ -97,14 +97,21 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         duration = time.perf_counter() - start
 
+        # Use the matched route TEMPLATE (e.g. "/api/jobs/{job_id}/status") instead of
+        # the realized URL so UUID/name path params don't explode metric cardinality —
+        # one timeseries per job_id would blow up the registry (VAL-169). Falls back to
+        # the raw path only when no route matched (e.g. 404s), preserving prior behavior.
+        route = request.scope.get("route")
+        path_label = getattr(route, "path", None) or request.url.path
+
         HTTP_REQUESTS_TOTAL.labels(
             method=request.method,
-            path=request.url.path,
+            path=path_label,
             status_code=str(response.status_code),
         ).inc()
         HTTP_REQUEST_DURATION.labels(
             method=request.method,
-            path=request.url.path,
+            path=path_label,
         ).observe(duration)
 
         return response

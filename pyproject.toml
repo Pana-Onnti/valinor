@@ -79,17 +79,10 @@ disallow_untyped_defs = false
 disallow_any_generics = false
 ignore_missing_imports = true
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py", "*_test.py"]
-addopts = "-v --tb=short --strict-markers"
-asyncio_mode = "auto"
-markers = [
-    "mandatory: tests that must pass before any merge (pipeline core)",
-    "live: tests that call real LLM agents via proxy (slow, non-deterministic)",
-    "mssql: tests that require a real SQL Server instance",
-    "discovery_benchmark: golden-dataset benchmark for the Discovery Engine (opt-in)",
-]
+# pytest config lives in pytest.ini (single source of truth — VAL-169).
+# pytest.ini takes precedence over this file, so a [tool.pytest.ini_options] block here
+# would be silently ignored and drift (it did: testpaths "tests" vs "tests security").
+# Do NOT re-add it — edit pytest.ini instead.
 
 [tool.coverage.run]
 source = ["valinor_saas", "api", "worker", "shared"]
