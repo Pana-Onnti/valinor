@@ -93,6 +93,11 @@ async def test_db_connection(request: ConnectionTestRequest):
 
     start = time.time()
 
+    # SSRF guard (VAL-108): block direct connections to private/loopback hosts using
+    # the same zero-trust host check as /ssh-test. The client DB must be public; this
+    # stops an unauthenticated caller from probing the internal network via /test-connection.
+    _validate_ssh_host(request.host)
+
     # Build connection string (no SSH for now — SSH validation is separate)
     if request.db_type == "postgresql":
         conn_str = f"postgresql://{request.user}:{request.password}@{request.host}:{request.port}/{request.database}"

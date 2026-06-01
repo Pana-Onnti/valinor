@@ -23,6 +23,7 @@ import structlog
 from fastapi import HTTPException, Request, status
 from fastapi.security import HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 logger = structlog.get_logger()
 
@@ -85,15 +86,24 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 token = auth_header[7:]
                 tenant_id = _extract_tenant_from_jwt(token)
 
-        # 3. Fall back to default tenant
+        # 3. Resolve missing tenant
         if not tenant_id:
             if _is_multi_tenant_enabled():
-                # In multi-tenant mode, tenant is required for non-skip paths
-                # But allow it for now with a warning — strict enforcement comes later
+                # Multi-tenant mode: a tenant is REQUIRED for non-skip paths. Fail
+                # closed (401) instead of silently defaulting — otherwise any caller
+                # without an X-Tenant-ID could read/write the default tenant's data
+                # (VAL-108). Single-tenant/dev mode keeps the default fallback below.
                 logger.warning(
                     "tenant.missing",
                     path=request.url.path,
                     method=request.method,
+                )
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={
+                        "error": "tenant_required",
+                        "message": "X-Tenant-ID header or a tenant JWT claim is required",
+                    },
                 )
             tenant_id = DEFAULT_TENANT_ID
 

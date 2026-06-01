@@ -20,7 +20,7 @@ import uuid as _uuid
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -49,6 +49,7 @@ from api.routers.demo import router as demo_router  # noqa: E402
 from api.logging_config import setup_logging  # noqa: E402
 from api.metrics import PrometheusMiddleware, metrics_response  # noqa: E402, F401
 from api.deps import set_redis_client, limiter  # noqa: E402
+from api.auth import verify_api_key  # noqa: E402
 
 # Re-export models for backward compatibility (tests import from api.main)
 from api.models import (  # noqa: F401, E402
@@ -281,17 +282,28 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 # ═══ REGISTER ROUTERS ═══
 
+# Public routers — no global API-key gate:
+#   system: /health, /metrics, /api/version must stay reachable unauthenticated.
+#   portal: protected by its own per-session portal token (api/routers/portal.py).
+#   demo:   intentionally public.
 app.include_router(system_router)
-app.include_router(jobs_router)
-app.include_router(clients_router)
-app.include_router(alerts_router)
-app.include_router(reports_router)
-app.include_router(quality_router)
-app.include_router(onboarding_router)
-app.include_router(nl_query_router)
 app.include_router(portal_router)
-app.include_router(upload_router)
 app.include_router(demo_router)
+
+# Protected routers — require a valid API key WHEN VALINOR_API_KEY is configured.
+# verify_api_key is env-gated: with no key set (dev/CI/tests) it is a no-op
+# ("dev-mode"), so wiring it here does not break local dev or the suite. Enabling
+# enforcement in prod also requires the operator frontend to send the key — tracked
+# in docs/PROJECT_STATE.md (VAL-108).
+_protected = [Depends(verify_api_key)]
+app.include_router(jobs_router, dependencies=_protected)
+app.include_router(clients_router, dependencies=_protected)
+app.include_router(alerts_router, dependencies=_protected)
+app.include_router(reports_router, dependencies=_protected)
+app.include_router(quality_router, dependencies=_protected)
+app.include_router(onboarding_router, dependencies=_protected)
+app.include_router(nl_query_router, dependencies=_protected)
+app.include_router(upload_router, dependencies=_protected)
 
 
 # ═══ MAIN ═══

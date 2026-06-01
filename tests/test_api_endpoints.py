@@ -1168,3 +1168,46 @@ class TestRateLimitWiring:
                 f"{func} in {filename} missing @limiter.limit(\"{rate}\"); "
                 f"decorators found: {decorators}"
             )
+
+
+# ---------------------------------------------------------------------------
+# VAL-108: API-key auth wiring
+# ---------------------------------------------------------------------------
+
+
+class TestAuthWiring:
+    """Protected routers carry the env-gated verify_api_key dependency; public
+    routes (health/version, the portal's own per-session token, demo) do not.
+    verify_api_key is a no-op when VALINOR_API_KEY is unset, so this only checks
+    that the dependency is *wired*, not that enforcement is on."""
+
+    @staticmethod
+    def _has_api_key_dep(route) -> bool:
+        from api.auth import verify_api_key
+        dependant = getattr(route, "dependant", None)
+        if dependant is None:
+            return False
+        return any(d.call is verify_api_key for d in dependant.dependencies)
+
+    def _routes_by_path(self):
+        from api.main import app
+        out = {}
+        for r in app.routes:
+            p = getattr(r, "path", None)
+            if p:
+                out.setdefault(p, r)
+        return out
+
+    def test_protected_endpoints_require_api_key(self):
+        routes = self._routes_by_path()
+        for path in ("/api/analyze", "/api/onboarding/test-connection"):
+            assert path in routes, f"route {path} missing"
+            assert self._has_api_key_dep(routes[path]), f"{path} not gated by verify_api_key"
+
+    def test_public_endpoints_are_not_api_key_gated(self):
+        routes = self._routes_by_path()
+        for path in ("/health", "/api/version", "/portal/verify"):
+            assert path in routes, f"route {path} missing"
+            assert not self._has_api_key_dep(routes[path]), (
+                f"{path} must not require the global API key"
+            )
