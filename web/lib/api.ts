@@ -71,7 +71,7 @@ export function fetchAlertThresholds(
   name: string
 ): Promise<{ thresholds: Record<string, AlertThreshold> }> {
   return apiFetch<{ thresholds: Record<string, AlertThreshold> }>(
-    `/api/clients/${encodeURIComponent(name)}/thresholds`
+    `/api/clients/${encodeURIComponent(name)}/alerts/thresholds`
   )
 }
 
@@ -81,7 +81,7 @@ export function createAlertThreshold(
   threshold: AlertThreshold
 ): Promise<AlertThreshold> {
   return apiFetch<AlertThreshold>(
-    `/api/clients/${encodeURIComponent(name)}/thresholds`,
+    `/api/clients/${encodeURIComponent(name)}/alerts/thresholds`,
     { method: "POST", body: JSON.stringify(threshold) }
   )
 }
@@ -92,7 +92,7 @@ export async function deleteAlertThreshold(
   metric: string
 ): Promise<void> {
   await apiFetch<void>(
-    `/api/clients/${encodeURIComponent(name)}/thresholds/${encodeURIComponent(metric)}`,
+    `/api/clients/${encodeURIComponent(name)}/alerts/thresholds/${encodeURIComponent(metric)}`,
     { method: "DELETE" }
   )
 }
