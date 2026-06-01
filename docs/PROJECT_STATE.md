@@ -23,7 +23,7 @@ reportes ejecutivos con un swarm de agentes Claude, **sin almacenar datos del cl
 | Capa | Dónde | Realidad |
 |---|---|---|
 | Engine de análisis | `core/valinor/` | pipeline (facade de 89 LOC sobre `pipeline_stages`/`_reconciliation`/`_narrator`), agentes (cartographer, analyst, sentinel, hunter, query_builder/generator, narrators), `quality/` (DQ gate + stats), `knowledge_graph`, `verification`, `discovery`, `verticals` |
-| API | `api/` | FastAPI; `main.py` 308 LOC bien factorizado; routers en `routers/` + `routes/`; `deps.py` (limiter), `tenant.py`, `auth.py`, `metrics.py`; adapter en `adapters/valinor_adapter.py` (1483 LOC, candidato a split) |
+| API | `api/` | FastAPI; `main.py` bien factorizado (routers extraídos); routers en `routers/` + `routes/`; `deps.py` (limiter), `tenant.py`, `auth.py`, `metrics.py`; adapter en `adapters/valinor_adapter.py` (~1.5k LOC, candidato a split) |
 | Worker | `worker/` | Celery + Redis (`celery_app.py`, `tasks.py`, `scheduler.py`) |
 | Frontend | `web/` | Next.js 14 App Router (TS, Tailwind, React Query, recharts); operator console + demo público + portal cliente |
 | Shared | `shared/` | `connectors/` (PostgreSQL, MySQL, Etendo, SQLite, **MSSQL**), `llm/` (provider switcher), `memory/` (ProfileStore, segmentation, alerts), `db_pool` |
@@ -86,8 +86,13 @@ Los marcados ✅ se resolvieron en el sprint de cimientos (2026-06-01).
 1. **Auth de usuario real en el operator console** (`web/app/{dashboard,clients,...}`): hoy no
    envía token. `verify_api_key` está cableado y env-gated en el backend; falta el login del
    frontend y setear `VALINOR_API_KEY` en prod. (extiende VAL-108)
-2. **Endurecer multi-tenant**: con `VALINOR_MULTI_TENANT=true`, `TenantMiddleware` ya rechaza en
-   vez de defaultear; falta ejercer RLS (`set_tenant_db_context`) en los routers que tocan datos.
+2. **Bindear tenant a credencial (no al header).** Gap conocido (review 2026-06-01): `X-Tenant-ID`
+   se confía verbatim — un caller autenticado puede impersonar otro tenant. El 401 fail-closed solo
+   cubre el header ausente, no la suplantación. Fix real: tenant desde claim JWT / API-key per-tenant
+   + ejercer RLS (`set_tenant_db_context`) en los routers que tocan datos. (extiende VAL-108)
+3. **SSRF residual (TOCTOU).** El guard de `/test-connection` ya resuelve y bloquea IPs internas en
+   toda codificación, pero no fija la IP al conectar → rebinding entre validación y connect sigue
+   abierto. Pin de IP en connect time como hardening adicional.
 3. **Contrato tipado backend↔frontend**: generar cliente TS desde el OpenAPI para que un mismatch
    de prefijo sea error de compilación, no 404 en runtime. (sigue VAL-168)
 4. **Tests de frontend**: hoy `web/` no tiene framework de test. Agregar vitest + un smoke Playwright.
