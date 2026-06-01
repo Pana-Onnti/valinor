@@ -1,8 +1,28 @@
-# Active Plan — Audit hardening sprint (2026-05-29)
+# Active Plan — Foundations realignment sprint (2026-06-01)
 
-**Última actualización:** 2026-05-29
+**Última actualización:** 2026-06-01
 **Branch actual:** `nicolasbaseggiodev/audit-demo-cache-race`
-**develop:** `bd18d2c0` (VAL-162). Esta branch tiene VAL-164 (demo lock) + el trabajo de abajo, aún sin mergear.
+**origin/develop:** `125ac141` (VAL-164). Esta branch suma VAL-165/107 + el sprint de cimientos 2026-06-01, aún sin mergear.
+**Estado vivo canónico:** `docs/PROJECT_STATE.md`.
+
+---
+
+## Sesión 2026-06-01 — Foundations realignment (docs + higiene + 4 fixes + auth)
+
+Auditoría adversaria de cimientos (16 agentes) → realineación completa. 7 commits nuevos sobre develop:
+
+- **VAL-167** — higiene: `.gitignore` reparado (línea corrupta + venv/egg-info/output/tsbuildinfo/ssh_keys); track muerto "simple/MVP" + infra huérfana archivados a `_archived/simple-stack/`; 3 `test_*.py` de root → `scripts/manual/`; borrados duplicado `.html` + `requirements.in`. **Pendiente manual:** destrackear venv/egg-info/output/tsbuildinfo del índice (cache-remove bloqueado por hook de seguridad).
+- **VAL-166** — docs: archivados `STRUCTURE.md` (ficción TS), `investigacion/` (→`docs/_archive/audit-2026-03/`), `MIGRATION_PLAN.md`; drift corregido en README/ARCHITECTURE/AGENT_GUIDE/API_REFERENCE/SUPPORTED_SOURCES/ROADMAP; `INFRASTRUCTURE`/`DEPLOYMENT` movidos a `docs/`; nuevo `docs/PROJECT_STATE.md`. Root: solo README + CLAUDE.
+- **VAL-169** — infra/CI: worker consume `valinor,maintenance,analysis`; Prometheus label por route-template; bloque pytest muerto de pyproject borrado; CI corre `pytest tests security` (gate de los 56 tests de `security/`).
+- **VAL-168** — web: prefijos `/api/v1`→`/api` y `/portal` (portal + `lib/api.ts` 404eaban en runtime); `system.py` api_prefix honesto.
+- **VAL-170** — core: `is_safe_identifier` valida entity_map (LLM) en `sales_v2.py` (chokepoint `_table/_col`) + DQ gate (`_safe_ident` en los 3 finders); `int(months)`; test de inyección.
+- **VAL-107** (fallout) — los 12 stubs `_FakeLimiter` toleran `retry_after`.
+- **VAL-108** — auth env-gated cableada en 8 routers sensibles; SSRF de `/test-connection` cerrado (host guard); multi-tenant 401 fail-closed; `TestAuthWiring`.
+
+### Pendientes próxima sesión
+- **Destrackear el cruft del índice** (venv = 11k archivos): correr el cache-remove manual.
+- **Mergear esta branch a develop** (suite verde) + **abrir PR develop→master** (deuda ~13 commits desde 2026-04-24).
+- Auth de usuario real en operator console (extiende VAL-108); contrato OpenAPI→TS (VAL-168); tests de frontend; lockfile de deps.
 
 ---
 
