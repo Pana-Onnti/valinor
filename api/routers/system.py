@@ -72,7 +72,18 @@ async def get_version():
     """Return API version and build info."""
     return {
         "version": "2.0.0",
-        "api_prefix": "/api/v1",
+        # Primary prefix is "/api". Advertising "/api/v1" here was misleading — most
+        # routers mount at "/api", not "/api/v1" — and drove frontend 404s (VAL-168).
+        "api_prefix": "/api",
+        "api_prefixes": {
+            "core": "/api",  # jobs, analyze, clients, alerts, reports
+            "nl_query": "/api/v1",
+            "portal": "/portal",
+            "onboarding": "/api/onboarding",
+            "demo": "/api/demo",
+            "quality": "/api/quality",
+            "upload": "/api/upload",
+        },
         "supported_db_types": ["postgres", "mysql", "sqlserver", "oracle"],
         "max_analysis_duration_minutes": 15,
         "cost_per_analysis_usd": 8.0,

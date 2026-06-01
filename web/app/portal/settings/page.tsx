@@ -17,7 +17,7 @@ export default function PortalSettingsPage() {
     async function checkStatus() {
       try {
         const token = getToken()
-        const res = await fetch(`${BASE_URL}/api/v1/portal/status`, {
+        const res = await fetch(`${BASE_URL}/portal/status`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (res.ok) {
