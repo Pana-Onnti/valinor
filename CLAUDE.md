@@ -49,7 +49,9 @@ Ver `docs/TESTING.md` para guía completa. Skill: "correr test real" → `produc
 ## Contexto on-demand
 | Qué | Dónde |
 |-----|-------|
+| **Estado vivo verificado + agenda de la etapa nueva** | **`docs/PROJECT_STATE.md`** (empezar acá) |
 | Arquitectura técnica | `docs/ARCHITECTURE.md` |
+| Deploy producción (Railway + Vercel) | `docs/INFRASTRUCTURE.md` · `docs/DEPLOYMENT.md` |
 | Guía de dev, puertos, known issues | `docs/DEVELOPER_GUIDE.md` |
 | Domain model (Valar, pipeline, DQ) | `docs/DOMAIN_MODEL.md` |
 | Testing & production tests | `docs/TESTING.md` |

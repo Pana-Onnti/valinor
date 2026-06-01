@@ -465,37 +465,25 @@ docker compose exec redis redis-cli ping
 
 ---
 
-## Deployment en Producción (Fase 1 — Zero Cost)
+## Deployment en Producción
 
-### Cloudflare Workers (API gateway)
+Producción corre en **Railway** + **Vercel**, vía GitHub Actions
+(`.github/workflows/deploy.yml` despliega en push a `develop`/`master`).
+**Documento autoritativo: [INFRASTRUCTURE.md](INFRASTRUCTURE.md)** (servicios Railway,
+project IDs, env vars, Sentry, rotación de secretos).
 
-```bash
-# Instalar Wrangler
-npm install -g wrangler
+| Componente | Plataforma |
+|---|---|
+| API (FastAPI) | Railway |
+| Worker (Celery) | Railway |
+| PostgreSQL (metadata) | Railway managed |
+| Redis (queue/state) | Railway managed |
+| Frontend (Next.js) | Vercel (`vercel --prod` desde `web/`, lo hace CI) |
+| Errores/observabilidad | Sentry |
 
-# Login
-wrangler login
-
-# Deploy
-cd deploy/
-wrangler deploy
-
-# Configurar secretos
-wrangler secret put ANTHROPIC_API_KEY
-```
-
-### Vercel (Frontend)
-
-```bash
-cd web/
-npx vercel --prod
-```
-
-### Supabase (Metadata DB en producción)
-
-1. Crear proyecto en supabase.com
-2. Ejecutar `deploy/sql/init.sql` en el SQL editor
-3. Agregar `SUPABASE_URL` y `SUPABASE_KEY` al `.env`
+> ⚠️ El track histórico **Cloudflare Workers + Supabase NO se adoptó**. Cualquier
+> referencia a `wrangler deploy` o Supabase-as-prod-DB pertenece a un plan anterior
+> archivado — no la sigas.
 
 ---
 
@@ -528,4 +516,4 @@ curl -s http://localhost:8000/docs | grep -o "swagger"
 
 ---
 
-*Valinor SaaS v2 — Delta 4C — Marzo 2026*
+*Valinor SaaS v2 — Delta 4C — Junio 2026*

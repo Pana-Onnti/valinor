@@ -4,7 +4,7 @@
 **Version**: 2.0.0
 **Interactive docs**: `/docs` (Swagger UI) · `/redoc` (ReDoc)
 
-Rate limiting: most write endpoints are capped at **10 requests/minute** per IP.
+Rate limiting: write endpoints are capped **per-tenant** (`X-Tenant-ID` header, per-IP fallback when absent — VAL-107); 429 responses carry a `Retry-After` header. See per-endpoint limits below.
 All responses are JSON unless noted otherwise.
 
 ---

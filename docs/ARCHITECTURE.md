@@ -1,7 +1,7 @@
 # Valinor SaaS v2 — Arquitectura Tecnica
 
-> Estado: Abril 2026. Fases 1–8 (ver docs/ROADMAP.md para detalle).
-> SYSCOP sprint en progreso — primer cliente pagante.
+> Estado: Junio 2026. Fases 1–7 cerradas (ver docs/ROADMAP.md). Estado vivo verificado: docs/PROJECT_STATE.md.
+> SYSCOP (Fase 8) suspendido — corre en repo separado `Pana-Onnti/syscop-agent`, no en este repo.
 
 ---
 
@@ -121,8 +121,8 @@ Deterministic pre-flight check (no LLM cost). Verifies base_filter correctness v
 ### Discovery (Schema Topology)
 Classifies schema complexity (FULL / SLIM / MINIMAL) to gate query generation. FULL topology requires invoices + customers + payments. SLIM requires invoices + customers. MINIMAL generates only base financial queries.
 
-### Discovery v2 (IN PROGRESS — VAL-125)
-Multi-agent schema understanding for databases without explicit FK constraints (typical of Argentine ERP systems). Planned architecture:
+### Discovery v2 (DONE — VAL-125, cerrado 2026-04-18)
+Multi-agent schema understanding for databases without explicit FK constraints (typical of Argentine ERP systems). Architecture (shipped):
 - SchemaExtractor: SQLAlchemy Inspector, dialect-aware (PostgreSQL, MySQL, SQL Server)
 - Structural Profiler: column type/name pattern analysis
 - Multi-Agent Inference: 4 parallel agents (structural, semantic, statistical, LLM) producing candidate relations
@@ -152,10 +152,18 @@ API key authentication via `VALINOR_API_KEY` environment variable. CORS origins 
 
 ---
 
-## Cash Flow Forecaster & Quorum Model
+## Conflict Reconciliation (Haiku arbiter)
 
-- **Cash Flow Forecaster**: Forward-looking cash flow projections based on aging analysis, payment patterns, and outstanding AR.
-- **Quorum Model**: Multi-agent consensus mechanism. When 2+ agents report conflicting values (>2x difference), a Haiku arbiter reconciles. The reconciliation result includes which agent was closer to truth.
+When 2+ agents report conflicting values (>2x difference), a Haiku arbiter reconciles
+them and records which agent was closer to truth.
+**Live implementation:** `core/valinor/pipeline_reconciliation.py` (`reconcile_swarm`,
+CONFLICT_THRESHOLD 2x), invoked from `run.py`.
+
+> **Not wired (experimental — referenced only by their own tests):**
+> `core/valinor/agents/cash_flow_forecaster.py`, `core/valinor/agents/anomaly_explainer.py`,
+> `core/valinor/quorum.py`, and `core/valinor/calibration/`. These are NOT in the
+> production pipeline. Do not describe them as live capabilities. Candidates to wire
+> or archive — tracked in VAL-167.
 
 ---
 
@@ -185,7 +193,7 @@ AlertEngine → umbrales por cliente
 | `ValinorAdapter` | `api/adapters/valinor_adapter.py` | Punto de entrada al pipeline v0 |
 | `SSHTunnelManager` | `shared/ssh_tunnel.py` | Túneles SSH efímeros + ZeroTrust |
 | `ConnectionPoolManager` | `shared/db_pool.py` | Connection pooling con SQLAlchemy QueuePool |
-| `DataQualityGate` | `core/valinor/gates.py` | 8+1 checks pre-análisis |
+| `DataQualityGate` | `core/valinor/quality/data_quality_gate.py` | 9 checks pre-análisis (8 + REPEATABLE READ snapshot); fail-closed en crash (VAL-165) |
 | `CurrencyGuard` | `core/valinor/quality/` | Detección de datos stale |
 | `VerificationEngine` | `core/valinor/verification.py` | Anti-hallucination: verifica findings contra DB |
 | `SchemaKnowledgeGraph` | `core/valinor/knowledge_graph.py` | Grafo de schema para JOINs y filtros |
@@ -208,7 +216,7 @@ AlertEngine → umbrales por cliente
 | MySQL | `MySQLConnector` | Tested |
 | SQLite | `SQLiteConnector` | Production (file ingestion) |
 | Etendo | `EtendoConnector` | Production (Gloria) |
-| SQL Server | — | **Parcial**: solo ping/onboarding. MSSQLConnector pendiente (VAL-122) |
+| SQL Server | `MSSQLConnector` | Implementado (`shared/connectors/mssql_connector.py`) |
 
 ## Stack tecnologico
 
@@ -223,7 +231,7 @@ AlertEngine → umbrales por cliente
 | Real-time | SSE + Redis Pub/Sub (per-agent progress) |
 | Frontend | Next.js + Tailwind CSS + D4C Design System |
 | Monitoring | Prometheus (puerto 9090) + Grafana + Loki |
-| Testing | pytest (~3055 tests) |
+| Testing | pytest (~3358 tests: ~3302 en tests/ + 56 en security/) |
 | CI/CD | GitHub Actions (GHCR + staging deploy + PR checks) |
 | Deployment | Railway (staging) + Vercel (frontend) |
 
@@ -239,5 +247,5 @@ AlertEngine → umbrales por cliente
 
 ---
 
-*Ultima actualizacion: Abril 2026 — Delta 4C*
-*Roadmap completo: docs/ROADMAP.md | Plan tactico: .claude/plans/active-plan.md*
+*Última actualización: Junio 2026 — Delta 4C*
+*Estado vivo: docs/PROJECT_STATE.md | Roadmap: docs/ROADMAP.md | Plan táctico: .claude/plans/active-plan.md*
