@@ -63,7 +63,7 @@ _stub_missing("slowapi", "slowapi.util", "slowapi.errors")
 _slowapi = sys.modules["slowapi"]
 
 class _FakeLimiter:
-    def __init__(self, key_func=None):
+    def __init__(self, key_func=None, **kwargs):  # tolerate retry_after etc. (VAL-107)
         pass
     def limit(self, rate: str):
         def decorator(func):
