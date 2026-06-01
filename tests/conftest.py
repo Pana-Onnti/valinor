@@ -372,6 +372,19 @@ def pytest_addoption(parser):
         default=False,
         help="Enable rich live progress reporter",
     )
+    parser.addoption(
+        "--run-slow",
+        action="store_true",
+        default=False,
+        help="Run the slow real-infra tests (markers: live, mandatory, mssql, "
+             "discovery_benchmark). They need Gloria DB + claude_proxy up and make real "
+             "LLM calls. SKIPPED by default so the everyday suite stays fast and never "
+             "hangs on real-pipeline runs (VAL-171). Use via the production-test skill.",
+    )
+
+
+# Markers that gate real-infra / real-LLM tests (slow). Skipped unless --run-slow.
+_SLOW_MARKERS = ("live", "mandatory", "mssql", "discovery_benchmark")
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -384,6 +397,17 @@ def pytest_configure(config):
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
+    # Gate slow real-infra tests behind --run-slow. By default they are SKIPPED (not
+    # silently deselected) so a plain `pytest` is fast and never triggers real LLM /
+    # Gloria calls — which otherwise run, slowly, whenever the host proxy is up. (VAL-171)
+    if not config.getoption("--run-slow", default=False):
+        skip_slow = pytest.mark.skip(
+            reason="slow real-infra test — pass --run-slow (needs Gloria DB + claude_proxy)"
+        )
+        for item in items:
+            if any(m in item.keywords for m in _SLOW_MARKERS):
+                item.add_marker(skip_slow)
+
     reporter = getattr(config, "_valinor_reporter", None)
     if reporter:
         reporter.total = len(items)

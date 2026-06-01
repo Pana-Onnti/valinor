@@ -9,18 +9,22 @@ Run the full Valinor pipeline against real databases with real Claude agents. Ze
 
 ## Quick Reference
 
+> These tests carry the `mandatory`/`live` markers and are SKIPPED by a plain
+> `pytest` (VAL-171). Pass **`--run-slow`** to actually run them — otherwise they
+> collect-and-skip. They need Gloria DB + `claude_proxy` up (see Prerequisites).
+
 ```bash
 # Full production test (Gloria PostgreSQL, ~6 min)
-pytest tests/test_pipeline_production.py -v -s
+pytest tests/test_pipeline_production.py --run-slow -v -s
 
 # Parameterized by period (SQLite, ~5 min for 3 periods)
-pytest tests/test_pipeline_periods.py -v -s
+pytest tests/test_pipeline_periods.py --run-slow -v -s
 
 # Only 1 month (fastest real test, ~2 min)
-pytest tests/test_pipeline_periods.py -k "1-month" -v -s
+pytest tests/test_pipeline_periods.py --run-slow -k "1-month" -v -s
 
 # Deterministic stages only (no LLM, <1s)
-pytest tests/test_pipeline_gloria_e2e.py::TestGloriaPipelineStages -v
+pytest tests/test_pipeline_gloria_e2e.py::TestGloriaPipelineStages --run-slow -v
 ```
 
 ## Prerequisites

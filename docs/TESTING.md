@@ -23,22 +23,25 @@ python3 scripts/claude_proxy.py &
 ## Ejecución rápida
 
 ```bash
-# ══ PRODUCTION (recomendado — Gloria PostgreSQL, agentes + narrators reales) ══
-pytest tests/test_pipeline_production.py -v -s          # ~6 min, output en tests/output/production/
+# ══ SUITE RÁPIDA (default — ~3337 tests, SIN LLM/Gloria, segundos) ══
+pytest                                                  # los 26 tests reales se SKIPEAN
+pytest -x --tb=short                                    # para en primer fallo
+
+# ── Tests REALES (opt-in con --run-slow; necesitan Gloria PG + claude_proxy levantados) ──
+# Sin --run-slow estos se SKIPEAN (no cuelgan). VAL-171.
+
+# ══ PRODUCTION (Gloria PostgreSQL, agentes + narrators reales) ══
+pytest tests/test_pipeline_production.py --run-slow -v -s   # ~6 min, output en tests/output/production/
 
 # ══ POR PERÍODO (SQLite 434 invoices, 3 períodos) ══
-pytest tests/test_pipeline_periods.py -v -s             # ~5 min (3 períodos)
-pytest tests/test_pipeline_periods.py -k "1-month" -v -s  # ~2 min (solo 1 mes)
+pytest tests/test_pipeline_periods.py --run-slow -v -s            # ~5 min (3 períodos)
+pytest tests/test_pipeline_periods.py --run-slow -k "1-month" -v -s  # ~2 min (solo 1 mes)
 
 # ══ E2E BÁSICO (SQLite 25 rows, agentes reales si hay LLM) ══
-pytest tests/test_pipeline_gloria_e2e.py -v             # ~3.5 min con LLM, <1s sin
+pytest tests/test_pipeline_gloria_e2e.py --run-slow -v      # ~3.5 min con LLM
 
-# ══ STAGES DETERMINISTAS (sin LLM, siempre corre) ══
-pytest tests/test_pipeline_gloria_e2e.py::TestGloriaPipelineStages -v  # <1s
-
-# ══ FULL SUITE (~3000 tests) ══
-pytest tests/ -v --tb=short                             # varios minutos
-pytest tests/ -x --tb=short                             # para en primer fallo
+# ══ TODO lo real de una ══
+pytest --run-slow -v --tb=short                         # suite rápida + los 26 reales
 ```
 
 ## Test de producción: `test_pipeline_production.py`

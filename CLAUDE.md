@@ -35,14 +35,15 @@ pytest tests/ -v
 
 ## Testing
 ```bash
-# Test producción (Gloria PG real, agentes + narrators reales, ~6 min)
-pytest tests/test_pipeline_production.py -v -s
+# Suite RÁPIDA por defecto (~3337 tests, SIN LLM/Gloria — segundos). Los 26 tests
+# reales (markers live/mandatory/mssql/discovery_benchmark) se SKIPEAN. (VAL-171)
+pytest
 
-# Test por período (SQLite, 3 períodos, ~5 min)
-pytest tests/test_pipeline_periods.py -v -s
-
-# Suite completa (~3000 tests)
-pytest tests/ -v --tb=short
+# Tests REALES = opt-in con --run-slow (necesitan Gloria PG + claude_proxy levantados;
+# sin el flag se skipean, NO se cuelgan):
+pytest tests/test_pipeline_production.py --run-slow -v -s   # Gloria PG real, ~6 min
+pytest tests/test_pipeline_periods.py    --run-slow -v -s   # SQLite, 3 períodos, ~5 min
+pytest --run-slow -v --tb=short                             # suite rápida + los 26 reales
 ```
 Ver `docs/TESTING.md` para guía completa. Skill: "correr test real" → `production-test`.
 
