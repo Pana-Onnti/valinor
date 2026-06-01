@@ -269,7 +269,7 @@ case $option in
     3)
         echo -e "\n${YELLOW}Running tests...${NC}"
         python3 -m pytest tests/ -v
-        python3 test_provider_switch.py
+        python3 scripts/manual/test_provider_switch.py
         ;;
         
     4)
