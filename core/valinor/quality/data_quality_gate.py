@@ -37,6 +37,19 @@ except ImportError:
     STATSMODELS_AVAILABLE = False
 
 from shared.utils.sql_sanitizer import sanitize_base_filter  # VAL-49
+from core.valinor.sql_safety import is_safe_identifier  # VAL-170
+
+
+def _safe_ident(name: Optional[str]) -> Optional[str]:
+    """Return *name* only if it is a safe SQL identifier, else None.
+
+    entity_map table/column names are LLM-derived (Cartographer output) and get
+    f-string-interpolated into raw SQL by the checks below. Dropping unsafe names
+    here makes the required-column guards skip the entity rather than interpolate a
+    hallucinated/injected identifier (VAL-170). base_filter predicates are handled
+    separately by sanitize_base_filter (VAL-49).
+    """
+    return name if (name and is_safe_identifier(name)) else None
 
 
 # ---------------------------------------------------------------------------
@@ -301,9 +314,10 @@ class DataQualityGate:
         for entity_name, entity in entities.items():
             if entity.get("type") == "TRANSACTIONAL":
                 key_cols = entity.get("key_columns", {})
-                amount_col = key_cols.get("amount_col")
-                date_col = key_cols.get("date_col")
-                if amount_col and date_col:
+                table = _safe_ident(entity.get("table"))  # VAL-170
+                amount_col = _safe_ident(key_cols.get("amount_col"))
+                date_col = _safe_ident(key_cols.get("date_col"))
+                if table and amount_col and date_col:
                     # VAL-49: sanitize base_filter at extraction point
                     try:
                         safe_filter = sanitize_base_filter(
@@ -313,10 +327,10 @@ class DataQualityGate:
                     except ValueError:
                         safe_filter = ""  # reject unsafe filters silently
                     return {
-                        "table": entity.get("table", ""),
+                        "table": table,
                         "amount_col": amount_col,
                         "date_col": date_col,
-                        "name_col": key_cols.get("name") or key_cols.get("document_no"),
+                        "name_col": _safe_ident(key_cols.get("name") or key_cols.get("document_no")),
                         "base_filter": safe_filter,
                     }
         return {}
@@ -331,10 +345,11 @@ class DataQualityGate:
         for entity_name, entity in entities.items():
             if entity.get("type") == "LEDGER":
                 key_cols = entity.get("key_columns", {})
-                debit_col = key_cols.get("debit_col") or key_cols.get("debit")
-                credit_col = key_cols.get("credit_col") or key_cols.get("credit")
-                date_col = key_cols.get("date_col") or key_cols.get("date")
-                if debit_col and credit_col and date_col:
+                table = _safe_ident(entity.get("table"))  # VAL-170
+                debit_col = _safe_ident(key_cols.get("debit_col") or key_cols.get("debit"))
+                credit_col = _safe_ident(key_cols.get("credit_col") or key_cols.get("credit"))
+                date_col = _safe_ident(key_cols.get("date_col") or key_cols.get("date"))
+                if table and debit_col and credit_col and date_col:
                     try:
                         safe_filter = sanitize_base_filter(
                             entity.get("base_filter", ""),
@@ -343,12 +358,12 @@ class DataQualityGate:
                     except ValueError:
                         safe_filter = ""
                     return {
-                        "table": entity.get("table", ""),
+                        "table": table,
                         "debit_col": debit_col,
                         "credit_col": credit_col,
                         "date_col": date_col,
-                        "account_id_col": key_cols.get("account_id_col") or key_cols.get("account_id"),
-                        "move_id_col": key_cols.get("move_id_col") or key_cols.get("move_id"),
+                        "account_id_col": _safe_ident(key_cols.get("account_id_col") or key_cols.get("account_id")),
+                        "move_id_col": _safe_ident(key_cols.get("move_id_col") or key_cols.get("move_id")),
                         "base_filter": safe_filter,
                     }
         return {}
@@ -362,11 +377,12 @@ class DataQualityGate:
         for entity_name, entity in entities.items():
             if entity.get("type") == "ACCOUNT":
                 key_cols = entity.get("key_columns", {})
-                code_col = key_cols.get("code_col") or key_cols.get("code")
-                type_col = key_cols.get("type_col") or key_cols.get("account_type")
-                if code_col:
+                table = _safe_ident(entity.get("table"))  # VAL-170
+                code_col = _safe_ident(key_cols.get("code_col") or key_cols.get("code"))
+                type_col = _safe_ident(key_cols.get("type_col") or key_cols.get("account_type"))
+                if table and code_col:
                     return {
-                        "table": entity.get("table", ""),
+                        "table": table,
                         "code_col": code_col,
                         "type_col": type_col,
                     }

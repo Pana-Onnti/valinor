@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.valinor.sql_safety import is_safe_identifier
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Entity map resolution helpers
@@ -31,12 +33,17 @@ def _resolve(entity_map: dict, entity: str) -> dict:
 
 
 def _table(entity_map: dict, entity: str, fallback: str) -> str:
-    return _resolve(entity_map, entity).get("table", fallback)
+    # entity_map is LLM-derived (Cartographer output) and gets f-string-interpolated
+    # straight into raw SQL below. Validate the identifier and fall back to the
+    # hardcoded safe literal on a hallucinated/injected name (VAL-170).
+    name = _resolve(entity_map, entity).get("table", fallback)
+    return name if is_safe_identifier(name) else fallback
 
 
 def _col(entity_map: dict, entity: str, semantic: str, fallback: str) -> str:
     cols = _resolve(entity_map, entity).get("key_columns", {})
-    return cols.get(semantic, fallback)
+    name = cols.get(semantic, fallback)
+    return name if is_safe_identifier(name) else fallback  # VAL-170: untrusted identifier
 
 
 def _base_filter(entity_map: dict, entity: str) -> str:
@@ -509,6 +516,7 @@ def build_sales_v2_queries(entity_map: dict, months: int = 12) -> dict[str, str]
     get SQL that references fallback table names — let the executor error,
     then the DataPrefetcher records the failure and the narrator adapts.
     """
+    months = int(months)  # VAL-170: enforce numeric type before f-string interpolation
     return {
         "rfm_segmentation": rfm_segmentation_sql(entity_map, months=months),
         "concentration_hhi": concentration_hhi_sql(entity_map, months=months),
