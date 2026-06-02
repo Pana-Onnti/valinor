@@ -61,7 +61,7 @@ _slowapi = sys.modules["slowapi"]
 
 
 class _FakeLimiter:
-    def __init__(self, key_func=None):
+    def __init__(self, key_func=None, **kwargs):
         pass
 
     def limit(self, rate: str):

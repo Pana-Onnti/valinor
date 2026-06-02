@@ -40,17 +40,17 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** Fetch the current status of a job. */
 export function fetchJobStatus(jobId: string): Promise<JobStatus> {
-  return apiFetch<JobStatus>(`/api/v1/jobs/${encodeURIComponent(jobId)}/status`)
+  return apiFetch<JobStatus>(`/api/jobs/${encodeURIComponent(jobId)}/status`)
 }
 
 /** Fetch the full results of a completed job. */
 export function fetchJobResults(jobId: string): Promise<any> {
-  return apiFetch<any>(`/api/v1/jobs/${encodeURIComponent(jobId)}/results`)
+  return apiFetch<any>(`/api/jobs/${encodeURIComponent(jobId)}/results`)
 }
 
 /** Submit a new analysis job and receive the assigned job_id. */
 export function startAnalysis(req: AnalyzeRequest): Promise<{ job_id: string }> {
-  return apiFetch<{ job_id: string }>("/api/v1/analyze", {
+  return apiFetch<{ job_id: string }>("/api/analyze", {
     method: "POST",
     body: JSON.stringify(req),
   })
@@ -58,12 +58,12 @@ export function startAnalysis(req: AnalyzeRequest): Promise<{ job_id: string }> 
 
 /** Fetch the stored profile for a client. */
 export function fetchClientProfile(name: string): Promise<ClientProfile> {
-  return apiFetch<ClientProfile>(`/api/v1/clients/${encodeURIComponent(name)}/profile`)
+  return apiFetch<ClientProfile>(`/api/clients/${encodeURIComponent(name)}/profile`)
 }
 
 /** Fetch aggregated KPIs for a client. */
 export function fetchClientKPIs(name: string): Promise<any> {
-  return apiFetch<any>(`/api/v1/clients/${encodeURIComponent(name)}/kpis`)
+  return apiFetch<any>(`/api/clients/${encodeURIComponent(name)}/kpis`)
 }
 
 /** Fetch all alert thresholds configured for a client. */
@@ -71,7 +71,7 @@ export function fetchAlertThresholds(
   name: string
 ): Promise<{ thresholds: Record<string, AlertThreshold> }> {
   return apiFetch<{ thresholds: Record<string, AlertThreshold> }>(
-    `/api/v1/clients/${encodeURIComponent(name)}/thresholds`
+    `/api/clients/${encodeURIComponent(name)}/alerts/thresholds`
   )
 }
 
@@ -81,7 +81,7 @@ export function createAlertThreshold(
   threshold: AlertThreshold
 ): Promise<AlertThreshold> {
   return apiFetch<AlertThreshold>(
-    `/api/v1/clients/${encodeURIComponent(name)}/thresholds`,
+    `/api/clients/${encodeURIComponent(name)}/alerts/thresholds`,
     { method: "POST", body: JSON.stringify(threshold) }
   )
 }
@@ -92,7 +92,7 @@ export async function deleteAlertThreshold(
   metric: string
 ): Promise<void> {
   await apiFetch<void>(
-    `/api/v1/clients/${encodeURIComponent(name)}/thresholds/${encodeURIComponent(metric)}`,
+    `/api/clients/${encodeURIComponent(name)}/alerts/thresholds/${encodeURIComponent(metric)}`,
     { method: "DELETE" }
   )
 }
@@ -103,7 +103,7 @@ export function testConnection(config: {
   db_config: DBConfig
 }): Promise<{ ssh_ok: boolean; db_ok: boolean; latency_ms: number }> {
   return apiFetch<{ ssh_ok: boolean; db_ok: boolean; latency_ms: number }>(
-    "/api/v1/test-connection",
+    "/api/onboarding/test-connection",
     { method: "POST", body: JSON.stringify(config) }
   )
 }
@@ -187,7 +187,7 @@ export function getSchema(uploadId: string): Promise<SchemaData> {
 
 /**
  * Submit an analysis job backed by previously-uploaded files.
- * Maps to the same /api/v1/analyze endpoint but uses source_type "sqlite"
+ * Maps to the same /api/analyze endpoint but uses source_type "sqlite"
  * so the backend reads from the uploaded SQLite snapshots instead of a
  * live database connection.
  */
@@ -197,7 +197,7 @@ export function startFileAnalysis(req: {
   column_mapping: Record<string, string>
   period: string
 }): Promise<{ job_id: string }> {
-  return apiFetch<{ job_id: string }>("/api/v1/analyze", {
+  return apiFetch<{ job_id: string }>("/api/analyze", {
     method: "POST",
     body: JSON.stringify({
       ...req,

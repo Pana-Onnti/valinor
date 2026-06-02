@@ -1,7 +1,7 @@
 # Valinor SaaS — Roadmap & Status
 
-> Single source of truth. Synced with Linear. Actualizar cada session.
-> Ultima sync: 2026-04-14
+> Historia a nivel de fases. **Estado vivo verificado: `docs/PROJECT_STATE.md`.** Linear es canónico para el status de cada issue.
+> Última sync: 2026-06-01
 
 ---
 
@@ -79,9 +79,14 @@ Design system, transparency engine, journey wizard, KO report revelation.
 
 ---
 
-## Fase 8: SYSCOP — Primer Cliente Pagante (IN PROGRESS)
+## Fase 8: SYSCOP — Primer Cliente Pagante (SUSPENDIDO — repo separado)
 
-**Epic:** GRO-15 | **Deadline:** 2026-04-25 | **Cliente:** Gerardo, SYSCOP SRL (Ricoh distributor, Rio Cuarto)
+> **Suspendido en este repo.** El runner standalone de SYSCOP vive en
+> `Pana-Onnti/syscop-agent` (repo separado, prod), NO en valinor-saas. Las
+> capacidades que sí quedaron acá (MSSQLConnector, Discovery v2 dialect-aware,
+> golden benchmark) están **Done**.
+
+**Epic:** GRO-15 | **Cliente:** Gerardo, SYSCOP SRL (Ricoh distributor, Rio Cuarto)
 **Sistema:** SQL Server 2019 Express, DB BDPYME, ERP PyME argentino
 
 ### Objetivo
@@ -130,9 +135,9 @@ Agente de inventario que calcula cuanto comprar basado en ventas del dia anterio
 
 | Issue | Que | Prioridad |
 |-------|-----|-----------|
-| VAL-106 | Externalizar prompts a archivos versionados | Urgent |
-| VAL-107 | Rate limiting en API endpoints | Urgent |
-| VAL-108 | JWT auth con validacion de claims | Urgent |
+| VAL-106 | Externalizar prompts a archivos versionados | Urgent (Todo) |
+| ~~VAL-107~~ | ~~Rate limiting en API endpoints~~ | ✅ Done (2026-05-29) |
+| VAL-108 | Auth wiring + JWT claims — ver `docs/PROJECT_STATE.md` | Urgent |
 | VAL-109 | Semantic cache para queries LLM | High |
 | VAL-110 | Adaptive agent router (skip por DQ score) | High |
 | VAL-111 | Cost tracking a PostgreSQL para billing | High |
@@ -155,9 +160,10 @@ Agente de inventario que calcula cuanto comprar basado en ventas del dia anterio
 
 ## Metricas del producto
 
-- **Tests:** 3055/3058 green (~3000 total)
+- **Tests:** ~3358 (~3302 en tests/ + 56 en security/), suite verde, 0 errores de colección
 - **Pipeline production:** 90-100% findings grounded (Gloria, Q1-2025)
 - **Costo por analisis:** ~$8 (Claude API)
 - **Precio:** $200/mes (25 analisis), margen bruto 92%
-- **Linear issues:** 105 Done, 3 In Progress, ~35 Backlog
-- **develop ahead of main:** 31 commits (last merge: PR #31)
+- **Discovery v2 (VAL-125):** Done (2026-04-18)
+- **Hardening 2026-05/06:** VAL-107/164/165 Done; foundations audit VAL-166→170 (2026-06-01)
+- **Release:** `master` = producción (PR desde `develop`). **No existe rama `main`.**

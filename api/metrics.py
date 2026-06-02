@@ -52,6 +52,20 @@ DQ_CHECKS_TOTAL = Counter(
     ["check_name", "result"],  # result: passed | failed | warning
 )
 
+# Wire the DQ gate's metrics port to this counter (dependency inversion — the
+# Domain gate exposes set_dq_metrics_hook so it never imports api.metrics).
+try:
+    from core.valinor.quality.data_quality_gate import set_dq_metrics_hook
+
+    set_dq_metrics_hook(
+        lambda check_name, passed: DQ_CHECKS_TOTAL.labels(
+            check_name=check_name,
+            result="passed" if passed else "failed",
+        ).inc()
+    )
+except Exception:  # pragma: no cover - metrics wiring must never break startup
+    pass
+
 # ── HTTP ───────────────────────────────────────────────────────────────────────
 
 HTTP_REQUESTS_TOTAL = Counter(
@@ -83,14 +97,21 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         duration = time.perf_counter() - start
 
+        # Use the matched route TEMPLATE (e.g. "/api/jobs/{job_id}/status") instead of
+        # the realized URL so UUID/name path params don't explode metric cardinality —
+        # one timeseries per job_id would blow up the registry (VAL-169). Falls back to
+        # the raw path only when no route matched (e.g. 404s), preserving prior behavior.
+        route = request.scope.get("route")
+        path_label = getattr(route, "path", None) or request.url.path
+
         HTTP_REQUESTS_TOTAL.labels(
             method=request.method,
-            path=request.url.path,
+            path=path_label,
             status_code=str(response.status_code),
         ).inc()
         HTTP_REQUEST_DURATION.labels(
             method=request.method,
-            path=request.url.path,
+            path=path_label,
         ).observe(duration)
 
         return response

@@ -822,6 +822,7 @@ class TestSQLBuilder:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.live  # VAL-171: calls real narrators (narrate_*) — gated by --run-slow
 class TestNarratorPromptConstruction:
     """Tests that narrators construct prompts with required context."""
 

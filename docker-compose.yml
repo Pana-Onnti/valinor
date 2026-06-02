@@ -145,7 +145,13 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    command: celery -A worker.celery_app worker -Q valinor -c 2
+    # VAL-169: consume all three queues. task_routes sends cleanup_*/health/monitor to
+    # 'maintenance' and run_analysis_task to 'analysis' (jobs.py also dispatches analysis
+    # on 'valinor'); previously only 'valinor' was consumed, so maintenance tasks had no
+    # consumer. NOTE: no celery beat process runs here, so the periodic cleanup_expired_jobs
+    # *schedule* still does not fire — add a beat service or '-B' if periodic cleanup is
+    # wanted (see docs/PROJECT_STATE.md). The queue fix is still needed for on-demand tasks.
+    command: celery -A worker.celery_app worker -Q valinor,maintenance,analysis -c 2
 
   # Next.js Frontend (Development)
   web:

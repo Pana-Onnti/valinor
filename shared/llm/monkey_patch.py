@@ -45,7 +45,7 @@ class ClaudeSDKInterceptor:
                     provider_type=ProviderType.CONSOLE_CLI,
                     cli_config={
                         "cli_path": os.getenv("CLAUDE_CLI_PATH", "claude"),
-                        "timeout": int(os.getenv("CLAUDE_CLI_TIMEOUT", "300")),
+                        "timeout": int(os.getenv("CLAUDE_CLI_TIMEOUT", "900")),
                     },
                 )
 
@@ -267,7 +267,7 @@ def switch_provider(provider_type: str, **config_kwargs):
             provider_type=ProviderType.CONSOLE_CLI,
             cli_config={
                 "cli_path": config_kwargs.get("cli_path", os.getenv("CLAUDE_CLI_PATH", "claude")),
-                "timeout": config_kwargs.get("timeout", 300),
+                "timeout": config_kwargs.get("timeout", 900),
             },
         )
     else:

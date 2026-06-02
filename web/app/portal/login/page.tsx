@@ -21,7 +21,7 @@ export default function PortalLoginPage() {
     setLoading(true)
 
     try {
-      const res = await fetch(`${BASE_URL}/api/v1/portal/verify`, {
+      const res = await fetch(`${BASE_URL}/portal/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: token.trim() }),
@@ -48,7 +48,7 @@ export default function PortalLoginPage() {
     setLoading(true)
 
     try {
-      const res = await fetch(`${BASE_URL}/api/v1/portal/magic-link`, {
+      const res = await fetch(`${BASE_URL}/portal/magic-link`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() }),

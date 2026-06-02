@@ -21,7 +21,7 @@ import structlog
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from api.deps import get_redis
+from api.deps import get_redis, limiter
 
 logger = structlog.get_logger()
 
@@ -140,6 +140,7 @@ async def _run_demo_pipeline(job_id: str) -> None:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/run", summary="Run demo analysis")
+@limiter.limit("10/minute")
 async def run_demo(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -155,39 +156,40 @@ async def run_demo(
     """
     global _demo_cache
 
-    # If we already have cached results, return them immediately
-    if _demo_cache["status"] == "completed" and _demo_cache["results"]:
-        return JSONResponse(content={
-            "job_id": _demo_cache["job_id"],
-            "status": "completed",
-            "cached": True,
-            "message": "Demo results available (cached)",
-        })
-
-    # If a demo is already running, return current job_id
-    if _demo_cache["status"] in ("seeding", "running"):
-        return JSONResponse(
-            status_code=202,
-            content={
+    async with _demo_lock:
+        # If we already have cached results, return them immediately
+        if _demo_cache["status"] == "completed" and _demo_cache["results"]:
+            return JSONResponse(content={
                 "job_id": _demo_cache["job_id"],
-                "status": _demo_cache["status"],
-                "cached": False,
-                "message": "Demo analysis already in progress",
-            },
-        )
+                "status": "completed",
+                "cached": True,
+                "message": "Demo results available (cached)",
+            })
 
-    # Start new demo run
-    import uuid
-    job_id = f"demo-{uuid.uuid4().hex[:12]}"
+        # If a demo is already running, return current job_id
+        if _demo_cache["status"] in ("seeding", "running"):
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "job_id": _demo_cache["job_id"],
+                    "status": _demo_cache["status"],
+                    "cached": False,
+                    "message": "Demo analysis already in progress",
+                },
+            )
 
-    _demo_cache = {
-        "job_id": job_id,
-        "status": "seeding",
-        "results": None,
-        "error": None,
-        "started_at": datetime.utcnow().isoformat(),
-        "completed_at": None,
-    }
+        # Start new demo run
+        import uuid
+        job_id = f"demo-{uuid.uuid4().hex[:12]}"
+
+        _demo_cache = {
+            "job_id": job_id,
+            "status": "seeding",
+            "results": None,
+            "error": None,
+            "started_at": datetime.utcnow().isoformat(),
+            "completed_at": None,
+        }
 
     # Store job in Redis for compatibility with /api/jobs/{id}/status
     try:
@@ -262,19 +264,20 @@ async def reset_demo(request: Request):
     """
     global _demo_cache
 
-    if _demo_cache["status"] in ("seeding", "running"):
-        raise HTTPException(
-            status_code=409,
-            detail="Cannot reset while demo is running",
-        )
+    async with _demo_lock:
+        if _demo_cache["status"] in ("seeding", "running"):
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot reset while demo is running",
+            )
 
-    _demo_cache = {
-        "job_id": None,
-        "status": "idle",
-        "results": None,
-        "error": None,
-        "started_at": None,
-        "completed_at": None,
-    }
+        _demo_cache = {
+            "job_id": None,
+            "status": "idle",
+            "results": None,
+            "error": None,
+            "started_at": None,
+            "completed_at": None,
+        }
 
     return {"status": "reset", "message": "Demo cache cleared"}

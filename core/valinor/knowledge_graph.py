@@ -129,6 +129,7 @@ class SchemaKnowledgeGraph:
         self._reverse_adjacency: dict[str, list[FKEdge]] = defaultdict(list)
         self.concepts: dict[str, BusinessConcept] = {}
         self._entity_to_table: dict[str, str] = {}  # "invoices" → "c_invoice"
+        self._path_cache: dict[tuple[str, str], JoinPath | None] = {}
 
     # ── BUILD FROM ENTITY MAP ──────────────────────────────────────────
 
@@ -144,6 +145,8 @@ class SchemaKnowledgeGraph:
         """
         entities = entity_map.get("entities", {})
         relationships = entity_map.get("relationships", [])
+
+        self._path_cache.clear()
 
         # Build table nodes
         for entity_name, entity in entities.items():
@@ -247,6 +250,10 @@ class SchemaKnowledgeGraph:
         if from_table == to_table:
             return JoinPath(tables=[from_table], edges=[], total_weight=0)
 
+        cache_key = (from_table, to_table)
+        if cache_key in self._path_cache:
+            return self._path_cache[cache_key]
+
         # Dijkstra with (cost, counter, current_table, path)
         # counter breaks ties deterministically
         counter = 0
@@ -257,7 +264,9 @@ class SchemaKnowledgeGraph:
             cost, _, current, path = heapq.heappop(heap)
 
             if current == to_table:
-                return self._build_join_path(from_table, path)
+                result = self._build_join_path(from_table, path)
+                self._path_cache[cache_key] = result
+                return result
 
             if cost > dist.get(current, float("inf")):
                 continue
@@ -280,6 +289,7 @@ class SchemaKnowledgeGraph:
                     counter += 1
                     heapq.heappush(heap, (new_cost, counter, neighbor, path + [edge]))
 
+        self._path_cache[cache_key] = None
         return None
 
     # ── FILTER & COLUMN REASONING ──────────────────────────────────────

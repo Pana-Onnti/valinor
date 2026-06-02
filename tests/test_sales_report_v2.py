@@ -416,3 +416,62 @@ class TestQueryShapeAfterRefactor:
         for qid, sql in queries.items():
             assert sql.strip(), f"{qid} is empty"
             assert "SELECT" in sql.upper(), f"{qid} has no SELECT"
+
+
+class TestSalesV2IdentifierSafety:
+    """VAL-170: LLM-derived entity_map identifiers must not reach raw SQL."""
+
+    def test_malicious_identifiers_fall_back_to_safe_literals(self):
+        malicious = {
+            "entities": {
+                "invoices": {
+                    "type": "TRANSACTIONAL",
+                    "table": "invoices; DROP TABLE users;--",
+                    "key_columns": {
+                        "invoice_date": "d", "customer_fk": "c",
+                        "amount_col": "a", "pk": "pid",
+                    },
+                },
+                "customers": {
+                    "table": "customers",
+                    "key_columns": {"pk": "cid", "customer_name": 'n";DROP'},
+                },
+            }
+        }
+        queries = build_sales_v2_queries(malicious, months=6)
+        for qid, sql in queries.items():
+            assert "DROP TABLE" not in sql, f"{qid} leaked an injected identifier"
+            assert ";--" not in sql, f"{qid} leaked an injected identifier"
+            assert '";DROP' not in sql, f"{qid} leaked an injected column"
+        # the unsafe table name degrades to the hardcoded safe fallback ("invoices")
+        assert "JOIN invoices i" in queries["rfm_segmentation"]
+
+    def test_malicious_months_is_rejected(self):
+        em = {
+            "entities": {
+                "invoices": {
+                    "type": "TRANSACTIONAL", "table": "inv",
+                    "key_columns": {"invoice_date": "d", "customer_fk": "c",
+                                    "amount_col": "a", "pk": "pid"},
+                },
+                "customers": {"table": "cust", "key_columns": {"pk": "cid", "customer_name": "nm"}},
+            }
+        }
+        with pytest.raises((ValueError, TypeError)):
+            build_sales_v2_queries(em, months="12 months; DROP TABLE x")
+
+    def test_malicious_base_filter_is_sanitized(self):
+        em = {
+            "entities": {
+                "invoices": {
+                    "type": "TRANSACTIONAL", "table": "inv",
+                    "key_columns": {"invoice_date": "d", "customer_fk": "c",
+                                    "amount_col": "a", "pk": "pid"},
+                    "base_filter": "issotrx='Y') UNION SELECT password FROM users--",
+                },
+                "customers": {"table": "cust", "key_columns": {"pk": "cid", "customer_name": "nm"}},
+            }
+        }
+        for qid, sql in build_sales_v2_queries(em).items():
+            assert "UNION SELECT password" not in sql, f"{qid} leaked an injected base_filter"
+            assert "FROM users" not in sql, f"{qid} leaked an injected base_filter"

@@ -9,18 +9,22 @@ Run the full Valinor pipeline against real databases with real Claude agents. Ze
 
 ## Quick Reference
 
+> These tests carry the `mandatory`/`live` markers and are SKIPPED by a plain
+> `pytest` (VAL-171). Pass **`--run-slow`** to actually run them — otherwise they
+> collect-and-skip. They need Gloria DB + `claude_proxy` up (see Prerequisites).
+
 ```bash
 # Full production test (Gloria PostgreSQL, ~6 min)
-pytest tests/test_pipeline_production.py -v -s
+pytest tests/test_pipeline_production.py --run-slow -v -s
 
 # Parameterized by period (SQLite, ~5 min for 3 periods)
-pytest tests/test_pipeline_periods.py -v -s
+pytest tests/test_pipeline_periods.py --run-slow -v -s
 
 # Only 1 month (fastest real test, ~2 min)
-pytest tests/test_pipeline_periods.py -k "1-month" -v -s
+pytest tests/test_pipeline_periods.py --run-slow -k "1-month" -v -s
 
 # Deterministic stages only (no LLM, <1s)
-pytest tests/test_pipeline_gloria_e2e.py::TestGloriaPipelineStages -v
+pytest tests/test_pipeline_gloria_e2e.py::TestGloriaPipelineStages --run-slow -v
 ```
 
 ## Prerequisites
@@ -46,18 +50,19 @@ python3 scripts/claude_proxy.py &
 | `test_pipeline_periods.py` | SQLite (434 invoices, aligned entity_map) | Real | No | ~5 min (3 periods) |
 | `test_pipeline_gloria_e2e.py` | SQLite (25 rows) | Real (skip if no LLM) | No | ~3.5 min |
 
-## What the Production Test Covers
+## What the Production Test Covers — Full Anti-Hallucination Loop
 
 ```
 Stage 0:    Data Quality Gate (8 checks, score 0-100)
 Stage 1.5:  Gate Calibration (SQL COUNTs on base_filters)
+Stage 1.6:  Knowledge Graph (anti-hallucination: tables + edges + concepts)
 Stage 2:    Query Builder (8 queries + 7 skipped for missing columns)
 Stage 2.5:  Execute Queries (PostgreSQL — DATE_TRUNC, EXTRACT all work)
 Post-2.5:   Compute Baseline (revenue, invoices, customers, provenance)
-Stage 3:    3 Analysis Agents in parallel (analyst, sentinel, hunter)
+Stage 3:    3 Analysis Agents in parallel (analyst, sentinel, hunter — KG-grounded)
 Stage 3.5:  Reconciliation (conflict detection, Haiku arbiter if >2x gap)
-Stage 3.75: Narrator Context (verification-aware filtering by role)
-Stage 4:    4 Narrators in parallel (CEO, controller, sales, executive)
+Stage 3.6:  Verification Engine (claims vs DB, Number Registry, retracts FAILED)
+Stage 4:    4 Narrators in parallel (CEO, controller, sales, executive — registry-anchored)
 ```
 
 ## Output Location

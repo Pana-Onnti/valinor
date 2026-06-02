@@ -1,147 +1,84 @@
-# Active Plan — SYSCOP Sprint + Bio4 Demo
+# Active Plan — Foundations realignment sprint (2026-06-01)
 
-**Ultima actualizacion:** 2026-04-21
-**Branch actual:** nicolasbaseggiodev/val-158-sales-v2-dynamic-demo (2 commits ahead de develop)
-**Foco:** GRO-15 SYSCOP (primer cliente pagante) + VAL-120 Bio4 Demo
-**Deadlines:** GRO-15 → 2026-04-25 · VAL-120 → reagendar con Loren
-
----
-
-## PRs abiertos (merge order)
-
-| PR | Scope | Base | Status | Checks |
-|----|-------|------|--------|--------|
-| #40 | VAL-157 — sales_v2 queries fix (post-merge VAL-141) | develop | CLEAN | ✅ 3/3 |
-| #41 | VAL-158 — dynamic demo (period picker + animated pipeline) | **#40** (stacked) | CLEAN | pendiente CI |
-
-**Orden de merge:** #40 → develop primero, luego #41 rebasea sola.
+**Última actualización:** 2026-06-01
+**Branch actual:** `nicolasbaseggiodev/audit-demo-cache-race`
+**origin/develop:** `125ac141` (VAL-164). Esta branch suma VAL-165/107 + el sprint de cimientos 2026-06-01, aún sin mergear.
+**Estado vivo canónico:** `docs/PROJECT_STATE.md`.
 
 ---
 
-## Sprint SYSCOP — Camino crítico
+## Sesión 2026-06-01 — Foundations realignment (docs + higiene + 4 fixes + auth)
 
-### Fase 1-5: CERRADAS
-VAL-125 · VAL-131 · VAL-130 — todos Done.
+Auditoría adversaria de cimientos (16 agentes) → realineación completa. 7 commits nuevos sobre develop:
 
-### Pendientes activos SYSCOP
+- **VAL-167** — higiene: `.gitignore` reparado (línea corrupta + venv/egg-info/output/tsbuildinfo/ssh_keys); track muerto "simple/MVP" + infra huérfana archivados a `_archived/simple-stack/`; 3 `test_*.py` de root → `scripts/manual/`; borrados duplicado `.html` + `requirements.in`. **Pendiente manual:** destrackear venv/egg-info/output/tsbuildinfo del índice (cache-remove bloqueado por hook de seguridad).
+- **VAL-166** — docs: archivados `STRUCTURE.md` (ficción TS), `investigacion/` (→`docs/_archive/audit-2026-03/`), `MIGRATION_PLAN.md`; drift corregido en README/ARCHITECTURE/AGENT_GUIDE/API_REFERENCE/SUPPORTED_SOURCES/ROADMAP; `INFRASTRUCTURE`/`DEPLOYMENT` movidos a `docs/`; nuevo `docs/PROJECT_STATE.md`. Root: solo README + CLAUDE.
+- **VAL-169** — infra/CI: worker consume `valinor,maintenance,analysis`; Prometheus label por route-template; bloque pytest muerto de pyproject borrado; CI corre `pytest tests security` (gate de los 56 tests de `security/`).
+- **VAL-168** — web: prefijos `/api/v1`→`/api` y `/portal` (portal + `lib/api.ts` 404eaban en runtime); `system.py` api_prefix honesto.
+- **VAL-170** — core: `is_safe_identifier` valida entity_map (LLM) en `sales_v2.py` (chokepoint `_table/_col`) + DQ gate (`_safe_ident` en los 3 finders); `int(months)`; test de inyección.
+- **VAL-107** (fallout) — los 12 stubs `_FakeLimiter` toleran `retry_after`.
+- **VAL-108** — auth env-gated cableada en 8 routers sensibles; SSRF de `/test-connection` cerrado (host guard); multi-tenant 401 fail-closed; `TestAuthWiring`.
 
-| Issue | Que | Due | Status | Owner |
-|-------|-----|-----|--------|-------|
-| GRO-17 | Creds SQL r/o `valinor_ro` + OK .exe de Gerardo | — | Todo | Loren→Gerardo |
-| —      | Build físico `syscop_inventory.exe` (1h Windows host) | — | — | Nico |
-| —      | Deploy remoto AnyDesk Tue 22 / Wed 23 | — | — | Nico + Gerardo |
-| VAL-121 | Primer KO Report enviado exitosamente | Apr 25 | In Progress | Nico |
-| GRO-15 | EPIC SYSCOP comercial | Apr 25 | In Progress | Nico |
-
-**Bloquea first-run (2026-04-27 06:00):** solo GRO-17. Código listo, esperando creds+OK.
-
----
-
-## Sprint Bio4 Demo — VAL-120
-
-### VAL-141: Sales Report v2 — DONE (mergeado 2026-04-20)
-PR #39 merged a develop · 7 commits · +3520 / -131 · cerrado en Linear.
-
-### VAL-157: Post-merge follow-up — PR #40 ABIERTO
-
-3 bugs descubiertos por production test contra Gloria:
-- ✅ Semantic keys `customer_fk` / `amount_col` / `pk` (Cartographer canonical)
-- ✅ `_base_filter` prefija ` AND ` (tolerant con legacy AND prefix)
-- ✅ 3 queries con JOIN múltiple reworked (CTE invoices_filtered evita ambigüedad `isactive`)
-- ✅ Schema: `NextAction.impact_eur` valida `None → 0.0`
-
-**Validación:**
-- 29/29 unit tests pass
-- 13/13 queries contra Gloria (vs 8/13 pre-fix)
-- Narrator LLM post-fix SIN validar — Stage 3 del test falló con `claude CLI error (exit 1)` transitorio (contención con Claude Code session, NO regresión). Re-run necesario cuando CLI esté libre.
-
-### VAL-158: Dynamic demo — PR #41 ABIERTO
-
-Demo path que se siente flow real sin arriesgar el CLI en vivo.
-
-**3 fases:**
-- `idle` — period selector (6m / 12m / 24m) + CTA "Ejecutar diagnóstico"
-- `loading` — `PipelineProgress` con 9 stages animados (~14s cold, ~5s switch)
-- `ready` — `SalesReportV2` con period bar persistente
-
-**Backing data:** `generate_sales_report_v2_gloria.py --batch` emite 3 JSONs pre-calculados:
-- 6m: €168.825 LTV dormido · 474 clientes · 67 Champions
-- 12m: €3.878.732 LTV dormido · 2.813 clientes · 697 Champions
-- 24m: €12.056.597 LTV dormido · 3.772 clientes · 1.038 Champions
-
-Fijado `REFERENCE_DATE = 2025-12-15` en el generator para que rolling windows peguen a data real (Gloria va 2011 → Dec 2025).
-
-### Pendientes VAL-120
-
-- [ ] Merge #40 → develop
-- [ ] Merge #41 → develop (auto-rebase post #40)
-- [ ] **Browser walkthrough** — probar flow end-to-end en `http://localhost:3000/demo/sales-v2-gloria`
-  - idle → click "Ejecutar diagnóstico" → progress ~14s → report
-  - click 6m/24m → short progress ~5s → report swap
-- [ ] **Re-run production test** cuando CLI esté libre — capturar narrator LLM v2-complete output
-- [ ] Screencast 3-5 min del flow completo
-- [ ] 10 talking points para la demo
-- [ ] Coordinar con Loren el agendamiento con Bio4
+### Pendientes próxima sesión
+- **Destrackear el cruft del índice** (venv = 11k archivos): correr el cache-remove manual.
+- **Mergear esta branch a develop** (suite verde) + **abrir PR develop→master** (deuda ~13 commits desde 2026-04-24).
+- Auth de usuario real en operator console (extiende VAL-108); contrato OpenAPI→TS (VAL-168); tests de frontend; lockfile de deps.
 
 ---
 
-## No bloquean sprints activos
+## Sesión 2026-05-29 — Audit workflow + VAL-107 + 3 fixes backend + harness
 
-| Issue | Que | Due |
-|-------|-----|-----|
-| VAL-22 | Scale: load testing | Jul 31 |
-| GRO-11 | YC application | Aug 1 |
-| ANN-1 | Annatar Roadmap | — |
-| VAL-156 | Magic Matrix weighted gap (v3) | — |
+### Qué se hizo
 
----
+1. **Workflow dinámico de auditoría** (8 subsistemas en paralelo → verificación adversaria → síntesis, 32 agentes). Reconstruyó los findings perdidos del audit 2026-04-27 (los `/tmp/*.md` ya no existían) y los priorizó con verificación contra el árbol vivo. 43 findings crudos → 13 críticos/altos confirmados como reales y sin arreglar.
 
-## Arquitectura relevante (descubierta)
+2. **VAL-107 — rate limiting activado y cerrado** (era Urgent, Todo):
+   - `limiter` singleton movido a `api/deps.py` con key per-tenant (`_rate_limit_key`: header `X-Tenant-ID`, fallback IP) + `retry_after="delta-seconds"` (429 lleva Retry-After).
+   - Decorators `@limiter.limit` en 6 endpoints: `start_analysis` 5/min, `stream_job_progress` 10/min, `nl_query` 20/min, `list_clients` 30/min, `verify_token` (portal, brute-force) 10/min, `run_demo` 10/min.
+   - Tests: `TestRateLimitWiring` en `test_api_endpoints.py` — key-func + chequeo estático de presencia de decorators (robusto a import-order; el stub `_FakeLimiter` strippea decorators y poluciona `slowapi.errors` globalmente, por eso NO se testea enforcement real en-proceso).
 
-### Sales Report v2 stack (VAL-141 + VAL-157 + VAL-158)
-- **Schema:** `core/valinor/schemas/sales_report_v2.py` — SalesReportV2 + ConcentrationReport con None coerción + NextAction con `impact_eur` validator (VAL-157)
-- **Queries:** `core/valinor/queries/sales_v2.py` — 5 builders con semantic keys canonical + AND prefix helper + CTE `invoices_filtered` para JOIN queries (VAL-157)
-- **Narrator:** `core/valinor/agents/narrators/sales.py` — emite JSON string-serialized, fallback schema-valid
-- **Frontend:**
-  - `web/components/ko-report/SalesReportV2.tsx` — render estructurado
-  - `web/components/ko-report/PipelineProgress.tsx` (VAL-158) — animated timeline
-  - `web/app/demo/sales-v2-gloria/page.tsx` — state machine idle/loading/ready (VAL-158)
-- **Generator:** `scripts/generate_sales_report_v2_gloria.py` — CLI `--months/--label/--output/--batch`, REFERENCE_DATE anchor, empty-dormants fallback
+3. **3 fixes backend quirúrgicos (verificados por el workflow):**
+   - **`api/routers/jobs.py`** (HIGH): el conteo de jobs concurrentes tragaba errores Redis con `except: continue` → bypass del cap de 2 jobs. Ahora **fail-closed**: `except redis.RedisError` → log + HTTP 503. Test: `test_analyze_fails_closed_when_redis_errors_in_concurrency_check`.
+   - **`core/valinor/quality/data_quality_gate.py`** (HIGH): un check FATAL crasheado se degradaba a WARNING con peso//3 → el gate emitía PROCEED en vez de HALT (fail-open en el moat anti-alucinación). Ahora un check crasheado se trata con la **peor severidad que vigila** (mapa `CRASH_SEVERITY`) + peso completo (con `_WEIGHT_ALIASES` para los 2 checks cuyo nombre de método difiere de la key) + `logger.exception`. Tests: `TestCrashedCheckFailsClosed` (3).
+   - **`core/valinor/quality/data_quality_gate.py:174`** (MEDIUM): violación hexagonal `from api.metrics import DQ_CHECKS_TOTAL` (el único `from api` en todo core/). Resuelto por **inversión de dependencia**: el Domain expone `set_dq_metrics_hook(hook)`; `api/metrics.py` registra el sink al cargar. Domain ya no importa Infrastructure.
 
-### Discovery Engine (VAL-125)
-`profiler.py` · `fk_discovery.py` · `ontology_builder.py` · `semantic_enricher.py` · `golden_dataset.py` + `benchmark.py` (gloria_full P=1.00 R=0.88 F1=0.93)
+4. **Harness del entorno:**
+   - `.claude/hooks/*.sh` (commit-refs-check, commit-linear-sync, plan-freshness) ahora versionados; `plan-freshness.sh` usa `$CLAUDE_PROJECT_DIR` (portable).
+   - `.claude/settings.json` versionado y portable (`$CLAUDE_PROJECT_DIR` en vez de path absoluto).
+   - `.claude/skills/karpathy-guidelines/` versionado.
+   - `.gitignore`: añadido `.claude/scheduled_tasks.lock` + `.claude/*.lock`.
+   - `scripts/claude_proxy.py`: host/timeout/token configurables por env (`CLAUDE_PROXY_HOST`, `CLAUDE_PROXY_TIMEOUT`, `CLAUDE_PROXY_TOKEN`). Defaults sin cambios (0.0.0.0, 960s — respeta VAL-162; auth opt-in).
 
-### Connectors (`shared/connectors/`)
-Base `DeltaConnector` + Factory. Existentes: PostgreSQL, MySQL, SQLite, Etendo, MSSQL.
+### Findings stale / descartados (NO re-investigar)
 
-### Verticals (VAL-130)
-`core/valinor/verticals/` — registry + InventoryVertical (Haiku) + FinancialVertical (swarm).
+- VAL-164 (demo cache race) — ya arreglado (commit 125ac141, `_demo_lock`).
+- Audit api-2 (portal bare-except JWT→static-token) y api-4 (`body: dict`) — `portal.py` ya refactorizado a Pydantic `TokenVerifyRequest` + `Depends`. Resueltos.
 
 ---
 
-## Completado
+## Backlog verificado (queue, no este sprint)
 
-### Sesion 2026-04-21 — VAL-141 merge + VAL-157 fix + VAL-158 dynamic demo
-- **Merge:** PR #39 VAL-141 → develop (commit `ddeab48d`). VAL-141 cerrado en Linear.
-- **Fix (PR #40):** 3 bugs sales_v2 post-merge detectados por production test:
-  - Semantic keys mismatch (Cartographer emite `customer_fk`/`amount_col`/`pk`, no `customer_id`/`total_amount`/`invoice_id`)
-  - `base_filter` sin AND prefix rompía sintaxis
-  - JOIN con customers/invoice_lines/products ambiguaba `isactive` → CTE pre-filter
-  - `NextAction.impact_eur` validator coerce None → 0.0
-  - 4 tests nuevos (29/29), 13/13 queries OK contra Gloria
-- **Demo dinámico (PR #41):** period picker + animated progress + 3 pre-generated period JSONs
-  - Backend: `--batch` flag + REFERENCE_DATE anchor + fallback empty-dormants
-  - Frontend: `PipelineProgress.tsx` (9 stages), `page.tsx` state machine
-- **Linear MCP:** token vencido durante la sesión → no se pudo crear VAL-157/VAL-158 como issues formales ni actualizar Session Log remoto. **TODO al re-auth:** crear VAL-157 + VAL-158 como sub-issues de VAL-141, portar comentarios post-merge.
+| Rank | Finding | Sev | Esfuerzo | Linear |
+|------|---------|-----|----------|--------|
+| 5 | Externalizar SYSTEM_PROMPTs hardcoded (inventory.py, narrators sales/controller/ceo) a `.claude/skills/*.md` | low | medium | VAL-106 |
+| 6 | JWT portal en localStorage plano → httpOnly cookie (XSS) | medium | medium (backend) | — |
+| 7 | `verification.py` daemon-thread query: dispose engine en timeout / statement_timeout | low | medium | — |
+| 8 | `FileUpload.tsx` notify en render → useEffect | low | small | VAL-119 |
+| — | Cloudflare Worker edge rate limiting (TODO, solo loggea) | medium | large | infra ticket aparte |
+| — | 500-handler test coverage gap | low | small | — |
 
-### Sesion 2026-04-18/20 — Sales Report v2 (VAL-141 shipped)
-- 6 commits · PR #39 · +3520 / -131
-- 8 fixes de primera pasada · segunda pasada narrator LLM · tercera pasada cuenta_top + cadence_factor
-- Audit trail VAL-152/153/154/155 Done · VAL-156 Backlog
-- Detalle en Session Log — Dev (Linear)
+### Out of scope persistente (otros repos/productos)
 
-### Sesion 2026-04-17/18 — SYSCOP Sprint Closure
-VAL-125, VAL-127/128/129, VAL-130 (4 capas), VAL-131, VAL-140 Done. PRs #33, #34, #35, #36, #37 merged.
+- VAL-144/146/147 — research paper (repo d4c-paper).
+- GRO-15/GRO-25 — SYSCOP (repo Pana-Onnti/syscop-agent, live prod).
+- ANN-1 — Annatar (repo separado).
+- VAL-106 (externalizar prompts), VAL-119 (catálogo versionado) — siguen Todo/Urgent.
 
-### Sesion 2026-04-15a — Setup + commits pendientes
-Commits infra/web/docs. Linear conectado. Agentes en worktrees paralelos.
+---
+
+## Pendientes próxima sesión
+
+- **Mergear esta branch a develop** una vez verde la suite (excl. production E2E).
+- Cerrar VAL-107 en Linear con la nota de scope real (6 endpoints + per-tenant + Retry-After + test).
+- Documentar la política de crash-handling del DQ gate en `DOMAIN_MODEL.md`/`ARCHITECTURE.md` (check FATAL/CRITICAL crasheado → HALT, no degradar a WARNING).
+- VAL-106 / VAL-119 siguen siendo la cola Urgent in-repo.

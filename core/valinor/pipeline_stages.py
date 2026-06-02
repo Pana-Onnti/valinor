@@ -11,22 +11,15 @@ Contains:
   - compute_mom_delta    post-2.5b: month-over-month delta computation
 """
 
-import re
 from datetime import datetime, timezone
 from typing import Any
 
 import structlog
 from sqlalchemy import create_engine, text
 
+from core.valinor.sql_safety import is_safe_identifier as _is_safe_identifier
+
 _pipeline_logger = structlog.get_logger()
-
-# ── SQL Safety ─────────────────────────────────────────────────────
-_SAFE_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
-
-
-def _is_safe_identifier(name: str) -> bool:
-    """Validate that a string is a safe SQL identifier (table/column name)."""
-    return bool(name and _SAFE_IDENTIFIER_RE.match(name) and len(name) <= 128)
 
 
 # ═══════════════════════════════════════════════════════════════

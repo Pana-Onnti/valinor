@@ -17,6 +17,7 @@ import redis.asyncio as redis
 
 from api.deps import get_redis
 from api.metrics import metrics_response
+from api.auth import verify_api_key  # VAL-108: gate audit + system status/metrics
 from shared.storage import MetadataStorage
 
 logger = structlog.get_logger()
@@ -72,14 +73,26 @@ async def get_version():
     """Return API version and build info."""
     return {
         "version": "2.0.0",
-        "api_prefix": "/api/v1",
+        # Primary prefix is "/api". Advertising "/api/v1" here was misleading — most
+        # routers mount at "/api", not "/api/v1" — and drove frontend 404s (VAL-168).
+        "api_prefix": "/api",
+        "api_prefixes": {
+            "core": "/api",  # jobs, analyze, clients, alerts, reports
+            "nl_query": "/api/v1",
+            "portal": "/portal",
+            "onboarding": "/api/onboarding",
+            "demo": "/api/demo",
+            "quality": "/api/quality",
+            "upload": "/api/upload",
+        },
         "supported_db_types": ["postgres", "mysql", "sqlserver", "oracle"],
         "max_analysis_duration_minutes": 15,
         "cost_per_analysis_usd": 8.0,
     }
 
 
-@router.post("/api/audit", summary="Log audit event", tags=["System"])
+@router.post("/api/audit", summary="Log audit event", tags=["System"],
+             dependencies=[Depends(verify_api_key)])
 async def log_audit_event(
     event: dict = Body(...),
     redis_client: redis.Redis = Depends(get_redis)
@@ -90,7 +103,8 @@ async def log_audit_event(
     return {"logged": True}
 
 
-@router.get("/api/audit", summary="Read audit events", tags=["System"])
+@router.get("/api/audit", summary="Read audit events", tags=["System"],
+            dependencies=[Depends(verify_api_key)])
 async def get_audit_events(
     limit: int = 50,
     event_type: Optional[str] = None,
@@ -117,7 +131,7 @@ async def sentry_debug():
     raise ZeroDivisionError("Sentry debug endpoint triggered")
 
 
-@router.get("/api/system/status", tags=["System"])
+@router.get("/api/system/status", tags=["System"], dependencies=[Depends(verify_api_key)])
 async def system_status():
     """Comprehensive system status."""
     def check_pkg(name: str) -> dict:
@@ -188,7 +202,7 @@ async def system_status():
     }
 
 
-@router.get("/api/system/metrics", tags=["System"])
+@router.get("/api/system/metrics", tags=["System"], dependencies=[Depends(verify_api_key)])
 async def system_metrics():
     """Operational metrics."""
     redis_client = await get_redis()

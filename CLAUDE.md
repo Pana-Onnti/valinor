@@ -27,30 +27,32 @@ pytest tests/ -v
 /project:start-session → PICK issue → BRANCH (Linear name) → CODE → COMMIT → /project:end-session
 ```
 
-## Branching (no negociable)
-- `develop` es la rama de integración. TODO el código va a develop primero.
+## Branching
+- `develop` es la rama de integración. Push directo a develop está OK — no hace falta PR.
 - `master` es producción. Solo recibe PRs desde develop.
-- Feature branches (incluyendo worktrees de agentes): siempre PR con `--base develop`.
 - Al final del sprint: un PR `develop → master` con todo integrado.
-- NUNCA hacer PR de feature branch directo a master.
+- NUNCA push directo a master ni PR de feature branch directo a master.
 
 ## Testing
 ```bash
-# Test producción (Gloria PG real, agentes + narrators reales, ~6 min)
-pytest tests/test_pipeline_production.py -v -s
+# Suite RÁPIDA por defecto (~3337 tests, SIN LLM/Gloria — segundos). Los 26 tests
+# reales (markers live/mandatory/mssql/discovery_benchmark) se SKIPEAN. (VAL-171)
+pytest
 
-# Test por período (SQLite, 3 períodos, ~5 min)
-pytest tests/test_pipeline_periods.py -v -s
-
-# Suite completa (~3000 tests)
-pytest tests/ -v --tb=short
+# Tests REALES = opt-in con --run-slow (necesitan Gloria PG + claude_proxy levantados;
+# sin el flag se skipean, NO se cuelgan):
+pytest tests/test_pipeline_production.py --run-slow -v -s   # Gloria PG real, ~6 min
+pytest tests/test_pipeline_periods.py    --run-slow -v -s   # SQLite, 3 períodos, ~5 min
+pytest --run-slow -v --tb=short                             # suite rápida + los 26 reales
 ```
 Ver `docs/TESTING.md` para guía completa. Skill: "correr test real" → `production-test`.
 
 ## Contexto on-demand
 | Qué | Dónde |
 |-----|-------|
+| **Estado vivo verificado + agenda de la etapa nueva** | **`docs/PROJECT_STATE.md`** (empezar acá) |
 | Arquitectura técnica | `docs/ARCHITECTURE.md` |
+| Deploy producción (Railway + Vercel) | `docs/INFRASTRUCTURE.md` · `docs/DEPLOYMENT.md` |
 | Guía de dev, puertos, known issues | `docs/DEVELOPER_GUIDE.md` |
 | Domain model (Valar, pipeline, DQ) | `docs/DOMAIN_MODEL.md` |
 | Testing & production tests | `docs/TESTING.md` |

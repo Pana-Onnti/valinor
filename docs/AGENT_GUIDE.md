@@ -4,12 +4,16 @@
 
 ---
 
-## 1. Estado Actual (Marzo 2026)
+## 1. Estado Actual (Junio 2026)
 
-- **2481 tests pasando** (`pytest tests/ -q`) — cobertura del 100% de los módulos públicos
+> **El estado vivo y verificado del proyecto está en `docs/PROJECT_STATE.md`.** Este
+> doc conserva el mapa de código y las firmas críticas, pero los contadores puntuales
+> pueden quedar viejos — verificá siempre contra el código.
+
+- **~3358 tests** (~3302 en `tests/` + 56 en `security/`)
 - **Pipeline completo funcionando** en Docker local
-- **Todas las fases 1–4 y 6 completadas** — queda solo Phase 5 (deployment a Cloudflare/GH Actions)
-- **Branch activo**: `develop` (main branch para PRs: `main`)
+- **Fases 1–7 cerradas.** Deployment ya NO es Cloudflare/GH-Actions: producción corre en **Railway** (API+Worker) + **Vercel** (frontend).
+- **Branch de integración**: `develop`; producción: `master` (PR develop→master). **No existe rama `main`.**
 
 ---
 
@@ -60,7 +64,10 @@ valinor-saas/
 │   ├── routes/
 │   │   ├── onboarding.py        # /api/onboarding/*, connection tester
 │   │   └── quality.py           # /api/quality/* — DQ reports por job
-│   ├── middleware/              # Rate limiting, request_id, audit logging
+│   ├── deps.py                  # limiter (slowapi per-tenant) + get_redis — rate limiting vive ACÁ, no en api/middleware/
+│   ├── metrics.py               # PrometheusMiddleware + DQ metrics hook (set_dq_metrics_hook)
+│   ├── tenant.py                # TenantMiddleware (X-Tenant-ID) + get_tenant_id
+│   ├── auth.py                  # verify_api_key (env-gated VALINOR_API_KEY) + PyJWT helpers
 │   └── refinement/
 │       ├── query_evolver.py     # Aprende qué queries dan resultados valiosos
 │       ├── prompt_tuner.py      # Ajusta prompts según historial del cliente
@@ -90,14 +97,14 @@ valinor-saas/
 ├── core/valinor/                # Pipeline v0 — PRESERVADO, no modificar
 │   ├── pipeline.py              # Orquestador principal del análisis
 │   ├── agents/                  # Cartographer, QueryBuilder, Analysts, Narrators
-│   ├── gates.py                 # DataQualityGate (8+1 checks)
+│   ├── quality/data_quality_gate.py  # DataQualityGate (9 checks, fail-closed en crash — VAL-165)
 │   ├── quality/                 # CurrencyGuard, AnomalyDetector, SentinelPatterns
 │   └── tools/                   # analysis_tools (revenue_calc, aging_calc, pareto_analysis...)
 │
 ├── web/                         # Next.js frontend
 │   └── src/app/                 # App Router — pages: /, /reports, /quality/[jobId], /anomalies
 │
-├── tests/                       # 50 archivos, 2481 tests
+├── tests/                       # ~88 archivos, ~3302 tests (+ security/ = 56)
 └── docker-compose.yml
 ```
 
@@ -184,14 +191,16 @@ La suite llegó a 2481 tests con algo de redundancia. Al tocar cualquier módulo
 
 ---
 
-## 9. Qué falta (Phase 5)
+## 9. Estado de deployment (actualizado)
 
-- [ ] **Cloudflare Workers** — deploy de la API edge
-- [ ] **GitHub Actions workflows** — análisis como jobs asíncronos en CI
-- [ ] **Monitoring** — Prometheus + Grafana en producción
-- [ ] **Supabase** — migrar de PostgreSQL local a Supabase para metadata
+Producción **ya está desplegada** y NO usa Cloudflare/Supabase:
+- **Railway** — API + Worker + PostgreSQL + Redis (ver `docs/INFRASTRUCTURE.md`)
+- **Vercel** — frontend Next.js
+- **GitHub Actions** — CI (tests en `master`+`develop`) + deploy automático
+- **Monitoring** — Prometheus + Grafana + Loki (docker-compose); Sentry en prod
 
-Ver `CLAUDE.md` para contexto completo de arquitectura y decisiones de diseño.
+La agenda de la nueva etapa y los issues abiertos verificados están en
+`docs/PROJECT_STATE.md`. Ver `CLAUDE.md` para arquitectura y decisiones de diseño.
 
 ---
 

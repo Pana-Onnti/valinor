@@ -10,6 +10,8 @@ This document lists all data sources that Valinor can connect to via the
 | `postgresql` | `PostgreSQLConnector` | `postgresql+psycopg2://user:pass@host:5432/db` | Also: `postgres`, `pg` alias |
 | `mysql` | `MySQLConnector` | `mysql+pymysql://user:pass@host:3306/db` | Also: `mariadb` alias |
 | `etendo` | `EtendoConnector` | `postgresql+psycopg2://user:pass@db-internal:5432/etendo` + SSH config | Etendo ERP via SSH tunnel |
+| `sqlite` | `SQLiteConnector` | `sqlite:///path/to/file.db` | File ingestion (CSV/Excel → SQLite) |
+| `sqlserver` | `MSSQLConnector` | `mssql+pyodbc://user:pass@host:1433/db?driver=ODBC+Driver+18+for+SQL+Server` | Also: `mssql` alias. Argentine ERP/PyME market (VAL-122) |
 
 ## Usage example
 
@@ -57,7 +59,6 @@ with connector:
 | Source | Priority | Notes |
 |--------|----------|-------|
 | SAP HANA | High | Large enterprise market |
-| Microsoft SQL Server | High | Windows-heavy enterprises |
 | Oracle Database | Medium | Legacy ERP market |
 | BigQuery | Medium | Analytics-first clients |
 | Snowflake | Medium | Cloud data warehouse |

@@ -23,22 +23,25 @@ python3 scripts/claude_proxy.py &
 ## Ejecución rápida
 
 ```bash
-# ══ PRODUCTION (recomendado — Gloria PostgreSQL, agentes + narrators reales) ══
-pytest tests/test_pipeline_production.py -v -s          # ~6 min, output en tests/output/production/
+# ══ SUITE RÁPIDA (default — ~3337 tests, SIN LLM/Gloria, segundos) ══
+pytest                                                  # los 26 tests reales se SKIPEAN
+pytest -x --tb=short                                    # para en primer fallo
+
+# ── Tests REALES (opt-in con --run-slow; necesitan Gloria PG + claude_proxy levantados) ──
+# Sin --run-slow estos se SKIPEAN (no cuelgan). VAL-171.
+
+# ══ PRODUCTION (Gloria PostgreSQL, agentes + narrators reales) ══
+pytest tests/test_pipeline_production.py --run-slow -v -s   # ~6 min, output en tests/output/production/
 
 # ══ POR PERÍODO (SQLite 434 invoices, 3 períodos) ══
-pytest tests/test_pipeline_periods.py -v -s             # ~5 min (3 períodos)
-pytest tests/test_pipeline_periods.py -k "1-month" -v -s  # ~2 min (solo 1 mes)
+pytest tests/test_pipeline_periods.py --run-slow -v -s            # ~5 min (3 períodos)
+pytest tests/test_pipeline_periods.py --run-slow -k "1-month" -v -s  # ~2 min (solo 1 mes)
 
 # ══ E2E BÁSICO (SQLite 25 rows, agentes reales si hay LLM) ══
-pytest tests/test_pipeline_gloria_e2e.py -v             # ~3.5 min con LLM, <1s sin
+pytest tests/test_pipeline_gloria_e2e.py --run-slow -v      # ~3.5 min con LLM
 
-# ══ STAGES DETERMINISTAS (sin LLM, siempre corre) ══
-pytest tests/test_pipeline_gloria_e2e.py::TestGloriaPipelineStages -v  # <1s
-
-# ══ FULL SUITE (~3000 tests) ══
-pytest tests/ -v --tb=short                             # varios minutos
-pytest tests/ -x --tb=short                             # para en primer fallo
+# ══ TODO lo real de una ══
+pytest --run-slow -v --tb=short                         # suite rápida + los 26 reales
 ```
 
 ## Test de producción: `test_pipeline_production.py`
@@ -49,15 +52,17 @@ pytest tests/ -x --tb=short                             # para en primer fallo
 PostgreSQL (260K invoices, 7K customers, 14 años)
   → DQ Gate (100/100)
   → Calibration (PASS)
+  → Knowledge Graph (anti-hallucination grounding)
   → Query Builder (8 queries)
   → Execute Queries (8/8 — DATE_TRUNC, EXTRACT funcionan en PG)
   → Baseline (€4.8M revenue, 9K invoices, 2K customers)
-  → 3 Agents REALES (analyst 8 + sentinel 9 + hunter 7 = 24 findings)
+  → 3 Agents REALES KG-grounded (analyst 8 + sentinel 9 + hunter 7 = 24 findings)
   → Reconciliation (0 conflicts)
-  → 4 Narrators REALES (CEO 3.7K + Controller 16K + Sales 11K + Executive 14K chars)
+  → Verification Engine (claims vs DB, Number Registry)
+  → 4 Narrators REALES registry-anchored (CEO 3.7K + Controller 16K + Sales 11K + Executive 14K chars)
 ```
 
-Resultado verificado: **90-100% de findings grounded** en datos reales.
+Resultado verificado: **90-100% de findings grounded** en datos reales, números monetarios anclados al Number Registry de la `VerificationEngine`.
 
 ### Output
 
@@ -121,9 +126,21 @@ Las queries usan `DATE_TRUNC`, `EXTRACT`, `::date` — PostgreSQL nativo. En SQL
 
 Tests en SQLite son útiles para stages deterministas, pero para evaluar la calidad real del análisis: **usar PostgreSQL**.
 
-### Narrators necesitan timeout >60s
+### Budget de timeouts (post VAL-162)
 
-Con datos reales (~9K invoices, 24 findings), los narrators tardan 30-160s. El default de 60s es poco para producción. El test usa 180s.
+Capas (top → bottom):
+
+| Capa | Default | Var/Arch |
+|------|---------|----------|
+| `narrator_timeout` (asyncio wait_for) | 60s default, **920s en tests E2E** | `core/valinor/pipeline_narrator.py:181` + tests |
+| `cli_provider.timeout` (subprocess CLI o urlopen) | **900s** | `CLAUDE_CLI_TIMEOUT` env, `shared/llm/providers/cli_provider.py:36` |
+| `claude_proxy.py` subprocess | **960s** | `scripts/claude_proxy.py:58` |
+
+Por qué 900s para CLI: con `verification_report` cargado, el narrator `reporte_ventas` (Sales V2 — JSON estructurado con `legacy_customer_queries` extra grande) puede demandar >540s entre rate-limit upstream + inference. 900s = 15 min — generoso, pero el SaaS solo corre `executive` (254s observados), así que el límite alto no afecta latencia de prod real. Las capas arriba siempre dan más buffer que la de abajo para que el error que se propague sea el de la capa más interna (mensaje claro de "claude CLI timed out after 900s").
+
+### Proxy `claude_proxy.py` debe ser concurrente
+
+`scripts/claude_proxy.py` corre con `ThreadingHTTPServer` para soportar ≥3 requests Sonnet en paralelo (los 3 analysts del pipeline + los 4 narrators). Con `HTTPServer` plano serializaba — la última request del batch se quedaba sin budget y pegaba timeout aunque internamente fuera rápida.
 
 ## Pipeline completo vs cobertura
 
@@ -131,13 +148,14 @@ Con datos reales (~9K invoices, 24 findings), los narrators tardan 30-160s. El d
 Stage 0:    DQ Gate              → test_production ✅ REAL (PostgreSQL)
 Stage 1:    Cartographer         → ⚠ No testeado (se usa entity_map fijo)
 Stage 1.5:  Guard Rail           → test_production ✅ REAL
+Stage 1.6:  Knowledge Graph      → test_production ✅ REAL (entity graph + concepts)
 Stage 2:    Query Builder        → test_production ✅ REAL
 Stage 2.5:  Execute Queries      → test_production ✅ REAL (8/8 en PG)
 Post-2.5:   Compute Baseline     → test_production ✅ REAL
-Stage 3:    Analysis Agents      → test_production ✅ REAL (3/3 Claude)
+Stage 3:    Analysis Agents      → test_production ✅ REAL (3/3 Claude, KG-grounded)
 Stage 3.5:  Reconciliation       → test_production ✅ REAL
-Stage 3.75: Narrator Context     → test_production ✅ REAL
-Stage 4:    Narrators            → test_production ✅ REAL (4/4 Claude)
+Stage 3.6:  Verification Engine  → test_production ✅ REAL (claims vs DB + Number Registry)
+Stage 4:    Narrators            → test_production ✅ REAL (4/4 Claude, registry-anchored)
 Stage 5:    Deliver              → ⚠ No testeado aisladamente
 ```
 

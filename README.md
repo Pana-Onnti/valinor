@@ -2,7 +2,7 @@
 
 **Business Intelligence 100% Agéntico** — De connection string a reportes ejecutivos en 15 minutos, sin almacenar datos del cliente.
 
-![Tests](https://img.shields.io/badge/tests-469%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-3358%20passing-brightgreen)
 ![Version](https://img.shields.io/badge/version-2.0.0-blue)
 ![License](https://img.shields.io/badge/license-Proprietary-lightgrey)
 
@@ -156,14 +156,15 @@ valinor-saas/
 │   ├── storage.py          # MetadataStorage
 │   ├── pdf_generator.py    # Simple PDF fallback
 │   └── memory/             # ClientProfile, ProfileStore, AutoRefinement
-├── adapters/               # Bridge: API ↔ Valinor v0 core
-│   └── valinor_adapter.py
+│   └── adapters/           # (under api/) Bridge: API ↔ Valinor core
+│       └── valinor_adapter.py
 ├── deploy/
 │   └── sql/init.sql        # PostgreSQL schema (metadata only)
 ├── docs/                   # Technical documentation
+│   ├── PROJECT_STATE.md    # Verified state-of-project + open issues (start here)
 │   ├── API_REFERENCE.md    # Full endpoint reference
 │   ├── ARCHITECTURE.md     # Technical architecture details
-│   └── MIGRATION_PLAN.md   # Migration from v0 to SaaS
+│   └── INFRASTRUCTURE.md   # Production deploy (Railway + Vercel)
 ├── docker-compose.yml      # Complete local environment
 ├── Dockerfile.api
 ├── Dockerfile.worker
@@ -244,12 +245,8 @@ GET /api/jobs/{job_id}/quality    → DQ Gate report
 | Analyses included      | 25/month       |
 | Gross margin           | ~92%           |
 
-| Free Tier Service  | Limit                  |
-|--------------------|------------------------|
-| Cloudflare Workers | 100k requests/day      |
-| GitHub Actions     | Unlimited (public repo)|
-| Supabase           | 500 MB database        |
-| Vercel             | 100 GB bandwidth       |
+Production runs on **Railway** (API + Worker + PostgreSQL + Redis) and **Vercel**
+(frontend) — see [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md).
 
 ---
 
@@ -283,11 +280,13 @@ curl http://localhost:8000/health
 
 ## Key Documentation
 
-- [docs/API_REFERENCE.md](docs/API_REFERENCE.md) — Full endpoint reference (~50 endpoints)
+- [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) — **Verified state-of-project + open issues + agenda for the new stage (start here)**
+- [docs/API_REFERENCE.md](docs/API_REFERENCE.md) — Full endpoint reference (~75 endpoints)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Technical architecture details
-- [docs/MIGRATION_PLAN.md](docs/MIGRATION_PLAN.md) — Migration from v0 CLI to SaaS
+- [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md) — Production deploy (Railway + Vercel)
+- [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) — Dev setup, ports, known issues
 - [CLAUDE.md](CLAUDE.md) — Development agent instructions
 
 ---
 
-*Valinor SaaS v2 — Delta 4C — March 2026*
+*Valinor SaaS v2 — Delta 4C — June 2026*

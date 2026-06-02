@@ -66,6 +66,9 @@ GLORIA_AVAILABLE = _pg_available(GLORIA_CONN)
 HARDIS_AVAILABLE = _pg_available(HARDIS_CONN)
 LLM_IS_AVAILABLE = _llm_available()
 
+# VAL-171: whole-file real-pipeline matrix test (real Claude agents + Gloria). Gated by --run-slow.
+pytestmark = pytest.mark.live
+
 
 def _install_real_sdk():
     os.environ["LLM_PROVIDER"] = "console_cli"
@@ -438,7 +441,7 @@ class TestProductionMatrix:
         reports = await run_narrators(
             findings, entity_map, None, client_config,
             baseline, query_results,
-            narrator_timeout=180,
+            narrator_timeout=920,
         )
         narrator_time = time.time() - t0
         print(f"    {len(reports)} reports generated [{narrator_time:.1f}s]")

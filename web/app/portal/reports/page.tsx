@@ -27,7 +27,7 @@ export default function PortalReportsPage() {
     async function load() {
       try {
         const token = getToken()
-        const res = await fetch(`${BASE_URL}/api/v1/portal/reports`, {
+        const res = await fetch(`${BASE_URL}/portal/reports`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (res.ok) {

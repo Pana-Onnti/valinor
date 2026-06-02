@@ -67,6 +67,15 @@ Antes de cualquier análisis, el DQ Gate corre 8+1 checks:
 
 Si checks Critical fallan → análisis abortado automáticamente.
 
+**Crash-handling (fail-closed).** Si un check *crashea* (lanza excepción), el dato
+de esa dimensión queda **no verificado**, así que el gate lo trata con la peor
+severidad que ese check vigila — nunca lo degrada silenciosamente a WARNING. Un
+check FATAL crasheado (schema_integrity, accounting_balance) fuerza **HALT**; uno
+CRITICAL queda CRITICAL; los estadísticos (outlier/benford/temporal/cointegration)
+quedan WARNING. La deducción de score usa el peso completo del check. Mapa en
+`DataQualityGate.CRASH_SEVERITY`. El gate falla cerrado: jamás dejar pasar análisis
+sobre datos cuya integridad no se pudo verificar.
+
 ## KO Report Structure (Minto Pyramid)
 
 ```

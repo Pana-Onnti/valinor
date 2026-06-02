@@ -6,6 +6,7 @@ All external dependencies (Redis, MetadataStorage, supabase, slowapi …) are
 mocked/stubbed so that tests run without a full Docker environment.
 """
 
+import asyncio
 import json
 import sys
 import types
@@ -63,7 +64,7 @@ _stub_missing("slowapi", "slowapi.util", "slowapi.errors")
 _slowapi = sys.modules["slowapi"]
 
 class _FakeLimiter:
-    def __init__(self, key_func=None):
+    def __init__(self, key_func=None, **kwargs):
         pass
     def limit(self, rate: str):
         def decorator(func):
@@ -396,6 +397,25 @@ class TestAnalyzeEndpoint:
         else:
             # Some versions may serialize detail as string
             assert "too_many_concurrent" in str(detail)
+
+    @pytest.mark.asyncio
+    async def test_analyze_fails_closed_when_redis_errors_in_concurrency_check(
+        self, client, redis_mock
+    ):
+        """A Redis fault while counting running jobs must fail CLOSED (503), not
+        silently let the request bypass the per-client concurrency cap."""
+        import redis.exceptions
+
+        async def _scan_one(*args, **kwargs):
+            yield "job:aaaa"
+
+        redis_mock.scan_iter = _scan_one
+        redis_mock.hget = AsyncMock(
+            side_effect=redis.exceptions.ConnectionError("redis down")
+        )
+
+        response = await client.post("/api/analyze", json=VALID_ANALYSIS_PAYLOAD)
+        assert response.status_code == 503
 
     @pytest.mark.asyncio
     async def test_analyze_invalid_client_name_special_chars(self, client):
@@ -1043,3 +1063,151 @@ class TestAuditEndpoints:
         # All returned events must match the requested event_type
         for event in data["events"]:
             assert event.get("event_type") == "analysis_started"
+
+
+# ---------------------------------------------------------------------------
+# VAL-164: Demo cache TOCTOU race regression
+# ---------------------------------------------------------------------------
+
+
+class TestDemoRace:
+    @pytest.mark.asyncio
+    async def test_concurrent_run_requests_serialize_via_lock(self, client):
+        """Two concurrent POST /api/demo/run must NOT both spawn a pipeline.
+
+        Without the lock, both requests pass the idle-status guard before either
+        rewrites _demo_cache, and two pipelines start in parallel.
+        """
+        from api.routers import demo as demo_module
+
+        demo_module._demo_cache = {
+            "job_id": None,
+            "status": "idle",
+            "results": None,
+            "error": None,
+            "started_at": None,
+            "completed_at": None,
+        }
+
+        with patch.object(demo_module, "_run_demo_pipeline", new=AsyncMock(return_value=None)):
+            r1, r2 = await asyncio.gather(
+                client.post("/api/demo/run"),
+                client.post("/api/demo/run"),
+            )
+
+        assert r1.status_code == 202
+        assert r2.status_code == 202
+
+        bodies = [r1.json(), r2.json()]
+        already_in_progress = [b for b in bodies if "already in progress" in b.get("message", "")]
+        started = [b for b in bodies if "Demo analysis started" in b.get("message", "")]
+
+        assert len(started) == 1, f"Expected exactly one fresh start, got: {bodies}"
+        assert len(already_in_progress) == 1, f"Expected exactly one 'in progress' reply, got: {bodies}"
+        assert started[0]["job_id"] == already_in_progress[0]["job_id"]
+
+
+# ---------------------------------------------------------------------------
+# VAL-107: per-tenant rate limiting wiring
+# ---------------------------------------------------------------------------
+
+
+class TestRateLimitWiring:
+    """The slowapi backend itself is upstream-tested; what is OURS to verify is
+    (a) the per-tenant key function and (b) that each sensitive endpoint actually
+    carries the intended @limiter.limit decorator. The spy _FakeLimiter records
+    the applied rate on the endpoint function as `._ratelimits`.
+    """
+
+    def test_key_prefers_tenant_header(self):
+        from api.deps import _rate_limit_key
+
+        req = types.SimpleNamespace(headers={"X-Tenant-ID": "acme"})
+        assert _rate_limit_key(req) == "tenant:acme"
+
+    def test_key_falls_back_to_remote_address_without_header(self):
+        from api.deps import _rate_limit_key
+
+        # get_remote_address is stubbed to return "127.0.0.1" at module load.
+        req = types.SimpleNamespace(headers={})
+        assert _rate_limit_key(req) == "127.0.0.1"
+
+    def test_sensitive_endpoints_are_rate_limited(self):
+        """Static source check (robust to test import order, which decides whether
+        the real limiter or the spy fake decorated the routers): each sensitive
+        endpoint must carry a `@limiter.limit("<rate>")` decorator directly above
+        its def."""
+        from pathlib import Path
+
+        api_dir = Path(__file__).resolve().parent.parent / "api" / "routers"
+        # (file, endpoint def name, expected rate)
+        expected = [
+            ("jobs.py", "start_analysis", "5/minute"),
+            ("jobs.py", "stream_job_progress", "10/minute"),
+            ("nl_query.py", "nl_query", "20/minute"),
+            ("clients.py", "list_clients", "30/minute"),
+            ("portal.py", "verify_token", "10/minute"),
+            ("demo.py", "run_demo", "10/minute"),
+        ]
+        for filename, func, rate in expected:
+            lines = (api_dir / filename).read_text().splitlines()
+            def_idx = next(
+                (i for i, ln in enumerate(lines)
+                 if ln.lstrip().startswith(("def " + func, "async def " + func))),
+                None,
+            )
+            assert def_idx is not None, f"{func} not found in {filename}"
+            # Walk back over the decorator stack directly above the def.
+            decorators = []
+            j = def_idx - 1
+            while j >= 0 and (lines[j].lstrip().startswith("@") or not lines[j].strip()):
+                if lines[j].lstrip().startswith("@"):
+                    decorators.append(lines[j].strip())
+                j -= 1
+            assert any(f'@limiter.limit("{rate}")' in d for d in decorators), (
+                f"{func} in {filename} missing @limiter.limit(\"{rate}\"); "
+                f"decorators found: {decorators}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# VAL-108: API-key auth wiring
+# ---------------------------------------------------------------------------
+
+
+class TestAuthWiring:
+    """Protected routers carry the env-gated verify_api_key dependency; public
+    routes (health/version, the portal's own per-session token, demo) do not.
+    verify_api_key is a no-op when VALINOR_API_KEY is unset, so this only checks
+    that the dependency is *wired*, not that enforcement is on."""
+
+    @staticmethod
+    def _has_api_key_dep(route) -> bool:
+        from api.auth import verify_api_key
+        dependant = getattr(route, "dependant", None)
+        if dependant is None:
+            return False
+        return any(d.call is verify_api_key for d in dependant.dependencies)
+
+    def _routes_by_path(self):
+        from api.main import app
+        out = {}
+        for r in app.routes:
+            p = getattr(r, "path", None)
+            if p:
+                out.setdefault(p, r)
+        return out
+
+    def test_protected_endpoints_require_api_key(self):
+        routes = self._routes_by_path()
+        for path in ("/api/analyze", "/api/onboarding/test-connection"):
+            assert path in routes, f"route {path} missing"
+            assert self._has_api_key_dep(routes[path]), f"{path} not gated by verify_api_key"
+
+    def test_public_endpoints_are_not_api_key_gated(self):
+        routes = self._routes_by_path()
+        for path in ("/health", "/api/version", "/portal/verify"):
+            assert path in routes, f"route {path} missing"
+            assert not self._has_api_key_dep(routes[path]), (
+                f"{path} must not require the global API key"
+            )

@@ -37,6 +37,37 @@ except ImportError:
     STATSMODELS_AVAILABLE = False
 
 from shared.utils.sql_sanitizer import sanitize_base_filter  # VAL-49
+from core.valinor.sql_safety import is_safe_identifier  # VAL-170
+
+
+def _safe_ident(name: Optional[str]) -> Optional[str]:
+    """Return *name* only if it is a safe SQL identifier, else None.
+
+    entity_map table/column names are LLM-derived (Cartographer output) and get
+    f-string-interpolated into raw SQL by the checks below. Dropping unsafe names
+    here makes the required-column guards skip the entity rather than interpolate a
+    hallucinated/injected identifier (VAL-170). base_filter predicates are handled
+    separately by sanitize_base_filter (VAL-49).
+    """
+    return name if (name and is_safe_identifier(name)) else None
+
+
+# ---------------------------------------------------------------------------
+# Metrics port (dependency inversion)
+# ---------------------------------------------------------------------------
+# The Domain must never import Infrastructure (hexagonal rule). Instead of
+# `from api.metrics import DQ_CHECKS_TOTAL`, the api layer registers a sink here
+# at startup (see api/metrics.py). If nothing registers one (e.g. core/run.py
+# standalone), metrics are silently disabled — the gate stays fully decoupled.
+# Hook signature: (check_name: str, passed: bool) -> None
+_dq_metrics_hook = None
+
+
+def set_dq_metrics_hook(hook) -> None:
+    """Register an observer for DQ check results. Called by the Infrastructure
+    layer (api) so the Domain need not know about Prometheus/api.metrics."""
+    global _dq_metrics_hook
+    _dq_metrics_hook = hook
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +139,30 @@ class DataQualityGate:
         "receivables_cointegration":      5,
     }
 
+    # Severity to assign when a check CRASHES, keyed by the check_name produced by
+    # `method.__name__.replace("_check_", "")`. A crash means the dimension could
+    # not be verified, so it is treated at the worst-case severity that check
+    # guards on a real failure — never silently downgraded to WARNING. This makes
+    # a crashed integrity check (schema/accounting) fail closed (HALT) instead of
+    # fail open. Names not listed default to CRITICAL.
+    CRASH_SEVERITY = {
+        "schema_integrity":                  "FATAL",
+        "accounting_balance":                "FATAL",
+        "null_density":                      "CRITICAL",
+        "duplicate_rate":                    "CRITICAL",
+        "cross_table_reconciliation":        "CRITICAL",
+        "outlier_screen":                    "WARNING",
+        "benford_compliance":                "WARNING",
+        "temporal_consistency":              "WARNING",
+        "receivables_revenue_cointegration": "WARNING",
+    }
+
+    # SCORE_WEIGHTS keys for the two checks whose method name differs from the key.
+    _WEIGHT_ALIASES = {
+        "cross_table_reconciliation":        "cross_table_reconcile",
+        "receivables_revenue_cointegration": "receivables_cointegration",
+    }
+
     # ERP → required tables for schema integrity check
     ERP_CORE_TABLES = {
         "odoo": {
@@ -170,40 +225,39 @@ class DataQualityGate:
             self._check_receivables_revenue_cointegration,
         ]
 
-        try:
-            from api.metrics import DQ_CHECKS_TOTAL
-            _dq_metrics = True
-        except ImportError:
-            _dq_metrics = False
-
         for method in check_methods:
             try:
                 check = method()
             except Exception as e:
                 import structlog as _sl
-                _sl.get_logger().warning(
+                _sl.get_logger().exception(
                     "dq_gate.check_error",
                     check=method.__name__,
                     error=str(e),
                 )
+                name = method.__name__.replace("_check_", "")
+                # A crashed check could not verify its dimension → fail closed at
+                # the worst-case severity that check guards, with full deduction.
+                crash_severity = self.CRASH_SEVERITY.get(name, "CRITICAL")
+                weight = self.SCORE_WEIGHTS.get(
+                    name, self.SCORE_WEIGHTS.get(self._WEIGHT_ALIASES.get(name, ""), 5)
+                )
                 check = QualityCheckResult(
-                    check_name=method.__name__.replace("_check_", ""),
+                    check_name=name,
                     passed=False,
-                    score_impact=self.SCORE_WEIGHTS.get(
-                        method.__name__.replace("_check_", ""), 5
-                    ) // 3,  # Partial deduction for crashed checks
-                    severity="WARNING",
-                    detail=f"Check crashed (error treated as warning): {e}",
-                    recommendation="Investigate why this check failed. "
-                                   "The check may need schema or config adjustments.",
+                    score_impact=weight,
+                    severity=crash_severity,
+                    detail=f"Check crashed and could not verify data "
+                           f"(treated as {crash_severity}): {e}",
+                    recommendation="Investigate why this check crashed. The gate "
+                                   "fails closed because the dimension could not be verified.",
                 )
 
-            if _dq_metrics:
-                result_label = "passed" if check.passed else "failed"
-                DQ_CHECKS_TOTAL.labels(
-                    check_name=check.check_name,
-                    result=result_label,
-                ).inc()
+            if _dq_metrics_hook is not None:
+                try:
+                    _dq_metrics_hook(check.check_name, check.passed)
+                except Exception:
+                    pass  # metrics must never break the gate
 
             report.checks.append(check)
             if not check.passed:
@@ -260,9 +314,10 @@ class DataQualityGate:
         for entity_name, entity in entities.items():
             if entity.get("type") == "TRANSACTIONAL":
                 key_cols = entity.get("key_columns", {})
-                amount_col = key_cols.get("amount_col")
-                date_col = key_cols.get("date_col")
-                if amount_col and date_col:
+                table = _safe_ident(entity.get("table"))  # VAL-170
+                amount_col = _safe_ident(key_cols.get("amount_col"))
+                date_col = _safe_ident(key_cols.get("date_col"))
+                if table and amount_col and date_col:
                     # VAL-49: sanitize base_filter at extraction point
                     try:
                         safe_filter = sanitize_base_filter(
@@ -272,10 +327,10 @@ class DataQualityGate:
                     except ValueError:
                         safe_filter = ""  # reject unsafe filters silently
                     return {
-                        "table": entity.get("table", ""),
+                        "table": table,
                         "amount_col": amount_col,
                         "date_col": date_col,
-                        "name_col": key_cols.get("name") or key_cols.get("document_no"),
+                        "name_col": _safe_ident(key_cols.get("name") or key_cols.get("document_no")),
                         "base_filter": safe_filter,
                     }
         return {}
@@ -290,10 +345,11 @@ class DataQualityGate:
         for entity_name, entity in entities.items():
             if entity.get("type") == "LEDGER":
                 key_cols = entity.get("key_columns", {})
-                debit_col = key_cols.get("debit_col") or key_cols.get("debit")
-                credit_col = key_cols.get("credit_col") or key_cols.get("credit")
-                date_col = key_cols.get("date_col") or key_cols.get("date")
-                if debit_col and credit_col and date_col:
+                table = _safe_ident(entity.get("table"))  # VAL-170
+                debit_col = _safe_ident(key_cols.get("debit_col") or key_cols.get("debit"))
+                credit_col = _safe_ident(key_cols.get("credit_col") or key_cols.get("credit"))
+                date_col = _safe_ident(key_cols.get("date_col") or key_cols.get("date"))
+                if table and debit_col and credit_col and date_col:
                     try:
                         safe_filter = sanitize_base_filter(
                             entity.get("base_filter", ""),
@@ -302,12 +358,12 @@ class DataQualityGate:
                     except ValueError:
                         safe_filter = ""
                     return {
-                        "table": entity.get("table", ""),
+                        "table": table,
                         "debit_col": debit_col,
                         "credit_col": credit_col,
                         "date_col": date_col,
-                        "account_id_col": key_cols.get("account_id_col") or key_cols.get("account_id"),
-                        "move_id_col": key_cols.get("move_id_col") or key_cols.get("move_id"),
+                        "account_id_col": _safe_ident(key_cols.get("account_id_col") or key_cols.get("account_id")),
+                        "move_id_col": _safe_ident(key_cols.get("move_id_col") or key_cols.get("move_id")),
                         "base_filter": safe_filter,
                     }
         return {}
@@ -321,11 +377,12 @@ class DataQualityGate:
         for entity_name, entity in entities.items():
             if entity.get("type") == "ACCOUNT":
                 key_cols = entity.get("key_columns", {})
-                code_col = key_cols.get("code_col") or key_cols.get("code")
-                type_col = key_cols.get("type_col") or key_cols.get("account_type")
-                if code_col:
+                table = _safe_ident(entity.get("table"))  # VAL-170
+                code_col = _safe_ident(key_cols.get("code_col") or key_cols.get("code"))
+                type_col = _safe_ident(key_cols.get("type_col") or key_cols.get("account_type"))
+                if table and code_col:
                     return {
-                        "table": entity.get("table", ""),
+                        "table": table,
                         "code_col": code_col,
                         "type_col": type_col,
                     }

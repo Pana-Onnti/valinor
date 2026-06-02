@@ -20,13 +20,12 @@ import uuid as _uuid
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 import structlog
 import redis.asyncio as redis
@@ -49,7 +48,8 @@ from api.routers.upload import router as upload_router  # noqa: E402
 from api.routers.demo import router as demo_router  # noqa: E402
 from api.logging_config import setup_logging  # noqa: E402
 from api.metrics import PrometheusMiddleware, metrics_response  # noqa: E402, F401
-from api.deps import set_redis_client, set_limiter  # noqa: E402
+from api.deps import set_redis_client, limiter  # noqa: E402
+from api.auth import verify_api_key  # noqa: E402
 
 # Re-export models for backward compatibility (tests import from api.main)
 from api.models import (  # noqa: F401, E402
@@ -126,6 +126,15 @@ async def lifespan(app: FastAPI):
         set_redis_client(redis_client)
         await metadata_storage.health_check()
         logger.info("Metadata storage initialized")
+        # VAL-108: be loud when the API-key gate is unconfigured. Without VALINOR_API_KEY,
+        # verify_api_key is a no-op and every protected router is open.
+        if not os.getenv("VALINOR_API_KEY"):
+            if os.getenv("APP_ENV") == "production":
+                logger.error("auth.unconfigured",
+                             detail="VALINOR_API_KEY unset in production — API is UNAUTHENTICATED")
+            else:
+                logger.warning("auth.dev_mode",
+                               detail="VALINOR_API_KEY unset — API auth disabled (dev-mode)")
     except Exception as e:
         logger.error("Startup failed", error=str(e))
         raise
@@ -177,10 +186,8 @@ Implementa estandares de: Renaissance Technologies, Bloomberg Terminal, ECB, Big
 
 # ═══ RATE LIMITER ═══
 
-limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-set_limiter(limiter)
 
 
 # ═══ MIDDLEWARE ═══
@@ -284,17 +291,28 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 # ═══ REGISTER ROUTERS ═══
 
+# Public routers — no global API-key gate:
+#   system: /health, /metrics, /api/version must stay reachable unauthenticated.
+#   portal: protected by its own per-session portal token (api/routers/portal.py).
+#   demo:   intentionally public.
 app.include_router(system_router)
-app.include_router(jobs_router)
-app.include_router(clients_router)
-app.include_router(alerts_router)
-app.include_router(reports_router)
-app.include_router(quality_router)
-app.include_router(onboarding_router)
-app.include_router(nl_query_router)
 app.include_router(portal_router)
-app.include_router(upload_router)
 app.include_router(demo_router)
+
+# Protected routers — require a valid API key WHEN VALINOR_API_KEY is configured.
+# verify_api_key is env-gated: with no key set (dev/CI/tests) it is a no-op
+# ("dev-mode"), so wiring it here does not break local dev or the suite. Enabling
+# enforcement in prod also requires the operator frontend to send the key — tracked
+# in docs/PROJECT_STATE.md (VAL-108).
+_protected = [Depends(verify_api_key)]
+app.include_router(jobs_router, dependencies=_protected)
+app.include_router(clients_router, dependencies=_protected)
+app.include_router(alerts_router, dependencies=_protected)
+app.include_router(reports_router, dependencies=_protected)
+app.include_router(quality_router, dependencies=_protected)
+app.include_router(onboarding_router, dependencies=_protected)
+app.include_router(nl_query_router, dependencies=_protected)
+app.include_router(upload_router, dependencies=_protected)
 
 
 # ═══ MAIN ═══

@@ -16,10 +16,12 @@ import time
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 import structlog
+
+from api.deps import limiter
 
 logger = structlog.get_logger()
 
@@ -143,7 +145,8 @@ def _get_adapter(tenant_id: str, entity_map: Optional[Dict[str, Any]] = None):
 # ── Endpoint ──────────────────────────────────────────────────────────────────
 
 @router.post("/nl-query", response_model=NLQueryResponse, summary="Natural Language → SQL")
-async def nl_query(request: NLQueryRequest) -> NLQueryResponse:
+@limiter.limit("20/minute")
+async def nl_query(http_request: Request, request: NLQueryRequest) -> NLQueryResponse:
     """
     Convert a natural language question to SQL and optionally execute it.
 

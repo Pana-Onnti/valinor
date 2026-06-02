@@ -19,6 +19,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.valinor.sql_safety import is_safe_identifier
+from shared.utils.sql_sanitizer import sanitize_base_filter
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Entity map resolution helpers
@@ -31,12 +34,17 @@ def _resolve(entity_map: dict, entity: str) -> dict:
 
 
 def _table(entity_map: dict, entity: str, fallback: str) -> str:
-    return _resolve(entity_map, entity).get("table", fallback)
+    # entity_map is LLM-derived (Cartographer output) and gets f-string-interpolated
+    # straight into raw SQL below. Validate the identifier and fall back to the
+    # hardcoded safe literal on a hallucinated/injected name (VAL-170).
+    name = _resolve(entity_map, entity).get("table", fallback)
+    return name if is_safe_identifier(name) else fallback
 
 
 def _col(entity_map: dict, entity: str, semantic: str, fallback: str) -> str:
     cols = _resolve(entity_map, entity).get("key_columns", {})
-    return cols.get(semantic, fallback)
+    name = cols.get(semantic, fallback)
+    return name if is_safe_identifier(name) else fallback  # VAL-170: untrusted identifier
 
 
 def _base_filter(entity_map: dict, entity: str) -> str:
@@ -48,7 +56,16 @@ def _base_filter(entity_map: dict, entity: str) -> str:
     result right after a WHERE condition — no connector needed on their side.
     Accepts legacy filters that already include a leading "AND ".
     """
-    f = _resolve(entity_map, entity).get("base_filter", "").strip()
+    raw = _resolve(entity_map, entity).get("base_filter", "").strip()
+    if not raw:
+        return ""
+    # base_filter is LLM-derived (Cartographer) and gets interpolated into raw SQL
+    # below — sanitize it like data_quality_gate.py and query_builder.py do, instead of
+    # trusting it. Drop the filter on a dangerous/injected predicate. (VAL-170)
+    try:
+        f = sanitize_base_filter(raw, context="sales_v2").strip()
+    except ValueError:
+        return ""
     if not f:
         return ""
     return f" {f}" if f.upper().startswith("AND ") else f" AND {f}"
@@ -181,6 +198,7 @@ FROM ranked
 
 
 def concentration_top_customers_sql(entity_map: dict, months: int = 12, limit: int = 10) -> str:
+    months, limit = int(months), int(limit)  # VAL-170: enforce numeric type before f-string
     invoices = _table(entity_map, "invoices", "invoices")
     customers = _table(entity_map, "customers", "customers")
     inv_date = _col(entity_map, "invoices", "invoice_date", "invoice_date")
@@ -358,6 +376,7 @@ def churn_risk_scoring_sql(
 
     Dormant = last purchase > dormant_threshold_days ago.
     """
+    months, dormant_threshold_days, limit = int(months), int(dormant_threshold_days), int(limit)  # VAL-170
     invoices = _table(entity_map, "invoices", "invoices")
     customers = _table(entity_map, "customers", "customers")
     inv_date = _col(entity_map, "invoices", "invoice_date", "invoice_date")
@@ -509,6 +528,7 @@ def build_sales_v2_queries(entity_map: dict, months: int = 12) -> dict[str, str]
     get SQL that references fallback table names — let the executor error,
     then the DataPrefetcher records the failure and the narrator adapts.
     """
+    months = int(months)  # VAL-170: enforce numeric type before f-string interpolation
     return {
         "rfm_segmentation": rfm_segmentation_sql(entity_map, months=months),
         "concentration_hhi": concentration_hhi_sql(entity_map, months=months),
