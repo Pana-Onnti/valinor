@@ -66,7 +66,7 @@ pymssql>=2.2
 
 # Development
 pytest>=7.4.3
-pytest-asyncio>=0.21.1
+pytest-asyncio>=0.21.1,<0.22  # pin: 1.x breaks asyncio.get_event_loop() in the tests' _run() helpers (211 CI failures). Migrating to 1.x is a follow-up.
 pytest-cov>=4.1.0
 pytest-json-report>=1.5.0
 pytest-timeout>=2.4.0
