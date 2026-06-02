@@ -15,7 +15,7 @@ SQLAlchemy>=2.0.25
 alembic>=1.13.0
 
 # Redis
-redis>=5.0.1
+redis>=5.0.1,<6  # pin: redis 8.x breaks with the pinned hiredis ('no __version__'); 5.x is the intended line
 
 # Task Queue
 celery>=5.3.4
