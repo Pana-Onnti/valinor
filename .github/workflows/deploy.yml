@@ -91,6 +91,15 @@ jobs:
           RAILWAY_PROJECT_ID: b78babfc-1b70-45f5-a866-eb23d08e04ac
           RAILWAY_ENVIRONMENT_ID: 51136959-2c0d-4f37-aa95-754b5e86715b
 
+      # VAL-169: also deploy the Worker (Celery agents) — previously only the API was
+      # deployed, so the worker ran stale code while the API shipped new code.
+      - name: Deploy Worker to Railway
+        run: railway up --service Worker --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: b78babfc-1b70-45f5-a866-eb23d08e04ac
+          RAILWAY_ENVIRONMENT_ID: 51136959-2c0d-4f37-aa95-754b5e86715b
+
       - name: Post-deploy health check
         run: |
           echo "Waiting for production deployment to stabilize..."
