@@ -338,15 +338,18 @@ docker compose up -d    # reiniciar con el archivo correcto
 
 ---
 
-### Fix 11 — PYTHONPATH incompleto (módulo adapters no encontrado)
+### Fix 11 — PYTHONPATH incompleto (orquestador del pipeline no encontrado)
 
-**Error:** `ModuleNotFoundError: No module named 'adapters'`
+**Error:** `ModuleNotFoundError: No module named 'api'` (Worker) o `'valinor'` (Worker), `'adapters'` (API, histórico).
 
-**Causa:** El módulo `adapters` está en `/app/api/adapters/`, pero `PYTHONPATH` solo incluía `/app`, no `/app/api`.
+**Causa:** el orquestador del pipeline (`ValinorAdapter` + `refinement/`) vivía en `api/`, pero `Dockerfile.worker` no copia `api/` → el Worker crasheaba al bootear. Resuelto en VAL-169 reubicándolo a `core/adapters/` + `core/refinement/` (capa neutral que el Worker ya copia). El adapter conserva imports bare `valinor.*` que sólo resuelven con `/app/core` en el path.
 
-**Fix en `Dockerfile.api` y `Dockerfile.worker`:**
+**PYTHONPATH requerido por imagen:**
 ```dockerfile
+# Dockerfile.api
 ENV PYTHONPATH=/app:/app/api:$PYTHONPATH
+# Dockerfile.worker  (/app/core para los imports bare valinor.*)
+ENV PYTHONPATH=/app:/app/core:$PYTHONPATH
 ```
 
 ---

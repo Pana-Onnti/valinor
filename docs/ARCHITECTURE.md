@@ -190,7 +190,7 @@ AlertEngine → umbrales por cliente
 
 | Módulo | Archivo | Responsabilidad |
 |---|---|---|
-| `ValinorAdapter` | `api/adapters/valinor_adapter.py` | Punto de entrada al pipeline v0 |
+| `ValinorAdapter` | `core/adapters/valinor_adapter.py` | Punto de entrada al pipeline v0 |
 | `SSHTunnelManager` | `shared/ssh_tunnel.py` | Túneles SSH efímeros + ZeroTrust |
 | `ConnectionPoolManager` | `shared/db_pool.py` | Connection pooling con SQLAlchemy QueuePool |
 | `DataQualityGate` | `core/valinor/quality/data_quality_gate.py` | 9 checks pre-análisis (8 + REPEATABLE READ snapshot); fail-closed en crash (VAL-165) |
@@ -200,7 +200,7 @@ AlertEngine → umbrales por cliente
 | `QueryGenerator` | `core/valinor/agents/query_generator.py` | SQL dinámico guiado por KG |
 | `ProfileStore` | `shared/memory/profile_store.py` | Persistencia de perfiles de cliente |
 | `AdaptiveContextBuilder` | `shared/memory/adaptive_context_builder.py` | Contexto histórico para agentes |
-| `QueryEvolver` | `api/refinement/query_evolver.py` | Aprendizaje de queries valiosas |
+| `QueryEvolver` | `core/refinement/query_evolver.py` | Aprendizaje de queries valiosas |
 | `AlertEngine` | `shared/memory/alert_engine.py` | Umbrales y alertas por cliente |
 | `WebhookDispatcher` | `shared/webhook_dispatcher.py` | Webhooks con retry exponencial |
 | `PDFGenerator` | `api/pdf_generator.py` | Export PDF con DQ bar + alerts |

@@ -82,9 +82,9 @@ sys.modules["slowapi.errors"].RateLimitExceeded = _FakeRateLimitExceeded
 import structlog  # real module — stub breaks structlog.contextvars
 structlog.get_logger = lambda *a, **kw: MagicMock()
 
-_stub_missing("adapters", "adapters.valinor_adapter")
-sys.modules["adapters.valinor_adapter"].ValinorAdapter = MagicMock
-sys.modules["adapters.valinor_adapter"].PipelineExecutor = MagicMock
+_stub_missing("core.adapters", "core.adapters.valinor_adapter")
+sys.modules["core.adapters.valinor_adapter"].ValinorAdapter = MagicMock
+sys.modules["core.adapters.valinor_adapter"].PipelineExecutor = MagicMock
 
 _stub_missing("shared.storage")
 sys.modules["shared.storage"].MetadataStorage = MagicMock

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 import structlog
 import redis
 
-from api.adapters.valinor_adapter import ValinorAdapter
+from core.adapters.valinor_adapter import ValinorAdapter
 from shared.storage import MetadataStorage
 from worker.celery_app import celery_app
 

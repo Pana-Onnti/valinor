@@ -1,10 +1,10 @@
 """
-Tests for api/adapters/exceptions.py — 15 tests covering exception hierarchy,
+Tests for core/adapters/exceptions.py — 15 tests covering exception hierarchy,
 attributes, and behaviour of all Valinor pipeline exception types.
 """
 import pytest
 
-from api.adapters.exceptions import (
+from core.adapters.exceptions import (
     ValinorError,
     SSHConnectionError,
     DatabaseConnectionError,

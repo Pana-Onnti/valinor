@@ -1,5 +1,5 @@
 """
-Tests for QueryEvolver — api/refinement/query_evolver.py
+Tests for QueryEvolver — core/refinement/query_evolver.py
 
 Covers:
   - Empty-query detection and persistence across runs
@@ -18,7 +18,7 @@ sys.path.insert(0, "api")
 sys.path.insert(0, "shared")
 sys.path.insert(0, ".")
 
-from refinement.query_evolver import QueryEvolver
+from core.refinement.query_evolver import QueryEvolver
 from memory.client_profile import ClientProfile
 
 

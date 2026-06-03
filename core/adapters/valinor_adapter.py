@@ -24,7 +24,7 @@ from shared.llm.monkey_patch import apply_monkey_patch  # noqa: E402
 apply_monkey_patch()
 # ──────────────────────────────────────────────────────────────────────────────
 
-from api.adapters.exceptions import (  # noqa: E402
+from core.adapters.exceptions import (  # noqa: E402
     ValinorError,
     SSHConnectionError,
     PipelineTimeoutError,
@@ -47,10 +47,10 @@ from shared.storage import MetadataStorage  # noqa: E402
 from shared.memory.profile_store import get_profile_store  # noqa: E402
 from shared.memory.profile_extractor import get_profile_extractor  # noqa: E402
 from shared.webhook_dispatcher import WebhookDispatcher, create_webhook_payload  # noqa: E402
-from api.refinement.prompt_tuner import PromptTuner  # noqa: E402
-from api.refinement.focus_ranker import FocusRanker  # noqa: E402
-from api.refinement.refinement_agent import RefinementAgent  # noqa: E402
-from api.refinement.query_evolver import QueryEvolver  # noqa: E402
+from core.refinement.prompt_tuner import PromptTuner  # noqa: E402
+from core.refinement.focus_ranker import FocusRanker  # noqa: E402
+from core.refinement.refinement_agent import RefinementAgent  # noqa: E402
+from core.refinement.query_evolver import QueryEvolver  # noqa: E402
 from shared.memory.industry_detector import IndustryDetector  # noqa: E402
 from shared.memory.adaptive_context_builder import build_adaptive_context  # noqa: E402
 from shared.memory.segmentation_engine import get_segmentation_engine  # noqa: E402

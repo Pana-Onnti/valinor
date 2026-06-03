@@ -384,18 +384,18 @@ class TestProgressCallbackIntegration:
         (from test_api_endpoints), we patch the task module's publish function
         with the real one from our force-loaded module.
         """
-        # api.tasks imports adapters.valinor_adapter which requires heavy deps.
+        # api.tasks imports core.adapters.valinor_adapter which requires heavy deps.
         api_path = str(ROOT / "api")
         if api_path not in sys.path:
             sys.path.insert(0, api_path)
 
         # Stub the heavy adapter import
-        if "adapters" not in sys.modules:
-            sys.modules["adapters"] = types.ModuleType("adapters")
-        if "adapters.valinor_adapter" not in sys.modules:
-            _adapter_mod = types.ModuleType("adapters.valinor_adapter")
+        if "core.adapters" not in sys.modules:
+            sys.modules["core.adapters"] = types.ModuleType("core.adapters")
+        if "core.adapters.valinor_adapter" not in sys.modules:
+            _adapter_mod = types.ModuleType("core.adapters.valinor_adapter")
             _adapter_mod.ValinorAdapter = MagicMock  # type: ignore
-            sys.modules["adapters.valinor_adapter"] = _adapter_mod
+            sys.modules["core.adapters.valinor_adapter"] = _adapter_mod
 
         import api.tasks as tasks_module
 

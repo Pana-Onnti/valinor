@@ -29,7 +29,9 @@ COPY core/ /app/core/
 RUN mkdir -p /app/ssh_keys /app/logs /app/temp
 
 # Set Python path
-ENV PYTHONPATH=/app:$PYTHONPATH
+# /app/core is required so the relocated pipeline orchestrator (core/adapters)
+# can resolve its bare `valinor.*` imports (valinor/ lives at core/valinor/).
+ENV PYTHONPATH=/app:/app/core:$PYTHONPATH
 
 # Run as non-root user
 RUN useradd -m -u 1000 valinor && chown -R valinor:valinor /app

@@ -13,7 +13,7 @@ from datetime import datetime
 import structlog
 
 from api.deps import get_redis
-from adapters.valinor_adapter import ValinorAdapter
+from core.adapters.valinor_adapter import ValinorAdapter
 from shared.events.pipeline_events import (
     PipelineEvent,
     publish_pipeline_event,
