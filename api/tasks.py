@@ -223,7 +223,7 @@ async def run_analysis_task(job_id: str, request_data: Dict[str, Any]):
 
         # Fire webhooks if registered
         try:
-            from api.webhooks import fire_job_completion_webhook, build_job_summary
+            from shared.webhooks import fire_job_completion_webhook, build_job_summary
             from shared.memory.profile_store import get_profile_store
 
             client_name = request_data.get("client_name", "unknown")
@@ -282,7 +282,7 @@ async def run_analysis_task(job_id: str, request_data: Dict[str, Any]):
 
         # Fire failure webhooks if registered
         try:
-            from api.webhooks import fire_job_completion_webhook
+            from shared.webhooks import fire_job_completion_webhook
             from shared.memory.profile_store import get_profile_store
 
             client_name = request_data.get("client_name", "unknown")

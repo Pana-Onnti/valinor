@@ -40,6 +40,7 @@ for _p in (str(ROOT / "core"), str(ROOT / "shared"), str(ROOT)):
 # Also pre-import shared.memory so stubs can't replace the real package.
 import shared  # noqa: F401, E402
 import shared.memory  # noqa: F401, E402
+import shared.webhooks  # noqa: F401, E402  (real module before test_worker_tasks stubs it; VAL-172)
 
 # Same protection for core.adapters / core.refinement: the pipeline orchestrator
 # was relocated here (VAL-169) and endpoint tests do

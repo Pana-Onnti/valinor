@@ -725,17 +725,17 @@ class TestDeleteWebhookExtra:
 
 
 # ---------------------------------------------------------------------------
-# build_job_summary — unit tests (api.webhooks module)
+# build_job_summary — unit tests (shared.webhooks module)
 # ---------------------------------------------------------------------------
 
 
 class TestBuildJobSummary:
-    """Unit tests for api.webhooks.build_job_summary."""
+    """Unit tests for shared.webhooks.build_job_summary."""
 
     def _import(self):
-        # Force reload so test_worker_tasks.py's api.webhooks stub doesn't interfere.
+        # Force reload so test_worker_tasks.py's shared.webhooks stub doesn't interfere.
         import importlib
-        import api.webhooks as _wh_mod  # noqa: PLC0415
+        import shared.webhooks as _wh_mod  # noqa: PLC0415
         importlib.reload(_wh_mod)
         return _wh_mod.build_job_summary
 
@@ -829,16 +829,16 @@ class TestBuildJobSummary:
 
 
 # ---------------------------------------------------------------------------
-# fire_job_completion_webhook — unit tests (api.webhooks module)
+# fire_job_completion_webhook — unit tests (shared.webhooks module)
 # ---------------------------------------------------------------------------
 
 
 class TestFireJobCompletionWebhook:
-    """Unit tests for api.webhooks.fire_job_completion_webhook."""
+    """Unit tests for shared.webhooks.fire_job_completion_webhook."""
 
     def _import(self):
         import importlib
-        import api.webhooks as _wh_mod  # noqa: PLC0415
+        import shared.webhooks as _wh_mod  # noqa: PLC0415
         importlib.reload(_wh_mod)
         return _wh_mod.fire_job_completion_webhook
 
@@ -887,7 +887,7 @@ class TestFireJobCompletionWebhook:
             )
 
         import importlib
-        import api.webhooks as _wh  # noqa: PLC0415
+        import shared.webhooks as _wh  # noqa: PLC0415
         importlib.reload(_wh)
         MAX_ATTEMPTS = _wh.MAX_ATTEMPTS
         assert result["success"] is False

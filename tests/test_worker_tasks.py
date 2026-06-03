@@ -205,9 +205,9 @@ sys.modules["celery.utils.log"].get_task_logger = MagicMock(
     return_value=MagicMock(info=MagicMock(), error=MagicMock(), warning=MagicMock())
 )
 
-# api.webhooks
-_stub_missing("api.webhooks")
-_wh_stub = sys.modules["api.webhooks"]
+# shared.webhooks
+_stub_missing("shared.webhooks")
+_wh_stub = sys.modules["shared.webhooks"]
 _wh_stub.fire_job_completion_webhook = AsyncMock()
 _wh_stub.build_job_summary = MagicMock(return_value={})
 
