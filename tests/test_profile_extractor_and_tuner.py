@@ -2,8 +2,8 @@
 Tests for:
   - shared/memory/client_profile.py   (ClientProfile, ClientRefinement, FindingRecord)
   - shared/memory/profile_extractor.py (ProfileExtractor)
-  - api/refinement/focus_ranker.py     (FocusRanker)
-  - api/refinement/prompt_tuner.py     (PromptTuner)
+  - core/refinement/focus_ranker.py     (FocusRanker)
+  - core/refinement/prompt_tuner.py     (PromptTuner)
   - core/valinor/deliver.py            (_extract_findings, build_memory)
 
 All tests are pure-logic — no database, LLM, or filesystem calls required.
@@ -25,8 +25,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.memory.client_profile import ClientProfile, ClientRefinement, FindingRecord
 from shared.memory.profile_extractor import ProfileExtractor, get_profile_extractor
-from api.refinement.focus_ranker import FocusRanker
-from api.refinement.prompt_tuner import PromptTuner
+from core.refinement.focus_ranker import FocusRanker
+from core.refinement.prompt_tuner import PromptTuner
 from valinor.deliver import _extract_findings, build_memory
 
 

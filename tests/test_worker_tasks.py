@@ -211,9 +211,9 @@ _wh_stub = sys.modules["api.webhooks"]
 _wh_stub.fire_job_completion_webhook = AsyncMock()
 _wh_stub.build_job_summary = MagicMock(return_value={})
 
-# api.adapters.valinor_adapter
-_stub_missing("api.adapters", "api.adapters.valinor_adapter")
-_adapter_mod = sys.modules["api.adapters.valinor_adapter"]
+# core.adapters.valinor_adapter
+_stub_missing("core.adapters", "core.adapters.valinor_adapter")
+_adapter_mod = sys.modules["core.adapters.valinor_adapter"]
 
 _FAKE_RESULTS = {
     "findings": {"revenue": 1, "anomalies": 2},
@@ -237,10 +237,8 @@ class _FakePipelineExecutor:
 _adapter_mod.ValinorAdapter = _FakeValinorAdapter
 _adapter_mod.PipelineExecutor = _FakePipelineExecutor
 
-# also stub api.adapters package itself
-_stub_missing("api")
-sys.modules["api.adapters"] = sys.modules["api.adapters"]
-setattr(sys.modules["api"], "adapters", sys.modules["api.adapters"])
+# wire core.adapters onto the (real) core package for patch() dotted resolution
+setattr(sys.modules["core"], "adapters", sys.modules["core.adapters"])
 
 # ---------------------------------------------------------------------------
 # Import modules under test AFTER stubs are in place

@@ -41,6 +41,15 @@ for _p in (str(ROOT / "core"), str(ROOT / "shared"), str(ROOT)):
 import shared  # noqa: F401, E402
 import shared.memory  # noqa: F401, E402
 
+# Same protection for core.adapters / core.refinement: the pipeline orchestrator
+# was relocated here (VAL-169) and endpoint tests do
+# _stub_missing("core.adapters", "core.adapters.valinor_adapter"). Pre-importing
+# the *real* packages keeps `core.adapters` a proper package (with __path__) so
+# `from core.adapters.exceptions import ...` and `from core.refinement... import`
+# still resolve; only the heavy .valinor_adapter leaf gets stubbed.
+import core.adapters  # noqa: F401, E402
+import core.refinement  # noqa: F401, E402
+
 # ── claude_agent_sdk stub ─────────────────────────────────────────────────────
 # Many core modules import from claude_agent_sdk at module level.
 # In test environments the real SDK is not installed, so we stub it.

@@ -153,7 +153,7 @@ def _import(self):
 ### Para agregar un nuevo módulo:
 1. Crear en `shared/` (si es cross-cutting) o `api/` (si es API-only)
 2. Escribir tests en `tests/test_<module>.py`
-3. Conectar al pipeline en `api/adapters/valinor_adapter.py`
+3. Conectar al pipeline en `core/adapters/valinor_adapter.py`
 4. Si inyecta contexto a los agentes: hacerlo en `adaptive_context_builder.py`
 
 ### Para agregar un nuevo endpoint:

@@ -2,7 +2,7 @@
 Regression test for VAL-161 — anti-hallucination wiring.
 
 Confirms that the production pipeline (CLI core/valinor/run.py + SaaS
-api/adapters/valinor_adapter.py) actually constructs the
+core/adapters/valinor_adapter.py) actually constructs the
 SchemaKnowledgeGraph and VerificationEngine and feeds the
 VerificationReport (with Number Registry) to the narrators.
 
@@ -27,7 +27,7 @@ from valinor.verification import VerificationEngine
 
 REPO_ROOT = Path(__file__).parent.parent
 CLI_RUN_PATH = REPO_ROOT / "core" / "valinor" / "run.py"
-SAAS_ADAPTER_PATH = REPO_ROOT / "api" / "adapters" / "valinor_adapter.py"
+SAAS_ADAPTER_PATH = REPO_ROOT / "core" / "adapters" / "valinor_adapter.py"
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -124,7 +124,7 @@ def test_cli_run_wires_kg_and_verification():
 
 
 def test_saas_adapter_wires_kg_and_verification():
-    """api/adapters/valinor_adapter.py must do the same wiring as CLI."""
+    """core/adapters/valinor_adapter.py must do the same wiring as CLI."""
     src = SAAS_ADAPTER_PATH.read_text(encoding="utf-8")
     assert "from valinor.knowledge_graph import build_knowledge_graph" in src, \
         "SaaS adapter must import build_knowledge_graph"

@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Skip entire module if optional dependencies are missing (e.g., supabase not installed locally)
 try:
     from shared.ssh_tunnel import ZeroTrustValidator
-    from api.adapters.exceptions import SSHConnectionError
+    from core.adapters.exceptions import SSHConnectionError
 
     # Load MetadataStorage directly from source to bypass any sys.modules stubs
     # injected by other test modules (e.g. test_api_endpoints patches shared.storage).
@@ -48,7 +48,13 @@ try:
     _storage_spec.loader.exec_module(_storage_mod)
     MetadataStorage = _storage_mod.MetadataStorage
 
-    from api.adapters.valinor_adapter import ValinorAdapter
+    # Drop any sys.modules stub injected by endpoint test modules for
+    # "core.adapters.valinor_adapter" (they replace ValinorAdapter with a
+    # MagicMock) and re-import the REAL module under its canonical name, so that
+    # both ValinorAdapter here and patch("core.adapters.valinor_adapter.*") in
+    # the tests below target the same real module.
+    sys.modules.pop("core.adapters.valinor_adapter", None)
+    from core.adapters.valinor_adapter import ValinorAdapter
 except ImportError as _e:
     pytest.skip(f"Skipping test_mvp: missing dependency ({_e})", allow_module_level=True)
 
@@ -257,7 +263,7 @@ class TestValinorAdapter:
         _stat_mock.st_mode = 0o600
         with patch('shared.ssh_tunnel.ZeroTrustValidator.validate_ssh_config', return_value=True), \
              patch('shared.ssh_tunnel.ZeroTrustValidator.validate_db_config', return_value=True), \
-             patch('api.adapters.valinor_adapter.create_ssh_tunnel') as mock_tunnel:
+             patch('core.adapters.valinor_adapter.create_ssh_tunnel') as mock_tunnel:
 
             mock_tunnel.return_value.__enter__ = Mock(
                 return_value="postgresql://user:pass@localhost:5432/testdb"
@@ -306,7 +312,7 @@ class TestValinorAdapter:
         Mock _run_pipeline_with_progress to raise asyncio.TimeoutError and verify
         that run_analysis() propagates an exception rather than hanging indefinitely.
         """
-        from api.adapters.exceptions import PipelineTimeoutError
+        from core.adapters.exceptions import PipelineTimeoutError
 
         async def _mock_timeout(*args, **kwargs):
             raise asyncio.TimeoutError()

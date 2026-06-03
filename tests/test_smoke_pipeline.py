@@ -242,7 +242,7 @@ class TestSmokePipeline:
         """
         from valinor.agents.query_builder import build_queries
         from valinor.pipeline import execute_queries
-        from api.refinement.query_evolver import QueryEvolver
+        from core.refinement.query_evolver import QueryEvolver
 
         query_pack = build_queries(ENTITY_MAP, PERIOD)
         config = {"connection_string": sqlite_conn_str}
@@ -267,7 +267,7 @@ class TestSmokePipeline:
         from valinor.quality.currency_guard import get_currency_guard
         from valinor.quality.anomaly_detector import get_anomaly_detector
         from shared.memory.segmentation_engine import get_segmentation_engine
-        from api.refinement.query_evolver import QueryEvolver
+        from core.refinement.query_evolver import QueryEvolver
 
         query_pack = build_queries(ENTITY_MAP, PERIOD)
         config = {"connection_string": sqlite_conn_str}

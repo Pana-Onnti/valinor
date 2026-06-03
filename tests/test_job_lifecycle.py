@@ -90,8 +90,8 @@ _structlog.get_logger = MagicMock(return_value=MagicMock(
 ))
 
 # adapters
-_stub_missing("adapters", "adapters.valinor_adapter")
-_adapter_stub = sys.modules["adapters.valinor_adapter"]
+_stub_missing("core.adapters", "core.adapters.valinor_adapter")
+_adapter_stub = sys.modules["core.adapters.valinor_adapter"]
 _adapter_stub.ValinorAdapter = MagicMock
 _adapter_stub.PipelineExecutor = MagicMock
 

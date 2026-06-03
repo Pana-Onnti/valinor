@@ -1,9 +1,9 @@
 """
 Comprehensive tests for the API refinement layer:
-  - api/refinement/prompt_tuner.py    (PromptTuner)
-  - api/refinement/focus_ranker.py    (FocusRanker)
-  - api/refinement/query_evolver.py   (QueryEvolver)
-  - api/refinement/refinement_agent.py (RefinementAgent._heuristic_analyze, analyze_run fallback)
+  - core/refinement/prompt_tuner.py    (PromptTuner)
+  - core/refinement/focus_ranker.py    (FocusRanker)
+  - core/refinement/query_evolver.py   (QueryEvolver)
+  - core/refinement/refinement_agent.py (RefinementAgent._heuristic_analyze, analyze_run fallback)
 
 All tests are pure-logic — no database, LLM, or filesystem calls required.
 LLM-dependent code paths (RefinementAgent._llm_analyze) are tested only via the
@@ -56,10 +56,10 @@ sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "api"))
 sys.path.insert(0, str(_ROOT / "shared"))
 
-from refinement.prompt_tuner import PromptTuner
-from refinement.focus_ranker import FocusRanker
-from refinement.query_evolver import QueryEvolver
-from refinement.refinement_agent import RefinementAgent
+from core.refinement.prompt_tuner import PromptTuner
+from core.refinement.focus_ranker import FocusRanker
+from core.refinement.query_evolver import QueryEvolver
+from core.refinement.refinement_agent import RefinementAgent
 from memory.client_profile import ClientProfile, ClientRefinement
 
 
