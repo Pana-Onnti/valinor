@@ -163,9 +163,13 @@ class TestNLQueryEndpoint:
         from fastapi.testclient import TestClient
         from fastapi import FastAPI
         from api.routers.nl_query import router
+        from api.tenant import get_tenant_id
 
         app = FastAPI()
         app.include_router(router)
+        # VAL-174: tenant now comes from the auth context (Depends(get_tenant_id)),
+        # not the request body. Override it for this bare test app (no TenantMiddleware).
+        app.dependency_overrides[get_tenant_id] = lambda: "acme"
         return TestClient(app)
 
     def test_nl_query_missing_question(self, client):
@@ -229,7 +233,7 @@ class TestNLQueryEndpoint:
         }
 
         with patch("api.routers.nl_query._get_adapter", return_value=mock_adapter) as mock_get:
-            response = client.post("/api/v1/nl-query", json={
+            client.post("/api/v1/nl-query", json={
                 "question": "Total revenue?",
                 "tenant_id": "acme",
                 "entity_map": {"client": "acme", "entities": {}},
@@ -239,3 +243,48 @@ class TestNLQueryEndpoint:
         mock_get.assert_called_once()
         call_kwargs = mock_get.call_args
         assert call_kwargs[0][1] is not None or call_kwargs[1].get("entity_map") is not None
+
+    # ── VAL-174 security tests ────────────────────────────────────────────────
+
+    def test_nl_query_inline_dsn_rejected_by_default(self, client):
+        """VAL-174: an inline connection_string is rejected (403) unless explicitly enabled."""
+        mock_adapter = MagicMock()
+        mock_adapter.is_ready = True
+        with patch("api.routers.nl_query._get_adapter", return_value=mock_adapter):
+            response = client.post("/api/v1/nl-query", json={
+                "question": "What are my top customers?",
+                "tenant_id": "acme",
+                "connection_string": "postgresql://user:pass@db.example.com:5432/acme",
+            })
+        assert response.status_code == 403
+        mock_adapter.ask_and_run.assert_not_called()
+
+    def test_nl_query_inline_dsn_internal_host_blocked(self, client):
+        """VAL-174: even when inline DSN is enabled, an internal host is SSRF-blocked (400)."""
+        import os
+        mock_adapter = MagicMock()
+        mock_adapter.is_ready = True
+        with patch.dict(os.environ, {"VALINOR_ALLOW_INLINE_DSN": "true"}), \
+                patch("api.routers.nl_query._get_adapter", return_value=mock_adapter):
+            response = client.post("/api/v1/nl-query", json={
+                "question": "What are my top customers?",
+                "tenant_id": "acme",
+                "connection_string": "postgresql://user:pass@localhost:5432/acme",
+            })
+        assert response.status_code == 400
+        mock_adapter.ask_and_run.assert_not_called()
+
+    def test_nl_query_tenant_comes_from_auth_not_body(self, client):
+        """VAL-174: the response tenant is the authenticated one, not the body field."""
+        from api.tenant import get_tenant_id
+        client.app.dependency_overrides[get_tenant_id] = lambda: "real-tenant"
+        mock_adapter = MagicMock()
+        mock_adapter.is_ready = True
+        mock_adapter.ask.return_value = {"sql": "SELECT 1", "explanation": "x", "error": None}
+        with patch("api.routers.nl_query._get_adapter", return_value=mock_adapter):
+            response = client.post("/api/v1/nl-query", json={
+                "question": "Total revenue?",
+                "tenant_id": "attacker-supplied-tenant",
+            })
+        assert response.status_code == 200
+        assert response.json()["tenant_id"] == "real-tenant"
