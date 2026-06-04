@@ -1,0 +1,32 @@
+[
+  {
+    "n_tables": 50,
+    "golden_fks": 61,
+    "predicted": 61,
+    "fk_recall": 1.0,
+    "fk_precision": 1.0,
+    "fk_f1": 1.0,
+    "latency_seconds": 1.856,
+    "latency_under_target": true
+  },
+  {
+    "n_tables": 200,
+    "golden_fks": 244,
+    "predicted": 244,
+    "fk_recall": 1.0,
+    "fk_precision": 1.0,
+    "fk_f1": 1.0,
+    "latency_seconds": 34.521,
+    "latency_under_target": false
+  },
+  {
+    "n_tables": 500,
+    "golden_fks": 663,
+    "predicted": 663,
+    "fk_recall": 1.0,
+    "fk_precision": 1.0,
+    "fk_f1": 1.0,
+    "latency_seconds": 199.983,
+    "latency_under_target": false
+  }
+]
