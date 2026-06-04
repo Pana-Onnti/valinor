@@ -1,84 +1,35 @@
-# Active Plan — Foundations realignment sprint (2026-06-01)
+# Active Plan — Worker fix + moat analysis + tenant-isolation foundation (2026-06-04)
 
-**Última actualización:** 2026-06-01
-**Branch actual:** `nicolasbaseggiodev/audit-demo-cache-race`
-**origin/develop:** `125ac141` (VAL-164). Esta branch suma VAL-165/107 + el sprint de cimientos 2026-06-01, aún sin mergear.
-**Estado vivo canónico:** `docs/PROJECT_STATE.md`.
-
----
-
-## Sesión 2026-06-01 — Foundations realignment (docs + higiene + 4 fixes + auth)
-
-Auditoría adversaria de cimientos (16 agentes) → realineación completa. 7 commits nuevos sobre develop:
-
-- **VAL-167** — higiene: `.gitignore` reparado (línea corrupta + venv/egg-info/output/tsbuildinfo/ssh_keys); track muerto "simple/MVP" + infra huérfana archivados a `_archived/simple-stack/`; 3 `test_*.py` de root → `scripts/manual/`; borrados duplicado `.html` + `requirements.in`. **Pendiente manual:** destrackear venv/egg-info/output/tsbuildinfo del índice (cache-remove bloqueado por hook de seguridad).
-- **VAL-166** — docs: archivados `STRUCTURE.md` (ficción TS), `investigacion/` (→`docs/_archive/audit-2026-03/`), `MIGRATION_PLAN.md`; drift corregido en README/ARCHITECTURE/AGENT_GUIDE/API_REFERENCE/SUPPORTED_SOURCES/ROADMAP; `INFRASTRUCTURE`/`DEPLOYMENT` movidos a `docs/`; nuevo `docs/PROJECT_STATE.md`. Root: solo README + CLAUDE.
-- **VAL-169** — infra/CI: worker consume `valinor,maintenance,analysis`; Prometheus label por route-template; bloque pytest muerto de pyproject borrado; CI corre `pytest tests security` (gate de los 56 tests de `security/`).
-- **VAL-168** — web: prefijos `/api/v1`→`/api` y `/portal` (portal + `lib/api.ts` 404eaban en runtime); `system.py` api_prefix honesto.
-- **VAL-170** — core: `is_safe_identifier` valida entity_map (LLM) en `sales_v2.py` (chokepoint `_table/_col`) + DQ gate (`_safe_ident` en los 3 finders); `int(months)`; test de inyección.
-- **VAL-107** (fallout) — los 12 stubs `_FakeLimiter` toleran `retry_after`.
-- **VAL-108** — auth env-gated cableada en 8 routers sensibles; SSRF de `/test-connection` cerrado (host guard); multi-tenant 401 fail-closed; `TestAuthWiring`.
-
-### Pendientes próxima sesión
-- **Destrackear el cruft del índice** (venv = 11k archivos): correr el cache-remove manual.
-- **Mergear esta branch a develop** (suite verde) + **abrir PR develop→master** (deuda ~13 commits desde 2026-04-24).
-- Auth de usuario real en operator console (extiende VAL-108); contrato OpenAPI→TS (VAL-168); tests de frontend; lockfile de deps.
+**Última actualización:** 2026-06-04
+**Rama de integración:** `develop` == `master` (niveladas; prod al día).
+**Estado vivo canónico:** `docs/PROJECT_STATE.md`. Tesis de moat: memoria `project_moat_thesis`.
 
 ---
 
-## Sesión 2026-05-29 — Audit workflow + VAL-107 + 3 fixes backend + harness
+## ✅ Completado y en PRODUCCIÓN
 
-### Qué se hizo
+- **VAL-169** — Worker corre Celery en prod por primera vez (vivía un placeholder nginx). Orquestador reubicado `api/`→`core/` + `Dockerfile.worker` PYTHONPATH `+/app/core`. Verificado en logs.
+- **VAL-172** — webhooks `api/`→`shared/` (worker los firea en prod).
+- **VAL-173** — sacado el job rojo de staging del CI.
+- **VAL-174 (parcial, aditivo, inerte)** — `nl_query` hardening (tenant del auth + DSN inline gateado/SSRF); **A1** fundación de identidad (alembic `004` + `shared/credentials.py`); **VAL-176** mecanismo Redis de aislamiento (helper + `get_job_for_tenant`, con fix de un IDOR que cazó la review). Nada de esto activa aislamiento todavía.
 
-1. **Workflow dinámico de auditoría** (8 subsistemas en paralelo → verificación adversaria → síntesis, 32 agentes). Reconstruyó los findings perdidos del audit 2026-04-27 (los `/tmp/*.md` ya no existían) y los priorizó con verificación contra el árbol vivo. 43 findings crudos → 13 críticos/altos confirmados como reales y sin arreglar.
+Shippeado a master vía PR #47 (VAL-169) y PR #49 (el resto). CI verde.
 
-2. **VAL-107 — rate limiting activado y cerrado** (era Urgent, Todo):
-   - `limiter` singleton movido a `api/deps.py` con key per-tenant (`_rate_limit_key`: header `X-Tenant-ID`, fallback IP) + `retry_after="delta-seconds"` (429 lleva Retry-After).
-   - Decorators `@limiter.limit` en 6 endpoints: `start_analysis` 5/min, `stream_job_progress` 10/min, `nl_query` 20/min, `list_clients` 30/min, `verify_token` (portal, brute-force) 10/min, `run_demo` 10/min.
-   - Tests: `TestRateLimitWiring` en `test_api_endpoints.py` — key-func + chequeo estático de presencia de decorators (robusto a import-order; el stub `_FakeLimiter` strippea decorators y poluciona `slowapi.errors` globalmente, por eso NO se testea enforcement real en-proceso).
+## 🔄 En progreso / diferido
 
-3. **3 fixes backend quirúrgicos (verificados por el workflow):**
-   - **`api/routers/jobs.py`** (HIGH): el conteo de jobs concurrentes tragaba errores Redis con `except: continue` → bypass del cap de 2 jobs. Ahora **fail-closed**: `except redis.RedisError` → log + HTTP 503. Test: `test_analyze_fails_closed_when_redis_errors_in_concurrency_check`.
-   - **`core/valinor/quality/data_quality_gate.py`** (HIGH): un check FATAL crasheado se degradaba a WARNING con peso//3 → el gate emitía PROCEED en vez de HALT (fail-open en el moat anti-alucinación). Ahora un check crasheado se trata con la **peor severidad que vigila** (mapa `CRASH_SEVERITY`) + peso completo (con `_WEIGHT_ALIASES` para los 2 checks cuyo nombre de método difiere de la key) + `logger.exception`. Tests: `TestCrashedCheckFailsClosed` (3).
-   - **`core/valinor/quality/data_quality_gate.py:174`** (MEDIUM): violación hexagonal `from api.metrics import DQ_CHECKS_TOTAL` (el único `from api` en todo core/). Resuelto por **inversión de dependencia**: el Domain expone `set_dq_metrics_hook(hook)`; `api/metrics.py` registra el sink al cargar. Domain ya no importa Infrastructure.
+- **VAL-174 epic — DIFERIDO A LO ÚLTIMO** (decisión 2026-06-04: producto/ontología primero; alinea con el moat real). Sub-issues specced + gateados: **VAL-176** (B wiring), **VAL-177** (A2 enforcement), **VAL-178** (D RLS), **VAL-179** (E tests E2E), **VAL-118** (vault cifrado). Requieren **entorno multi-tenant real** (PG+Supabase+Redis) para los 4 E2E adversarios.
+- **VAL-121 (Gerardo)** — DESBLOQUEADO: puede onboardarse **single-tenant** (es el único cliente externo; el aislamiento recién importa con el cliente #2).
 
-4. **Harness del entorno:**
-   - `.claude/hooks/*.sh` (commit-refs-check, commit-linear-sync, plan-freshness) ahora versionados; `plan-freshness.sh` usa `$CLAUDE_PROJECT_DIR` (portable).
-   - `.claude/settings.json` versionado y portable (`$CLAUDE_PROJECT_DIR` en vez de path absoluto).
-   - `.claude/skills/karpathy-guidelines/` versionado.
-   - `.gitignore`: añadido `.claude/scheduled_tasks.lock` + `.claude/*.lock`.
-   - `scripts/claude_proxy.py`: host/timeout/token configurables por env (`CLAUDE_PROXY_HOST`, `CLAUDE_PROXY_TIMEOUT`, `CLAUDE_PROXY_TOKEN`). Defaults sin cambios (0.0.0.0, 960s — respeta VAL-162; auth opt-in).
+## ⏳ Próximo (el moat real)
 
-### Findings stale / descartados (NO re-investigar)
+1. **VAL-175** — el benchmark de discovery no mide el activo defendible (`hint_pack=None`); ablation con/sin hint pack.
+2. **VAL-121** — Gerardo single-tenant: primer cliente real + 2ª familia de ERP (SQL Server) = primer datapoint de generalización medido.
+3. **VAL-163** — A/B del Number Registry (accuracy, hoy *downgraded*).
+4. **VAL-145 / VAL-114 / VAL-117** — eval empírico de discovery, eval LLM offline, golden datasets multi-cliente.
 
-- VAL-164 (demo cache race) — ya arreglado (commit 125ac141, `_demo_lock`).
-- Audit api-2 (portal bare-except JWT→static-token) y api-4 (`body: dict`) — `portal.py` ya refactorizado a Pydantic `TokenVerifyRequest` + `Depends`. Resueltos.
+## Notas / gotchas de la sesión
 
----
-
-## Backlog verificado (queue, no este sprint)
-
-| Rank | Finding | Sev | Esfuerzo | Linear |
-|------|---------|-----|----------|--------|
-| 5 | Externalizar SYSTEM_PROMPTs hardcoded (inventory.py, narrators sales/controller/ceo) a `.claude/skills/*.md` | low | medium | VAL-106 |
-| 6 | JWT portal en localStorage plano → httpOnly cookie (XSS) | medium | medium (backend) | — |
-| 7 | `verification.py` daemon-thread query: dispose engine en timeout / statement_timeout | low | medium | — |
-| 8 | `FileUpload.tsx` notify en render → useEffect | low | small | VAL-119 |
-| — | Cloudflare Worker edge rate limiting (TODO, solo loggea) | medium | large | infra ticket aparte |
-| — | 500-handler test coverage gap | low | small | — |
-
-### Out of scope persistente (otros repos/productos)
-
-- VAL-144/146/147 — research paper (repo d4c-paper).
-- GRO-15/GRO-25 — SYSCOP (repo Pana-Onnti/syscop-agent, live prod).
-- ANN-1 — Annatar (repo separado).
-- VAL-106 (externalizar prompts), VAL-119 (catálogo versionado) — siguen Todo/Urgent.
-
----
-
-## Pendientes próxima sesión
-
-- **Mergear esta branch a develop** una vez verde la suite (excl. production E2E).
-- Cerrar VAL-107 en Linear con la nota de scope real (6 endpoints + per-tenant + Retry-After + test).
-- Documentar la política de crash-handling del DQ gate en `DOMAIN_MODEL.md`/`ARCHITECTURE.md` (check FATAL/CRITICAL crasheado → HALT, no degradar a WARNING).
-- VAL-106 / VAL-119 siguen siendo la cola Urgent in-repo.
+- `railway up --detach` da **falso-verde** (no espera el build) — verificar prod por `railway logs`/`status`, no por el check de GitHub.
+- master pide 1 approval → self-PRs necesitan `gh pr merge --admin`.
+- El path real de metadata en prod = **Supabase REST anon-key**, NO aislable con filtros app-side (`.eq`) — necesita RLS de Supabase + JWT per-tenant.
+- Hook de commit: sólo lintea `^(api|shared)/`; exige `Refs: VAL-XX`.
