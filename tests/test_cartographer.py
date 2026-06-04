@@ -234,6 +234,52 @@ class TestPrescanFilterCandidates:
 
 
 # ---------------------------------------------------------------------------
+# 1b. _build_probe_sql — dialect-correct discriminator probe (VAL-122)
+# ---------------------------------------------------------------------------
+
+class TestBuildProbeSQL:
+    """The Phase-1 probe SQL must be valid for each dialect — SQL Server in
+    particular (Gerardo/BDPYME runs on MSSQL) cannot use Postgres ::text/LIMIT."""
+
+    def test_sqlite_uses_cast_as_text_and_limit_no_schema(self):
+        from valinor.agents.cartographer import _build_probe_sql
+
+        sql = _build_probe_sql("issotrx", "c_invoice", "main", "sqlite")
+        assert 'CAST("issotrx" AS TEXT)' in sql
+        assert "LIMIT 10" in sql
+        assert 'FROM "c_invoice"' in sql  # sqlite omits the schema
+
+    def test_postgres_uses_text_cast_and_qualified_name(self):
+        from valinor.agents.cartographer import _build_probe_sql
+
+        sql = _build_probe_sql("issotrx", "c_invoice", "public", "postgresql")
+        assert '"issotrx"::text' in sql
+        assert 'FROM "public"."c_invoice"' in sql
+        assert "LIMIT 10" in sql
+
+    def test_mssql_uses_tsql_top_brackets_and_nvarchar(self):
+        from valinor.agents.cartographer import _build_probe_sql
+
+        sql = _build_probe_sql("issotrx", "c_invoice", "dbo", "mssql")
+        # T-SQL forms present
+        assert "SELECT TOP 10 " in sql
+        assert "CAST([issotrx] AS NVARCHAR(MAX))" in sql
+        assert "FROM [dbo].[c_invoice]" in sql
+        assert "GROUP BY CAST([issotrx] AS NVARCHAR(MAX))" in sql
+        # Postgres/sqlite forms that would crash SQL Server must be ABSENT
+        assert "::text" not in sql
+        assert "LIMIT" not in sql
+        assert "GROUP BY 2" not in sql
+        assert '"' not in sql  # no double-quoted identifiers
+
+    def test_mssql_without_schema_uses_bare_bracketed_table(self):
+        from valinor.agents.cartographer import _build_probe_sql
+
+        sql = _build_probe_sql("issotrx", "c_invoice", None, "mssql")
+        assert "FROM [c_invoice]" in sql
+
+
+# ---------------------------------------------------------------------------
 # 2. _format_phase1_hints — prompt section builder
 # ---------------------------------------------------------------------------
 

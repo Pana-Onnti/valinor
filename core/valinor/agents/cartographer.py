@@ -67,6 +67,36 @@ _BUSINESS_TABLE_HINTS = [
 ]
 
 
+def _build_probe_sql(col: str, tbl: str, schema: str | None, dialect: str) -> str:
+    """Build a dialect-correct discriminator probe (top-10 most frequent values).
+
+    SQL Server needs TOP/bracket-quoting/CAST AS NVARCHAR and cannot GROUP BY an
+    ordinal, so it gets its own branch; sqlite omits the schema; everything else
+    uses Postgres syntax (the pre-existing default). Keeping this pure (no engine)
+    makes the per-dialect SQL unit-testable without a live database. (VAL-122)
+    """
+    if dialect == "sqlite":
+        return (
+            f"SELECT '{col}' AS col_name, CAST(\"{col}\" AS TEXT) AS val, "
+            f'COUNT(*) AS cnt FROM "{tbl}" GROUP BY 2 ORDER BY cnt DESC LIMIT 10'
+        )
+    if dialect == "mssql":
+        # T-SQL: TOP (not LIMIT), [brackets] (not "quotes"), CAST AS NVARCHAR (not
+        # ::text), and GROUP BY the expression (positional GROUP BY is unsupported).
+        val_expr = f"CAST([{col}] AS NVARCHAR(MAX))"
+        fqn = f"[{schema}].[{tbl}]" if schema else f"[{tbl}]"
+        return (
+            f"SELECT TOP 10 '{col}' AS col_name, {val_expr} AS val, "
+            f"COUNT(*) AS cnt FROM {fqn} "
+            f"GROUP BY {val_expr} ORDER BY cnt DESC"
+        )
+    return (
+        f"SELECT '{col}' AS col_name, \"{col}\"::text AS val, "
+        f'COUNT(*) AS cnt FROM "{schema}"."{tbl}" '
+        f"GROUP BY 2 ORDER BY cnt DESC LIMIT 10"
+    )
+
+
 async def _prescan_filter_candidates(client_config: dict, extra_table_hints: list | None = None) -> dict:
     """
     Phase 1: Deterministic pre-scan — discovers discriminator column values.
@@ -100,7 +130,12 @@ async def _prescan_filter_candidates(client_config: dict, extra_table_hints: lis
         available_schemas = inspector.get_schema_names()
         db_schema = client_config.get("db_schema")
         if not db_schema or db_schema not in available_schemas:
-            db_schema = "public" if "public" in available_schemas else available_schemas[0]
+            if "public" in available_schemas:
+                db_schema = "public"
+            elif dialect_name == "mssql" and "dbo" in available_schemas:
+                db_schema = "dbo"  # SQL Server default schema
+            else:
+                db_schema = available_schemas[0]
 
         all_tables = inspector.get_table_names(schema=db_schema)
 
@@ -136,17 +171,7 @@ async def _prescan_filter_candidates(client_config: dict, extra_table_hints: lis
 
             def _probe_rows(conn, col, tbl, schema, dialect):
                 """Build and execute a single discriminator probe."""
-                if dialect == "sqlite":
-                    sql = (
-                        f"SELECT '{col}' AS col_name, CAST(\"{col}\" AS TEXT) AS val, "
-                        f'COUNT(*) AS cnt FROM "{tbl}" GROUP BY 2 ORDER BY cnt DESC LIMIT 10'
-                    )
-                else:
-                    sql = (
-                        f"SELECT '{col}' AS col_name, \"{col}\"::text AS val, "
-                        f'COUNT(*) AS cnt FROM "{schema}"."{tbl}" '
-                        f"GROUP BY 2 ORDER BY cnt DESC LIMIT 10"
-                    )
+                sql = _build_probe_sql(col, tbl, schema, dialect)
                 return conn.execute(sa_text(sql)).fetchall()
 
             try:

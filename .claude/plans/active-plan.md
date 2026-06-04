@@ -15,6 +15,9 @@
 
 Shippeado a master vía PR #47 (VAL-169) y PR #49 (el resto). CI verde.
 
+- **VAL-175 (Done 2026-06-04, en `develop`)** — el benchmark de discovery ya mide el moat: modo ablation `ensemble_hinted` con el `argentina_gestion.yaml` real (fix del naming mismatch), `hint_pack_deltas()` + gate `compare_hint_delta_to_baseline()` (recall+precision, fail-closed), baseline 6→9. **Moat datapoint: `gloria_no_fks` ΔR +0.125**; full/obfuscated Δ=0 (honesto). Review adversarial (workflow 5 dims) → 3 capas fail-closed. DoD #5 (ERP real) diferido a VAL-121/VAL-145.
+- **VAL-122 (parcial, en `develop`)** — fix del prescan del Cartographer para MSSQL: `_build_probe_sql()` dialect-aware (T-SQL `TOP`/`[brackets]`/`NVARCHAR`, no `::text`/`LIMIT`/`GROUP BY 2`) + schema default `dbo`. Era un bug que daba cero hints de discovery sobre SQL Server (crítico para Gerardo). Falta: test E2E live contra SQL Server Docker, reconciliar pyodbc↔pymssql (onboarding usa pyodbc, conector pymssql), service en docker-compose.
+
 ## 🔄 En progreso / diferido
 
 - **VAL-174 epic — DIFERIDO A LO ÚLTIMO** (decisión 2026-06-04: producto/ontología primero; alinea con el moat real). Sub-issues specced + gateados: **VAL-176** (B wiring), **VAL-177** (A2 enforcement), **VAL-178** (D RLS), **VAL-179** (E tests E2E), **VAL-118** (vault cifrado). Requieren **entorno multi-tenant real** (PG+Supabase+Redis) para los 4 E2E adversarios.
@@ -22,10 +25,11 @@ Shippeado a master vía PR #47 (VAL-169) y PR #49 (el resto). CI verde.
 
 ## ⏳ Próximo (el moat real)
 
-1. **VAL-175** — el benchmark de discovery no mide el activo defendible (`hint_pack=None`); ablation con/sin hint pack.
-2. **VAL-121** — Gerardo single-tenant: primer cliente real + 2ª familia de ERP (SQL Server) = primer datapoint de generalización medido.
-3. **VAL-163** — A/B del Number Registry (accuracy, hoy *downgraded*).
-4. **VAL-145 / VAL-114 / VAL-117** — eval empírico de discovery, eval LLM offline, golden datasets multi-cliente.
+1. **VAL-121** — Gerardo single-tenant: primer cliente real + 2ª familia de ERP (SQL Server) = primer datapoint de generalización medido. **Bloqueante VAL-122 (SQL Server) ya 95% — conector real, prescan MSSQL fixeado; falta validación live + decidir pyodbc/pymssql.** Pasos que necesitan a Loren/Gerardo: credenciales de BDPYME + call de validación del entity_map.
+2. **VAL-163** — A/B del Number Registry (accuracy, hoy *downgraded*).
+3. **VAL-145 / VAL-114 / VAL-117** — eval empírico de discovery, eval LLM offline, golden datasets multi-cliente.
+
+_VAL-175 completado — movido a "Completado" arriba._
 
 ## Notas / gotchas de la sesión
 
