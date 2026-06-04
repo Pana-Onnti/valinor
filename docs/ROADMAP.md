@@ -79,37 +79,27 @@ Design system, transparency engine, journey wizard, KO report revelation.
 
 ---
 
-## Fase 8: SYSCOP — Primer Cliente Pagante (SUSPENDIDO — repo separado)
+## Fase 8: SQL Server / segundo-ERP support (track de cliente DESCOPED)
 
-> **Suspendido en este repo.** El runner standalone de SYSCOP vive en
-> `Pana-Onnti/syscop-agent` (repo separado, prod), NO en valinor-saas. Las
-> capacidades que sí quedaron acá (MSSQLConnector, Discovery v2 dialect-aware,
-> golden benchmark) están **Done**.
+> El track de inventory-runner para un cliente single-tenant fue **descoped** de
+> valinor-saas (el deal externo no avanzó). Nada cliente-específico vive en este
+> repo. Las **capacidades genéricas** que sí quedaron acá son reutilizables para
+> cualquier ERP sobre SQL Server y se validarán contra una DB real más adelante.
 
-**Epic:** GRO-15 | **Cliente:** Gerardo, SYSCOP SRL (Ricoh distributor, Rio Cuarto)
-**Sistema:** SQL Server 2019 Express, DB BDPYME, ERP PyME argentino
+### Capacidades genéricas que landearon (reutilizables, agnósticas de cliente)
 
-### Objetivo
-Agente de inventario que calcula cuanto comprar basado en ventas del dia anterior. Alertas por WhatsApp.
+| Issue | Qué | Estado |
+|-------|-----|--------|
+| VAL-126 | SchemaExtractor dialect-aware (SQLAlchemy) | Done |
+| VAL-122 | MSSQLConnector en `shared/connectors/` (+ prescan dialect-aware) | Done parcial |
+| VAL-128 | BusinessContext + `argentina_gestion.yaml` | Done |
+| VAL-127 | Multi-Agent Inference + Ensemble Evaluator | Done |
+| VAL-129 | Golden Dataset + Benchmark P/R | Done |
+| VAL-130 | Scheduling + Reporting composable (redbeat) | Done |
+| VAL-175 | Hint-pack ablation — métrica de moat sobre el benchmark | Done |
 
-### Sub-issues (camino critico)
-
-| Issue | Que | Due | Estado | Bloqueado por |
-|-------|-----|-----|--------|---------------|
-| VAL-126 | SchemaExtractor dialect-aware (SQLAlchemy) | Apr 16 | Backlog | — |
-| VAL-122 | MSSQLConnector en shared/connectors/ | — | Backlog | — |
-| VAL-128 | BusinessContext + argentina_gestion.yaml | Apr 17 | Backlog | VAL-126 |
-| VAL-127 | Multi-Agent Inference + Ensemble Evaluator | Apr 18 | Backlog | VAL-126, VAL-128 |
-| VAL-129 | Golden Dataset + Benchmark P/R | Apr 18 | Backlog | VAL-127 |
-| VAL-130 | Scheduling + Reporting composable (redbeat) | Apr 25 | Backlog | VAL-125 |
-| VAL-121 | Integracion completa: DB+Excel, WhatsApp | Apr 25 | In Progress | Todo lo anterior |
-
-### Gaps en el codigo (auditoria 2026-04-14)
-- `shared/connectors/`: tiene PostgreSQL, MySQL, SQLite, Etendo. **Falta MSSQLConnector**
-- `core/valinor/discovery/`: tiene profiler + fk_discovery v1. **Falta SQLAlchemy multi-dialect**
-- `shared/memory/client_profile.py`: **Falta BusinessContext model**
-- Scheduling: solo email digest + webhooks. **Falta redbeat + NotificationRouter**
-- **Zero codigo** de inventory agent, SYSCOP, o Gerardo
+Nota: **cero código** de inventory-agent o de cualquier cliente concreto vive en
+este repo — el engine es genérico y agnóstico de cliente por diseño.
 
 ---
 

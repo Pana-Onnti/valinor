@@ -29,7 +29,7 @@ from shared.notifications.adapters.whatsapp import (
 class TestFormatter:
     def test_title_only(self):
         body = format_whatsapp_body(Digest(
-            client_name="SYSCOP", title="Stock Report", summary="",
+            client_name="Acme", title="Stock Report", summary="",
         ))
         assert "Stock Report" in body
         # INFO severity gets the info emoji
@@ -37,14 +37,14 @@ class TestFormatter:
 
     def test_critical_emoji(self):
         body = format_whatsapp_body(Digest(
-            client_name="SYSCOP", title="Alerta", summary="",
+            client_name="Acme", title="Alerta", summary="",
             severity=Severity.CRITICAL,
         ))
         assert "🚨" in body
 
     def test_sections_rendered(self):
         digest = Digest(
-            client_name="SYSCOP", title="Stock", summary="1 linea",
+            client_name="Acme", title="Stock", summary="1 linea",
             sections=[
                 {"heading": "URGENTE",
                  "items": [
@@ -129,7 +129,7 @@ class TestAdapter:
         )
         result = await adapter.send(
             Digest(
-                client_name="SYSCOP", title="Stock Report",
+                client_name="Acme", title="Stock Report",
                 summary="1 urgente", severity=Severity.CRITICAL,
                 sections=[{"heading": "URGENTE", "items": [{"text": "TN-324K: 0"}]}],
             ),

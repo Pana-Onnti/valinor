@@ -255,11 +255,11 @@ class TestMSSQLParseHost:
     """Test host extraction from connection strings."""
 
     def test_parse_host_standard(self):
-        host = MSSQLConnector._parse_host("mssql+pymssql://sa:pass@myserver:1433/BDPYME")
+        host = MSSQLConnector._parse_host("mssql+pymssql://sa:pass@myserver:1433/ERPDB")
         assert host == "myserver"
 
     def test_parse_host_localhost(self):
-        host = MSSQLConnector._parse_host("mssql+pymssql://sa:pass@localhost/BDPYME")
+        host = MSSQLConnector._parse_host("mssql+pymssql://sa:pass@localhost/ERPDB")
         assert host == "localhost"
 
     def test_parse_host_invalid_returns_unknown(self):

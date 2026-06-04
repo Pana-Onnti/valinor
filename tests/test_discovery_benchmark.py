@@ -211,7 +211,7 @@ class TestHintPackAblation:
         assert hinted.fk_recall >= plain.fk_recall - 1e-9
 
     def test_no_fks_variant_shows_positive_moat_delta(self):
-        """The moat datapoint: with NO FK constraints (the real SYSCOP/BDPYME case),
+        """The moat datapoint: with NO FK constraints (the real no-FK legacy-ERP case),
         the hint pack recovers the CompDet -> CompCab header/detail link that
         structural inference misses."""
         golden = load_golden_dataset("gloria_no_fks")

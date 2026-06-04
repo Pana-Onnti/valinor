@@ -136,56 +136,56 @@ def _reset_fake_entry():
 
 class TestScheduleManager:
     def test_entry_name_format(self):
-        assert entry_name("syscop", "inventory") == f"{ENTRY_PREFIX}:syscop:inventory"
+        assert entry_name("acme", "inventory") == f"{ENTRY_PREFIX}:acme:inventory"
 
     def test_sync_creates_entries(self):
         mgr = ScheduleManager(entry_factory=_FakeEntry)
         names = mgr.sync_client_schedules(
-            "syscop",
+            "acme",
             [VerticalSchedule(
                 vertical="inventory", cron="0 6 * * 1-5",
                 channels=["email"], recipients=["g@s"],
             )],
         )
-        assert names == ["valinor:syscop:inventory"]
+        assert names == ["valinor:acme:inventory"]
         assert len(_FakeEntry.created) == 1
         entry = _FakeEntry.created[0]
         assert entry._saved is True
         assert entry.task == ENTRY_TASK
-        assert entry.args == ["syscop", "inventory"]
+        assert entry.args == ["acme", "inventory"]
         assert entry.kwargs["channels"] == ["email"]
         assert entry.kwargs["recipients"] == ["g@s"]
 
     def test_sync_accepts_dicts(self):
         mgr = ScheduleManager(entry_factory=_FakeEntry)
         names = mgr.sync_client_schedules(
-            "syscop",
+            "acme",
             [{"vertical": "inventory", "cron": "0 6 * * 1-5"}],
         )
-        assert names == ["valinor:syscop:inventory"]
+        assert names == ["valinor:acme:inventory"]
 
     def test_disabled_schedule_is_deleted(self):
         mgr = ScheduleManager(entry_factory=_FakeEntry)
         names = mgr.sync_client_schedules(
-            "syscop",
+            "acme",
             [VerticalSchedule(
                 vertical="financial", cron="0 2 * * 0",
                 enabled=False,
             )],
         )
         assert names == []
-        assert "valinor:syscop:financial" in _FakeEntry.deleted
+        assert "valinor:acme:financial" in _FakeEntry.deleted
 
     def test_multiple_schedules_for_one_client(self):
         mgr = ScheduleManager(entry_factory=_FakeEntry)
         names = mgr.sync_client_schedules(
-            "syscop",
+            "acme",
             [
                 VerticalSchedule(vertical="inventory", cron="0 6 * * 1-5"),
                 VerticalSchedule(vertical="financial", cron="0 2 1 * *"),
             ],
         )
-        assert names == ["valinor:syscop:inventory", "valinor:syscop:financial"]
+        assert names == ["valinor:acme:inventory", "valinor:acme:financial"]
         assert len(_FakeEntry.created) == 2
 
     def test_no_redbeat_installed_raises_when_no_factory(self):
@@ -196,7 +196,7 @@ class TestScheduleManager:
         # we just verify the error surface is friendly when missing.
         try:
             mgr.sync_client_schedules(
-                "syscop",
+                "acme",
                 [VerticalSchedule(vertical="inventory", cron="* * * * *")],
             )
         except RuntimeError as exc:
@@ -217,7 +217,7 @@ class TestSyncFromProfile:
             {"vertical": "inventory", "cron": "0 6 * * 1-5",
              "channels": ["whatsapp"], "recipients": ["+5435"]},
         ]
-        names = sync_from_profile("syscop", profile_config, entry_factory=_FakeEntry)
-        assert names == ["valinor:syscop:inventory"]
+        names = sync_from_profile("acme", profile_config, entry_factory=_FakeEntry)
+        assert names == ["valinor:acme:inventory"]
         entry = _FakeEntry.created[0]
         assert entry.kwargs["channels"] == ["whatsapp"]

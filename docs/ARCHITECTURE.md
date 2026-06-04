@@ -1,7 +1,7 @@
 # Valinor SaaS v2 — Arquitectura Tecnica
 
 > Estado: Junio 2026. Fases 1–7 cerradas (ver docs/ROADMAP.md). Estado vivo verificado: docs/PROJECT_STATE.md.
-> SYSCOP (Fase 8) suspendido — corre en repo separado `Pana-Onnti/syscop-agent`, no en este repo.
+> El track de cliente single-tenant (Fase 8) fue descoped; este repo es el engine genérico, agnóstico de cliente.
 
 ---
 

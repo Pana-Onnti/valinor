@@ -729,7 +729,7 @@ class TestOrchestrator:
     def test_with_business_context(self, schema: SchemaProfile, hint_pack: dict):
         """Business context is passed through to process agent."""
         biz_ctx = {
-            "company_name": "SYSCOP SRL",
+            "company_name": "Acme SRL",
             "industry": "distribucion",
             "country": "AR",
         }

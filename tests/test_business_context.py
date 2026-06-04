@@ -20,15 +20,15 @@ class TestBusinessContextModel:
 
     def test_create_full(self):
         ctx = BusinessContext(
-            company_name="SYSCOP SRL",
+            company_name="Acme SRL",
             industry="distribucion_insumos_impresion",
             country="AR",
-            city="Rio Cuarto, Cordoba",
+            city="Córdoba, Argentina",
             erp_type="gestion_pyme_argentina",
             expected_entities=["articulos", "stock", "ventas", "clientes"],
             notes="SQL Server, ~50 tables, uses Tango-like schema",
         )
-        assert ctx.company_name == "SYSCOP SRL"
+        assert ctx.company_name == "Acme SRL"
         assert ctx.country == "AR"
         assert "articulos" in ctx.expected_entities
         assert len(ctx.expected_entities) == 4
@@ -58,17 +58,17 @@ class TestBusinessContextModel:
 
     def test_json_roundtrip(self):
         ctx = BusinessContext(
-            company_name="SYSCOP SRL",
+            company_name="Acme SRL",
             industry="distribucion",
             country="AR",
-            city="Rio Cuarto",
+            city="Córdoba",
             erp_type="gestion",
             expected_entities=["ventas"],
         )
         j = json.dumps(asdict(ctx))
         d = json.loads(j)
         ctx2 = BusinessContext(**d)
-        assert ctx2.company_name == "SYSCOP SRL"
+        assert ctx2.company_name == "Acme SRL"
 
 
 # ── ClientProfile with business_context ──────────────────────────────────────
@@ -86,45 +86,45 @@ class TestClientProfileWithBusinessContext:
 
     def test_profile_with_business_context(self):
         ctx = BusinessContext(
-            company_name="SYSCOP SRL",
+            company_name="Acme SRL",
             industry="distribucion",
             country="AR",
         )
-        profile = ClientProfile.new("syscop")
+        profile = ClientProfile.new("acme")
         profile.business_context = ctx
-        assert profile.business_context.company_name == "SYSCOP SRL"
+        assert profile.business_context.company_name == "Acme SRL"
 
     def test_profile_to_dict_with_context(self):
         ctx = BusinessContext(
-            company_name="SYSCOP SRL",
+            company_name="Acme SRL",
             country="AR",
             expected_entities=["ventas", "stock"],
         )
-        profile = ClientProfile.new("syscop")
+        profile = ClientProfile.new("acme")
         profile.business_context = ctx
         d = profile.to_dict()
         assert isinstance(d["business_context"], dict)
-        assert d["business_context"]["company_name"] == "SYSCOP SRL"
+        assert d["business_context"]["company_name"] == "Acme SRL"
         assert d["business_context"]["expected_entities"] == ["ventas", "stock"]
 
     def test_profile_serialization_roundtrip(self):
         ctx = BusinessContext(
-            company_name="SYSCOP SRL",
+            company_name="Acme SRL",
             industry="distribucion",
             country="AR",
-            city="Rio Cuarto",
+            city="Córdoba",
             erp_type="gestion",
             expected_entities=["articulos", "ventas"],
             notes="Tango-like schema",
         )
-        profile = ClientProfile.new("syscop")
+        profile = ClientProfile.new("acme")
         profile.business_context = ctx
 
         d = profile.to_dict()
         profile2 = ClientProfile.from_dict(d)
 
         assert profile2.business_context is not None
-        assert profile2.business_context.company_name == "SYSCOP SRL"
+        assert profile2.business_context.company_name == "Acme SRL"
         assert profile2.business_context.country == "AR"
         assert profile2.business_context.expected_entities == ["articulos", "ventas"]
         assert profile2.business_context.notes == "Tango-like schema"
@@ -208,10 +208,10 @@ class TestContextInjection:
         from core.valinor.agents.cartographer import _format_business_context
 
         ctx = BusinessContext(
-            company_name="SYSCOP SRL",
+            company_name="Acme SRL",
             industry="distribucion_insumos_impresion",
             country="AR",
-            city="Rio Cuarto, Cordoba",
+            city="Córdoba, Argentina",
             erp_type="gestion_pyme_argentina",
             expected_entities=["articulos", "stock", "ventas"],
             notes="SQL Server database",
@@ -222,8 +222,8 @@ class TestContextInjection:
         result = _format_business_context(ctx, hint_pack)
 
         assert "## Business Context" in result
-        assert "SYSCOP SRL" in result
-        assert "Rio Cuarto, Cordoba" in result
+        assert "Acme SRL" in result
+        assert "Córdoba, Argentina" in result
         assert "distribucion_insumos_impresion" in result
         assert "articulos, stock, ventas" in result
         assert "SQL Server database" in result

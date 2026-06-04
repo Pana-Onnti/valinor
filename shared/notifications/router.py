@@ -48,7 +48,7 @@ class NotificationRouter:
         router.register(WebhookAdapter(profile=client_profile))
         results = await router.send(
             digest,
-            targets=[("email", "buyer@syscop.com.ar"), ("webhook", "https://..."), ],
+            targets=[("email", "buyer@example.com"), ("webhook", "https://..."), ],
         )
     """
 

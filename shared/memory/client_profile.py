@@ -106,10 +106,10 @@ class BusinessContext:
     Business context injected during onboarding.
     Gives agents knowledge about the client's business before analyzing their database.
     """
-    company_name: str = ""           # "SYSCOP SRL"
-    industry: str = ""               # "distribucion_insumos_impresion"
+    company_name: str = ""           # "Acme SRL"
+    industry: str = ""               # "distribucion_mayorista"
     country: str = ""                # "AR"
-    city: str = ""                   # "Rio Cuarto, Cordoba"
+    city: str = ""                   # "Córdoba, Argentina"
     erp_type: str = ""               # "gestion_pyme_argentina"
     expected_entities: List[str] = field(default_factory=list)  # ["articulos", "stock", "ventas"]
     notes: str = ""                  # Free text from Loren during onboarding
@@ -165,7 +165,7 @@ class ClientProfile:
     # list of dicts matching worker.scheduler.VerticalSchedule.to_dict():
     #   {"vertical": "inventory", "cron": "0 6 * * 1-5", "mode": "run",
     #    "enabled": True, "channels": ["email", "whatsapp"],
-    #    "recipients": ["gerardo@...", "+5435..."]}
+    #    "recipients": ["ops@example.com", "+5491100000000"]}
     schedule_config: List[Dict] = field(default_factory=list)
 
     # ── Business context (onboarding) ────────────────────────────────────────

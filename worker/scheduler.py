@@ -35,7 +35,7 @@ class VerticalSchedule:
     mode: str = "run"                    # "run" | "discovery" | "monitor"
     enabled: bool = True
     channels: list[str] = field(default_factory=list)      # ["email", "whatsapp", "webhook"]
-    recipients: list[str] = field(default_factory=list)    # ["gerardo@...", "+5435..."]
+    recipients: list[str] = field(default_factory=list)    # ["ops@example.com", "+5491100000000"]
 
     def to_dict(self) -> dict:
         return {

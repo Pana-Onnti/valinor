@@ -6,7 +6,7 @@ Wraps SQLAlchemy with pymssql driver for SQL Server databases
 
 Config keys:
     connection_string (required): SQLAlchemy DSN, e.g.
-        "mssql+pymssql://user:pass@host:1433/BDPYME"
+        "mssql+pymssql://user:pass@host:1433/ERPDB"
     schema (optional): Default schema to inspect (default "dbo")
     max_rows (optional): Default max rows per query (default 10,000)
 """

@@ -2,10 +2,10 @@
 Golden Dataset — Ground truth for Discovery Engine benchmarking.
 
 Provides synthetic but realistic schemas simulating Argentine ERP databases
-(like SYSCOP's BDPYME). Three variants test different discovery challenges:
+(legacy gestión-PyME systems). Three variants test different discovery challenges:
 
 1. gloria_full: Explicit FK constraints (like Etendo/Gloria)
-2. gloria_no_fks: Same schema WITHOUT FK constraints (like BDPYME/SYSCOP)
+2. gloria_no_fks: Same schema WITHOUT FK constraints (like a no-FK legacy ERP)
 3. gloria_obfuscated: Cryptic table/column names (legacy systems)
 
 Each variant is buildable as a real SQLite database so the discovery
@@ -436,7 +436,7 @@ def load_golden_dataset(variant: str = "gloria_full") -> GoldenDataset:
     elif variant == "gloria_no_fks":
         return GoldenDataset(
             name="gloria_no_fks",
-            description="Same schema WITHOUT FK constraints (simulates BDPYME/SYSCOP)",
+            description="Same schema WITHOUT FK constraints (simulates a no-FK legacy ERP)",
             tables=get_golden_tables(obfuscate=False),
             relations=get_golden_relations(obfuscate=False, include_explicit=False),
         )

@@ -239,7 +239,7 @@ class TestPrescanFilterCandidates:
 
 class TestBuildProbeSQL:
     """The Phase-1 probe SQL must be valid for each dialect — SQL Server in
-    particular (Gerardo/BDPYME runs on MSSQL) cannot use Postgres ::text/LIMIT."""
+    particular (a SQL Server ERP) cannot use Postgres ::text/LIMIT."""
 
     def test_sqlite_uses_cast_as_text_and_limit_no_schema(self):
         from valinor.agents.cartographer import _build_probe_sql

@@ -227,7 +227,7 @@ class TestInventoryVertical:
         }))
         context = {
             "query_results": {"bajo_minimo": [{"sku": "TN-324K", "stock": 0}]},
-            "client_name": "SYSCOP",
+            "client_name": "Acme",
             "llm_client": llm,
         }
         result = await run_inventory_analyzer(context)
@@ -241,7 +241,7 @@ class TestInventoryVertical:
         llm = _MockLLM("not json at all")
         context = {
             "query_results": {},
-            "client_name": "SYSCOP",
+            "client_name": "Acme",
             "llm_client": llm,
         }
         result = await run_inventory_analyzer(context)
@@ -256,7 +256,7 @@ class TestInventoryVertical:
         }))
         executor = _RecordingExecutor(results={q: [] for q in INVENTORY_VERTICAL.queries})
         output = await run_vertical(
-            INVENTORY_VERTICAL, {"name": "SYSCOP"},
+            INVENTORY_VERTICAL, {"name": "Acme"},
             query_executor=executor,
             extra_context={"llm_client": llm},
         )
