@@ -135,13 +135,13 @@ python3 -c "from module import Func; import inspect; print(inspect.signature(Fun
 
 ## 5. Test isolation gotcha
 
-`tests/test_worker_tasks.py` instala stubs en `sys.modules` para `api.webhooks`. Si corrés tests en orden alfabético, contamina `test_webhook_endpoints.py`.
+`tests/test_worker_tasks.py` instala stubs en `sys.modules` para `shared.webhooks`. Si corrés tests en orden alfabético, contamina `test_webhook_endpoints.py`.
 
-**Fix ya aplicado**: los métodos `_import()` en `TestBuildJobSummary` y `TestFireJobCompletionWebhook` usan `importlib.reload(api.webhooks)`. No remover eso.
+**Fix ya aplicado**: los métodos `_import()` en `TestBuildJobSummary` y `TestFireJobCompletionWebhook` usan `importlib.reload(shared.webhooks)`. No remover eso.
 
 ```python
 def _import(self):
-    import importlib, api.webhooks as _wh
+    import importlib, shared.webhooks as _wh
     importlib.reload(_wh)
     return _wh.build_job_summary
 ```

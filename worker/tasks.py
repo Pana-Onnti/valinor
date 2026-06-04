@@ -50,7 +50,7 @@ def _fire_webhooks_sync(job_id: str, client_name: str, status: str, results: dic
 async def _fire_webhooks_async(job_id: str, client_name: str, status: str, results: dict):
     """Load client profile and fire all registered webhooks."""
     from shared.memory.profile_store import get_profile_store
-    from api.webhooks import fire_job_completion_webhook, build_job_summary
+    from shared.webhooks import fire_job_completion_webhook, build_job_summary
 
     store = get_profile_store()
     profile = await store.load(client_name)

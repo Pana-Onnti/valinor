@@ -12,16 +12,19 @@ Use this for ad-hoc questions. Use the analysis pipeline for scheduled reports.
 
 from __future__ import annotations
 
+import os
 import time
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 import structlog
 
 from api.deps import limiter
+from api.net_guard import validate_outbound_host
+from api.tenant import get_tenant_id
 
 logger = structlog.get_logger()
 
@@ -146,7 +149,11 @@ def _get_adapter(tenant_id: str, entity_map: Optional[Dict[str, Any]] = None):
 
 @router.post("/nl-query", response_model=NLQueryResponse, summary="Natural Language → SQL")
 @limiter.limit("20/minute")
-async def nl_query(http_request: Request, request: NLQueryRequest) -> NLQueryResponse:
+async def nl_query(
+    http_request: Request,
+    request: NLQueryRequest,
+    tenant_id: str = Depends(get_tenant_id),
+) -> NLQueryResponse:
     """
     Convert a natural language question to SQL and optionally execute it.
 
@@ -159,16 +166,19 @@ async def nl_query(http_request: Request, request: NLQueryRequest) -> NLQueryRes
     - Scheduled analysis runs → use the pipeline endpoint instead
     - Bulk data exports → use the query execution endpoint directly
     """
+    # VAL-174: tenant comes from the authenticated request context (middleware /
+    # JWT claim), never from the request body — a body-supplied tenant_id would let
+    # any caller act as any tenant.
     logger.info(
         "nl_query.request",
-        tenant_id=request.tenant_id,
+        tenant_id=tenant_id,
         question=request.question[:80],
         has_entity_map=bool(request.entity_map),
         has_connection=bool(request.connection_string),
     )
 
     try:
-        adapter = _get_adapter(request.tenant_id, request.entity_map)
+        adapter = _get_adapter(tenant_id, request.entity_map)
 
         if not adapter.is_ready:
             raise HTTPException(
@@ -180,6 +190,25 @@ async def nl_query(http_request: Request, request: NLQueryRequest) -> NLQueryRes
             )
 
         if request.connection_string:
+            # VAL-174: an inline DSN is an arbitrary-outbound-DB / SSRF vector and a
+            # cross-tenant data path. Off by default; when explicitly enabled, the
+            # host is SSRF-validated before connecting.
+            if os.getenv("VALINOR_ALLOW_INLINE_DSN", "false").lower() not in ("true", "1", "yes"):
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "Inline connection_string is disabled. Configure a server-side "
+                        "per-tenant credential, or set VALINOR_ALLOW_INLINE_DSN=true "
+                        "(dev/playground only)."
+                    ),
+                )
+            try:
+                from sqlalchemy.engine import make_url
+                _dsn_host = make_url(request.connection_string).host
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid connection_string")
+            if _dsn_host:
+                validate_outbound_host(_dsn_host)
             result = adapter.ask_and_run(
                 question=request.question,
                 connection_string=request.connection_string,
@@ -194,12 +223,12 @@ async def nl_query(http_request: Request, request: NLQueryRequest) -> NLQueryRes
             result=result.get("result", []),
             explanation=result.get("explanation"),
             error=result.get("error"),
-            tenant_id=request.tenant_id,
+            tenant_id=tenant_id,
             rows_returned=len(result.get("result", [])),
         )
 
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("nl_query.error", tenant_id=request.tenant_id, error=str(exc))
+        logger.error("nl_query.error", tenant_id=tenant_id, error=str(exc))
         raise HTTPException(status_code=500, detail=str(exc))
