@@ -1,0 +1,49 @@
+{
+  "determinism": "MockLLMClient (reproducible)",
+  "hint_columns": [
+    "none",
+    "gestion",
+    "retail"
+  ],
+  "families": [
+    {
+      "key": "gestion",
+      "label": "Argentine gesti\u00f3n",
+      "own_hint": "gestion"
+    },
+    {
+      "key": "retail",
+      "label": "Retail POS",
+      "own_hint": "retail"
+    }
+  ],
+  "ablation_no_fks": {
+    "gestion": {
+      "recall": {
+        "none": 0.0,
+        "gestion": 0.125,
+        "retail": 0.0
+      },
+      "own_delta": 0.125,
+      "cross_delta_max": 0.0
+    },
+    "retail": {
+      "recall": {
+        "none": 0.0,
+        "gestion": 0.0,
+        "retail": 0.75
+      },
+      "own_delta": 0.75,
+      "cross_delta_max": 0.0
+    }
+  },
+  "structural_full_recall": {
+    "gestion": 0.875,
+    "retail": 0.875
+  },
+  "verdicts": {
+    "per_family_curation_works": true,
+    "hint_packs_are_specific": true,
+    "structural_inference_generalizes": true
+  }
+}

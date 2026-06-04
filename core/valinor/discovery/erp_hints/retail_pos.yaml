@@ -1,0 +1,142 @@
+# ERP Hint Pack: Retail / Point-of-Sale systems (English naming convention)
+# Covers: generic retail POS, wholesale, e-commerce backends with Id-suffix keys.
+# Country: intl | ERP type: retail (second ERP family for cross-pilot eval, VAL-145)
+#
+# Deliberately DISJOINT from argentina_gestion.yaml: Id-suffix (not Cod*/Nro*
+# prefix), Header/Lines documents (not Cab/Det), English master entities. This is
+# what makes the cross-family test meaningful — the gestión pack must not fire here.
+
+naming_conventions:
+  id_prefixes:
+    - "fk_"          # fk_product, fk_customer
+  id_suffixes:
+    - "Id"           # ProductId, CustomerId, EmployeeId
+    - "_id"          # product_id, customer_id
+    - "ID"           # ProductID
+  date_patterns:
+    - "Date"         # SaleDate, MoveDate, OrderDate
+    - "CreatedAt"
+    - "UpdatedAt"
+    - "DueDate"
+  boolean_patterns:
+    - "IsActive"
+    - "IsVoid"
+    - "IsPaid"
+    - "Active"
+    - "Voided"
+
+table_patterns:
+  # Header/Detail pattern (SaleHeader = header, SaleLines = detail)
+  header_detail:
+    header_suffixes: ["Header", "Head", "Hdr", "Order", "Doc", "_header", "_hdr"]
+    detail_suffixes: ["Lines", "Line", "Items", "Item", "Detail", "_lines", "_items"]
+    description: >
+      Retail/POS systems use a Header + Lines document layout: SaleHeader holds the
+      ticket/invoice totals, customer and date; SaleLines holds the line items.
+
+  master_tables:
+    - pattern: "Product*"
+      entity: "products"
+      description: "Product / SKU catalog"
+    - pattern: "Item*"
+      entity: "products"
+      description: "Item catalog (alt naming)"
+    - pattern: "Customer*"
+      entity: "customers"
+      description: "Customer master"
+    - pattern: "Supplier*"
+      entity: "suppliers"
+      description: "Supplier / vendor master"
+    - pattern: "Vendor*"
+      entity: "suppliers"
+      description: "Vendor master (alt naming)"
+    - pattern: "Employee*"
+      entity: "salesreps"
+      description: "Employees / cashiers / sales reps"
+    - pattern: "Store*"
+      entity: "stores"
+      description: "Stores / branches / outlets"
+    - pattern: "Category*"
+      entity: "categories"
+      description: "Product categories"
+    - pattern: "Brand*"
+      entity: "brands"
+      description: "Product brands"
+
+  transactional_tables:
+    - pattern: "Sale*"
+      entity: "sales"
+      description: "Sales tickets / orders"
+    - pattern: "Order*"
+      entity: "orders"
+      description: "Sales or purchase orders"
+    - pattern: "Invoice*"
+      entity: "invoices"
+      description: "Invoices"
+    - pattern: "Payment*"
+      entity: "payments"
+      description: "Payments / settlements"
+    - pattern: "Refund*"
+      entity: "refunds"
+      description: "Refunds / returns"
+
+  stock_tables:
+    - pattern: "Inventory*"
+      entity: "inventory"
+      description: "Current on-hand stock per product"
+    - pattern: "StockMove*"
+      entity: "stock_movements"
+      description: "Stock movement log"
+    - pattern: "Warehouse*"
+      entity: "warehouses"
+      description: "Warehouses / stockrooms"
+
+fiscal_patterns:
+  tax_id:
+    columns: ["TaxNo", "TaxId", "VATNo", "EIN", "TIN"]
+    description: "Generic tax identifier (VAT / EIN / TIN depending on jurisdiction)"
+
+  doc_type:
+    columns: ["DocType", "DocumentType", "TicketType"]
+    values: ["TICKET", "INVOICE", "REFUND", "CREDIT", "QUOTE"]
+    description: "Retail document type"
+
+column_hints:
+  monetary:
+    patterns: ["Price*", "Cost*", "Total*", "Amount*", "Subtotal*", "Tax*",
+               "Discount*", "GrandTotal*", "LineTotal*", "RetailPrice*"]
+    description: "Monetary values"
+
+  quantity:
+    patterns: ["Qty*", "Quantity*", "OnHand*", "Units*", "Stock*"]
+    description: "Quantity / stock values"
+
+  status:
+    patterns: ["Status*", "State*", "IsActive", "IsVoid", "IsPaid"]
+    description: "Status / flag columns"
+
+  description:
+    patterns: ["Name*", "Desc*", "Description*", "FullName*", "Address*", "Notes*"]
+    description: "Text / description columns"
+
+business_flows:
+  retail:
+    description: "Retail flow (catalog -> price -> sell -> settle -> restock)"
+    flow:
+      - step: "catalog"
+        tables: ["Product*", "Category*", "Brand*"]
+        description: "Product catalog with categories and brands"
+      - step: "sales"
+        tables: ["Sale*", "Order*", "Invoice*"]
+        description: "Point-of-sale transactions (Header + Lines)"
+      - step: "settlement"
+        tables: ["Payment*", "PayMethod*", "Refund*"]
+        description: "Payments, methods and refunds"
+      - step: "stock"
+        tables: ["Inventory*", "StockMove*", "Warehouse*"]
+        description: "Inventory and stock movements"
+    kpis:
+      - "Average ticket value"
+      - "Inventory turnover"
+      - "Margin per category"
+      - "Sell-through rate"

@@ -426,6 +426,9 @@ def load_golden_dataset(variant: str = "gloria_full") -> GoldenDataset:
     Returns:
         GoldenDataset with tables and ground-truth relations.
     """
+    if variant.startswith("retail"):  # second ERP family (VAL-145), lazy import
+        from .golden_dataset_retail import load_retail_dataset
+        return load_retail_dataset(variant)
     if variant == "gloria_full":
         return GoldenDataset(
             name="gloria_full",
@@ -460,6 +463,10 @@ def build_golden_sqlite(variant: str = "gloria_full") -> sqlite3.Connection:
     Returns:
         sqlite3.Connection with tables pre-created and sample data inserted.
     """
+    if variant.startswith("retail"):  # second ERP family (VAL-145), lazy import
+        from .golden_dataset_retail import build_retail_sqlite
+        return build_retail_sqlite(variant)
+
     with_fks = variant == "gloria_full"
     obfuscate = variant == "gloria_obfuscated"
 
