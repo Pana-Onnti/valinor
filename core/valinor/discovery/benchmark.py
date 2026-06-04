@@ -27,8 +27,29 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from .erp_hints import load_hint_pack
 from .fk_discovery import FKCandidate, FKDiscovery
 from .golden_dataset import GoldenDataset, GoldenRelation, TableClassification
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MOAT / HINT-PACK ABLATION (VAL-175)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# The golden dataset simulates an Argentine gestión-PyME ERP, so the matching
+# hand-curated hint pack is erp_hints/argentina_gestion.yaml. load_hint_pack
+# resolves "{country}_{erp_type}.yaml", so it loads with country="argentina",
+# erp_type="gestion" — NOT the business_context labels country="AR" /
+# erp_type="gestion_pyme_argentina", which resolve to nothing (empty hint pack).
+# The benchmark used to run with hint_pack=None and therefore measured only the
+# commodity structural half, never the defensible asset. (VAL-175)
+
+GOLDEN_HINT_PACK_KEY = ("argentina", "gestion")
+
+
+def load_golden_hint_pack() -> dict:
+    """Load the real ERP hint pack that matches the golden dataset's ERP family."""
+    return load_hint_pack(*GOLDEN_HINT_PACK_KEY)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -57,7 +78,8 @@ class BenchmarkResult:
     consensus_rate_3plus: float = 0.0
     consensus_counts: dict = field(default_factory=dict)  # {1: N, 2: N, 3: N, 4: N}
     # Cost tracking
-    mode: str = "fk_only"           # "fk_only" or "ensemble"
+    mode: str = "fk_only"           # "fk_only" | "ensemble" | "ensemble_hinted"
+    hint_pack_name: str = ""        # "" when no hint pack (commodity baseline)
     llm_calls: int = 0
     llm_cost_usd: float = 0.0
     elapsed_seconds: float = 0.0
@@ -70,7 +92,9 @@ class BenchmarkResult:
             f"(TP={len(self.true_positives)} FP={len(self.false_positives)} "
             f"FN={len(self.false_negatives)})"
         )
-        if self.mode == "ensemble":
+        if self.mode in ("ensemble", "ensemble_hinted"):
+            if self.hint_pack_name:
+                base += f" | hint_pack={self.hint_pack_name}"
             base += (
                 f" | entity_acc={self.entity_accuracy:.2f}"
                 f" | consensus>=3 rate={self.consensus_rate_3plus:.2f}"
@@ -84,6 +108,7 @@ class BenchmarkResult:
         return {
             "variant": self.variant,
             "mode": self.mode,
+            "hint_pack_name": self.hint_pack_name,
             "fk_precision": round(self.fk_precision, 4),
             "fk_recall": round(self.fk_recall, 4),
             "fk_f1": round(self.fk_f1, 4),
@@ -647,11 +672,24 @@ class EnsembleBenchmark:
         conn: sqlite3.Connection,
         min_confidence: float = 0.5,
         llm_client: Optional[object] = None,
+        hint_pack: Optional[dict] = None,
+        hint_pack_name: str = "",
     ):
         self.golden = golden
         self.conn = conn
         self.min_confidence = min_confidence
         self.llm_client = llm_client  # None -> MockLLMClient inside run_multi_agent_inference
+        # VAL-175: when a hint pack is supplied the DomainAgent engages and the run
+        # is labelled "ensemble_hinted"; the recall/precision delta vs the no-hint
+        # ("ensemble") run is the moat metric. Default None keeps the legacy baseline.
+        # A non-empty hint pack must carry a label so the moat row is self-describing
+        # (and so mode/hint_pack_name can never disagree).
+        if hint_pack and not hint_pack_name:
+            raise ValueError(
+                "EnsembleBenchmark: a non-empty hint_pack requires a hint_pack_name label"
+            )
+        self.hint_pack = hint_pack
+        self.hint_pack_name = hint_pack_name
 
     def run(self) -> BenchmarkResult:
         return asyncio.run(self._run_async())
@@ -676,7 +714,7 @@ class EnsembleBenchmark:
                 "country": "AR",
                 "erp_type": "gestion_pyme_argentina",
             },
-            hint_pack=None,
+            hint_pack=self.hint_pack,
             samples=None,
             llm_client=self.llm_client,
         )
@@ -752,7 +790,8 @@ class EnsembleBenchmark:
 
         return BenchmarkResult(
             variant=self.golden.name,
-            mode="ensemble",
+            mode="ensemble_hinted" if self.hint_pack else "ensemble",
+            hint_pack_name=self.hint_pack_name if self.hint_pack else "",
             fk_precision=precision,
             fk_recall=recall,
             fk_f1=f1,
@@ -827,12 +866,127 @@ def compare_to_baseline(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# MOAT METRIC — hint-pack ablation delta + gate (VAL-175)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def hint_pack_deltas(results: list[BenchmarkResult]) -> dict[str, dict]:
+    """Per-variant moat metric: ensemble_hinted minus ensemble (the hint-pack lift).
+
+    Pairs the two ensemble runs of each variant and reports the recall/precision/F1
+    delta the curated ERP hint pack contributes over commodity structural inference.
+    A positive recall delta means the hint pack recovers FK relations that statistical
+    inference alone misses — the defensible asset, not the verification engine. (VAL-175)
+
+    Returns:
+        {variant: {recall_delta, precision_delta, f1_delta,
+                   ensemble_recall, hinted_recall}}
+    """
+    plain = {r.variant: r for r in results if r.mode == "ensemble"}
+    hinted = {r.variant: r for r in results if r.mode == "ensemble_hinted"}
+    out: dict[str, dict] = {}
+    for variant in plain.keys() & hinted.keys():
+        p, h = plain[variant], hinted[variant]
+        out[variant] = {
+            "recall_delta": round(h.fk_recall - p.fk_recall, 4),
+            "precision_delta": round(h.fk_precision - p.fk_precision, 4),
+            "f1_delta": round(h.fk_f1 - p.fk_f1, 4),
+            "ensemble_recall": round(p.fk_recall, 4),
+            "hinted_recall": round(h.fk_recall, 4),
+        }
+    return out
+
+
+def _baseline_hint_deltas(baseline: dict, metric: str) -> dict[str, float]:
+    """Reconstruct the per-variant (hinted − plain) delta for `metric` from a baseline.
+
+    `metric` is a BenchmarkResult dict key, e.g. "fk_recall" or "fk_precision".
+    """
+    rows = baseline.get("results", [])
+    plain = {r["variant"]: r for r in rows if r.get("mode") == "ensemble"}
+    hinted = {r["variant"]: r for r in rows if r.get("mode") == "ensemble_hinted"}
+    return {
+        v: round(hinted[v].get(metric, 0.0) - plain[v].get(metric, 0.0), 4)
+        for v in plain.keys() & hinted.keys()
+    }
+
+
+def compare_hint_delta_to_baseline(
+    current_results: list[BenchmarkResult],
+    baseline: dict,
+    delta_tolerance: float = 0.05,
+) -> tuple[bool, list[str]]:
+    """Gate the MOAT metric: the hint-pack recall/precision lift must not regress.
+
+    For each variant, compare the current (hinted − plain) recall and precision deltas
+    against the same deltas stored in the baseline. A drop larger than `delta_tolerance`
+    fails the gate: it means the hint pack stopped contributing (the moat eroded) even if
+    the absolute numbers still look fine — the gate the commodity recall check cannot catch.
+
+    Fails CLOSED (VAL-175 DoD: the gate must cover the delta):
+      * no moat deltas at all (no ensemble_hinted runs — e.g. the hint pack failed to load),
+      * a variant the baseline gated no longer produces an ensemble_hinted run.
+
+    Returns:
+        (ok, messages). ok=False if the moat regressed or the measurement vanished.
+    """
+    current = hint_pack_deltas(current_results)
+    if not current:
+        return False, [
+            "moat gate: no hint-pack deltas computed — no ensemble_hinted runs present "
+            "(did the hint pack fail to load?)"
+        ]
+
+    base_by_metric = {
+        "recall": _baseline_hint_deltas(baseline, "fk_recall"),
+        "precision": _baseline_hint_deltas(baseline, "fk_precision"),
+    }
+
+    failures: list[str] = []
+    notes: list[str] = []
+
+    # A variant the baseline measured must still be measured (no silent disappearance).
+    for variant in sorted(set(base_by_metric["recall"]) - set(current)):
+        failures.append(
+            f"moat gate: variant {variant} had a baseline hint-pack delta but produced "
+            "no ensemble_hinted run now (moat measurement vanished)"
+        )
+
+    for variant, cur in sorted(current.items()):
+        for metric, cur_key in (("recall", "recall_delta"), ("precision", "precision_delta")):
+            cur_delta = cur[cur_key]
+            base_delta = base_by_metric[metric].get(variant)
+            if base_delta is None:
+                notes.append(
+                    f"{variant}/{metric}: no baseline delta (current={cur_delta:+.3f})"
+                )
+                continue
+            drop = base_delta - cur_delta
+            if drop > delta_tolerance + 1e-9:
+                failures.append(
+                    f"hint-pack moat {metric} eroded for {variant}: baseline delta="
+                    f"{base_delta:+.3f} current delta={cur_delta:+.3f} "
+                    f"(drop={drop:.3f} > tol={delta_tolerance})"
+                )
+            else:
+                notes.append(
+                    f"{variant}/{metric}: moat delta {cur_delta:+.3f} (baseline {base_delta:+.3f})"
+                )
+    return (not failures), failures + notes
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # CLI ENTRYPOINT — run all variants and persist baseline
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 def run_all_variants(mode: str = "both") -> list[BenchmarkResult]:
     """Run benchmark for all 3 golden variants.
+
+    For ensemble runs, each variant is benchmarked twice — once WITHOUT the hint
+    pack ("ensemble", the commodity structural baseline) and once WITH the real
+    argentina_gestion hint pack ("ensemble_hinted"). The recall/precision delta
+    between the two is the moat metric (VAL-175).
 
     Args:
         mode: "fk_only", "ensemble", or "both".
@@ -841,6 +995,15 @@ def run_all_variants(mode: str = "both") -> list[BenchmarkResult]:
 
     results: list[BenchmarkResult] = []
     variants = ["gloria_full", "gloria_no_fks", "gloria_obfuscated"]
+    hint_pack = load_golden_hint_pack()
+    # Fail-closed: an empty hint pack (missing/misnamed YAML, no PyYAML) would make the
+    # ablation silently measure "ensemble" twice and produce no moat datapoint. Refuse
+    # to emit a misleading baseline instead. (VAL-175)
+    if mode in ("ensemble", "both") and not hint_pack:
+        raise RuntimeError(
+            f"run_all_variants: hint pack {GOLDEN_HINT_PACK_KEY} loaded empty — the moat "
+            "ablation would be meaningless. Check erp_hints/argentina_gestion.yaml."
+        )
     for variant in variants:
         golden = load_golden_dataset(variant)
         conn = build_golden_sqlite(variant)
@@ -848,7 +1011,14 @@ def run_all_variants(mode: str = "both") -> list[BenchmarkResult]:
             if mode in ("fk_only", "both"):
                 results.append(DiscoveryBenchmark(golden, conn).run())
             if mode in ("ensemble", "both"):
+                # Commodity baseline: 4-agent ensemble, DomainAgent idle (no hint pack).
                 results.append(EnsembleBenchmark(golden, conn).run())
+                # Moat measurement: same ensemble WITH the real ERP hint pack engaged.
+                results.append(EnsembleBenchmark(
+                    golden, conn,
+                    hint_pack=hint_pack,
+                    hint_pack_name="argentina_gestion",
+                ).run())
         finally:
             conn.close()
     return results
@@ -870,6 +1040,15 @@ if __name__ == "__main__":
     results = run_all_variants(args.mode)
     for r in results:
         print(r.summary())
+
+    if args.mode in ("ensemble", "both"):
+        print("\nMoat metric — hint-pack ablation (ensemble_hinted − ensemble):")
+        for variant, d in sorted(hint_pack_deltas(results).items()):
+            print(
+                f"  {variant}: ΔR={d['recall_delta']:+.3f} ΔP={d['precision_delta']:+.3f} "
+                f"ΔF1={d['f1_delta']:+.3f}  "
+                f"(recall {d['ensemble_recall']:.3f} → {d['hinted_recall']:.3f})"
+            )
 
     if args.save_baseline:
         save_baseline(results, args.save_baseline)

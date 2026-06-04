@@ -1,10 +1,11 @@
 {
   "version": 1,
-  "generated_at": 1776459742,
+  "generated_at": 1780581087,
   "results": [
     {
       "variant": "gloria_full",
       "mode": "fk_only",
+      "hint_pack_name": "",
       "fk_precision": 0.1127,
       "fk_recall": 1.0,
       "fk_f1": 0.2025,
@@ -93,11 +94,12 @@
       "entity_incorrect": [],
       "llm_calls": 0,
       "llm_cost_usd": 0.0,
-      "elapsed_seconds": 0.09
+      "elapsed_seconds": 0.11
     },
     {
       "variant": "gloria_full",
       "mode": "ensemble",
+      "hint_pack_name": "",
       "fk_precision": 1.0,
       "fk_recall": 0.875,
       "fk_f1": 0.9333,
@@ -167,8 +169,81 @@
       "elapsed_seconds": 0.01
     },
     {
+      "variant": "gloria_full",
+      "mode": "ensemble_hinted",
+      "hint_pack_name": "argentina_gestion",
+      "fk_precision": 1.0,
+      "fk_recall": 0.875,
+      "fk_f1": 0.9333,
+      "entity_accuracy": 0.4,
+      "consensus_rate_3plus": 0.0,
+      "consensus_counts": {
+        "1": 24,
+        "2": 1,
+        "3": 0,
+        "4": 0
+      },
+      "total_predicted": 7,
+      "total_golden": 8,
+      "true_positives": [
+        "articulos.codrub -> rubros.codrub",
+        "compcab.codcli -> clientes.codcli",
+        "compcab.codvend -> vendedores.codvend",
+        "compdet.codart -> articulos.codart",
+        "compdet.nrocomp -> compcab.nrocomp",
+        "movstock.codart -> articulos.codart",
+        "stock.codart -> articulos.codart"
+      ],
+      "false_positives": [],
+      "false_negatives": [
+        "compcab.codcondpago -> condpago.codcondpago"
+      ],
+      "entity_correct": [
+        "Rubros",
+        "CondPago",
+        "CompCab",
+        "MovStock"
+      ],
+      "entity_incorrect": [
+        {
+          "table": "Articulos",
+          "expected": "master",
+          "predicted": "config"
+        },
+        {
+          "table": "Clientes",
+          "expected": "master",
+          "predicted": "config"
+        },
+        {
+          "table": "Proveedores",
+          "expected": "master",
+          "predicted": "config"
+        },
+        {
+          "table": "Vendedores",
+          "expected": "master",
+          "predicted": "config"
+        },
+        {
+          "table": "CompDet",
+          "expected": "transactional",
+          "predicted": "unknown"
+        },
+        {
+          "table": "Stock",
+          "expected": "bridge",
+          "predicted": "config"
+        }
+      ],
+      "llm_calls": 0,
+      "llm_cost_usd": 0.0,
+      "elapsed_seconds": 0.01
+    },
+    {
       "variant": "gloria_no_fks",
       "mode": "fk_only",
+      "hint_pack_name": "",
       "fk_precision": 0.1127,
       "fk_recall": 1.0,
       "fk_f1": 0.2025,
@@ -257,11 +332,12 @@
       "entity_incorrect": [],
       "llm_calls": 0,
       "llm_cost_usd": 0.0,
-      "elapsed_seconds": 0.1
+      "elapsed_seconds": 0.08
     },
     {
       "variant": "gloria_no_fks",
       "mode": "ensemble",
+      "hint_pack_name": "",
       "fk_precision": 0.0,
       "fk_recall": 0.0,
       "fk_f1": 0.0,
@@ -330,8 +406,81 @@
       "elapsed_seconds": 0.0
     },
     {
+      "variant": "gloria_no_fks",
+      "mode": "ensemble_hinted",
+      "hint_pack_name": "argentina_gestion",
+      "fk_precision": 1.0,
+      "fk_recall": 0.125,
+      "fk_f1": 0.2222,
+      "entity_accuracy": 0.4,
+      "consensus_rate_3plus": 0.0,
+      "consensus_counts": {
+        "1": 25,
+        "2": 0,
+        "3": 0,
+        "4": 0
+      },
+      "total_predicted": 1,
+      "total_golden": 8,
+      "true_positives": [
+        "compdet.nrocomp -> compcab.nrocomp"
+      ],
+      "false_positives": [],
+      "false_negatives": [
+        "articulos.codrub -> rubros.codrub",
+        "compcab.codcli -> clientes.codcli",
+        "compcab.codcondpago -> condpago.codcondpago",
+        "compcab.codvend -> vendedores.codvend",
+        "compdet.codart -> articulos.codart",
+        "movstock.codart -> articulos.codart",
+        "stock.codart -> articulos.codart"
+      ],
+      "entity_correct": [
+        "Rubros",
+        "CondPago",
+        "CompCab",
+        "MovStock"
+      ],
+      "entity_incorrect": [
+        {
+          "table": "Articulos",
+          "expected": "master",
+          "predicted": "config"
+        },
+        {
+          "table": "Clientes",
+          "expected": "master",
+          "predicted": "config"
+        },
+        {
+          "table": "Proveedores",
+          "expected": "master",
+          "predicted": "config"
+        },
+        {
+          "table": "Vendedores",
+          "expected": "master",
+          "predicted": "config"
+        },
+        {
+          "table": "CompDet",
+          "expected": "transactional",
+          "predicted": "unknown"
+        },
+        {
+          "table": "Stock",
+          "expected": "bridge",
+          "predicted": "config"
+        }
+      ],
+      "llm_calls": 0,
+      "llm_cost_usd": 0.0,
+      "elapsed_seconds": 0.01
+    },
+    {
       "variant": "gloria_obfuscated",
       "mode": "fk_only",
+      "hint_pack_name": "",
       "fk_precision": 0.1127,
       "fk_recall": 1.0,
       "fk_f1": 0.2025,
@@ -425,6 +574,78 @@
     {
       "variant": "gloria_obfuscated",
       "mode": "ensemble",
+      "hint_pack_name": "",
+      "fk_precision": 0.0,
+      "fk_recall": 0.0,
+      "fk_f1": 0.0,
+      "entity_accuracy": 0.4,
+      "consensus_rate_3plus": 0.0,
+      "consensus_counts": {
+        "1": 24,
+        "2": 0,
+        "3": 0,
+        "4": 0
+      },
+      "total_predicted": 0,
+      "total_golden": 8,
+      "true_positives": [],
+      "false_positives": [],
+      "false_negatives": [
+        "art.codrub -> rub.codrub",
+        "cc.codcli -> cli.codcli",
+        "cc.codcondpago -> cp.codcondpago",
+        "cc.codvend -> vend.codvend",
+        "cd.codart -> art.codart",
+        "cd.nrocomp -> cc.nrocomp",
+        "ms.codart -> art.codart",
+        "stk.codart -> art.codart"
+      ],
+      "entity_correct": [
+        "Rub",
+        "CP",
+        "CC",
+        "MS"
+      ],
+      "entity_incorrect": [
+        {
+          "table": "Art",
+          "expected": "master",
+          "predicted": "config"
+        },
+        {
+          "table": "Cli",
+          "expected": "master",
+          "predicted": "config"
+        },
+        {
+          "table": "Prov",
+          "expected": "master",
+          "predicted": "config"
+        },
+        {
+          "table": "Vend",
+          "expected": "master",
+          "predicted": "config"
+        },
+        {
+          "table": "CD",
+          "expected": "transactional",
+          "predicted": "unknown"
+        },
+        {
+          "table": "Stk",
+          "expected": "bridge",
+          "predicted": "config"
+        }
+      ],
+      "llm_calls": 0,
+      "llm_cost_usd": 0.0,
+      "elapsed_seconds": 0.01
+    },
+    {
+      "variant": "gloria_obfuscated",
+      "mode": "ensemble_hinted",
+      "hint_pack_name": "argentina_gestion",
       "fk_precision": 0.0,
       "fk_recall": 0.0,
       "fk_f1": 0.0,
