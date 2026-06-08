@@ -109,11 +109,15 @@ def build_eval_report(results: list) -> dict:
         "remaining": [
             "Real-LLM run: semantic + business-process agent FK contribution and a "
             "true LLM-only baseline (needs the proxy/API up; the golden set is tiny "
-            "so the run is cheap — ~Haiku calls — but non-deterministic).",
-            "Scalability sweep (50 / 200 / 500 tables) — needs larger golden schemas.",
-            "Cross-pilot generalization — needs a 2nd real ERP family (plug a second "
-            "hint pack / golden variant into the VAL-175 ablation mechanism).",
-            "Per-layer (L0-L5) latency/cost breakdown — needs pipeline instrumentation.",
+            "so the run is cheap — ~Haiku calls — but non-deterministic). This is the "
+            "last open item; everything below is DONE.",
+            "DONE — Scalability sweep (50 / 200 / 500 tables): scripts/"
+            "discovery_scalability_eval.py → docs/experiments/val-145-scalability.md.",
+            "DONE — Cross-pilot generalization (2nd ERP family, Retail POS): scripts/"
+            "discovery_cross_family_eval.py → docs/experiments/"
+            "val-145-cross-family-generalization.md.",
+            "DONE — Per-layer (L0-L5) latency/cost breakdown: scripts/"
+            "discovery_layer_profile.py → docs/experiments/val-145-layer-breakdown.md.",
         ],
     }
 

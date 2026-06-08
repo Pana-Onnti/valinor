@@ -1,0 +1,121 @@
+{
+  "determinism": "MockLLMClient (reproducible, $0). Per-layer SHARE and LLM-call placement are citable; absolute wall-clock and real-LLM latency are pending a live run.",
+  "layer_mapping": {
+    "L0": "Schema extraction",
+    "L1": "Structural profiling",
+    "L2": "IND / FK candidates",
+    "L3": "ERP Hint Pack",
+    "L4": "Knowledge graph",
+    "L5": "LLM semantic validation"
+  },
+  "variants": [
+    "gloria_full",
+    "gloria_no_fks",
+    "gloria_obfuscated"
+  ],
+  "per_variant": [
+    {
+      "variant": "gloria_full",
+      "tables": 10,
+      "timings_seconds": {
+        "L0": 0.003581876000680495,
+        "L1": 0.0024753339966991916,
+        "L2": 0.0013349180007935502,
+        "L3": 0.00034507900272728875,
+        "L5": 0.00018703099703998305,
+        "L4": 0.00018423700021230616
+      }
+    },
+    {
+      "variant": "gloria_no_fks",
+      "tables": 10,
+      "timings_seconds": {
+        "L0": 0.003403784998226911,
+        "L1": 0.0023176350005087443,
+        "L2": 0.0006113780000305269,
+        "L3": 0.0003444499998295214,
+        "L5": 0.00011502699999255128,
+        "L4": 0.0001267589977942407
+      }
+    },
+    {
+      "variant": "gloria_obfuscated",
+      "tables": 10,
+      "timings_seconds": {
+        "L0": 0.003046273999643745,
+        "L1": 0.0023587010000483133,
+        "L2": 0.000693927999236621,
+        "L3": 7.570699744974263e-05,
+        "L5": 0.00014792099682381377,
+        "L4": 7.438000102411024e-05
+      }
+    }
+  ],
+  "layers": [
+    {
+      "layer": "L0",
+      "description": "Schema extraction",
+      "mean_latency_ms": 3.344,
+      "share_pct": 46.8,
+      "llm_calls_mock": 0,
+      "llm_calls_real": 0,
+      "cost_usd_mock": 0.0,
+      "cost_usd_real_projected": 0.0
+    },
+    {
+      "layer": "L1",
+      "description": "Structural profiling",
+      "mean_latency_ms": 2.3839,
+      "share_pct": 33.4,
+      "llm_calls_mock": 0,
+      "llm_calls_real": 0,
+      "cost_usd_mock": 0.0,
+      "cost_usd_real_projected": 0.0
+    },
+    {
+      "layer": "L2",
+      "description": "IND / FK candidates",
+      "mean_latency_ms": 0.8801,
+      "share_pct": 12.3,
+      "llm_calls_mock": 0,
+      "llm_calls_real": 0,
+      "cost_usd_mock": 0.0,
+      "cost_usd_real_projected": 0.0
+    },
+    {
+      "layer": "L3",
+      "description": "ERP Hint Pack",
+      "mean_latency_ms": 0.2551,
+      "share_pct": 3.6,
+      "llm_calls_mock": 0,
+      "llm_calls_real": 0,
+      "cost_usd_mock": 0.0,
+      "cost_usd_real_projected": 0.0
+    },
+    {
+      "layer": "L4",
+      "description": "Knowledge graph",
+      "mean_latency_ms": 0.1285,
+      "share_pct": 1.8,
+      "llm_calls_mock": 0,
+      "llm_calls_real": 0,
+      "cost_usd_mock": 0.0,
+      "cost_usd_real_projected": 0.0
+    },
+    {
+      "layer": "L5",
+      "description": "LLM semantic validation",
+      "mean_latency_ms": 0.15,
+      "share_pct": 2.1,
+      "llm_calls_mock": 0,
+      "llm_calls_real": 2,
+      "cost_usd_mock": 0.0,
+      "cost_usd_real_projected": 0.016
+    }
+  ],
+  "totals": {
+    "mean_latency_ms": 7.1415,
+    "llm_calls_real_per_analysis": 2,
+    "cost_usd_real_projected": 0.016
+  }
+}

@@ -105,19 +105,19 @@
       "ensemble_recall": 0.0,
       "hinted_recall": 0.0
     },
-    "gloria_no_fks": {
-      "recall_delta": 0.125,
-      "precision_delta": 1.0,
-      "f1_delta": 0.2222,
-      "ensemble_recall": 0.0,
-      "hinted_recall": 0.125
-    },
     "gloria_full": {
       "recall_delta": 0.0,
       "precision_delta": 0.0,
       "f1_delta": 0.0,
       "ensemble_recall": 0.875,
       "hinted_recall": 0.875
+    },
+    "gloria_no_fks": {
+      "recall_delta": 0.125,
+      "precision_delta": 1.0,
+      "f1_delta": 0.2222,
+      "ensemble_recall": 0.0,
+      "hinted_recall": 0.125
     }
   },
   "entity_classification": [
@@ -138,63 +138,63 @@
     {
       "baseline": "Structural-only",
       "variant": "gloria_full",
-      "latency_seconds": 0.14,
-      "llm_calls": 0,
-      "cost_usd": 0.0
-    },
-    {
-      "baseline": "Ours (no hint pack)",
-      "variant": "gloria_full",
-      "latency_seconds": 0.01,
-      "llm_calls": 0,
-      "cost_usd": 0.0
-    },
-    {
-      "baseline": "Ours (full)",
-      "variant": "gloria_full",
-      "latency_seconds": 0.01,
-      "llm_calls": 0,
-      "cost_usd": 0.0
-    },
-    {
-      "baseline": "Structural-only",
-      "variant": "gloria_no_fks",
-      "latency_seconds": 0.1,
-      "llm_calls": 0,
-      "cost_usd": 0.0
-    },
-    {
-      "baseline": "Ours (no hint pack)",
-      "variant": "gloria_no_fks",
-      "latency_seconds": 0.01,
-      "llm_calls": 0,
-      "cost_usd": 0.0
-    },
-    {
-      "baseline": "Ours (full)",
-      "variant": "gloria_no_fks",
-      "latency_seconds": 0.01,
-      "llm_calls": 0,
-      "cost_usd": 0.0
-    },
-    {
-      "baseline": "Structural-only",
-      "variant": "gloria_obfuscated",
       "latency_seconds": 0.09,
       "llm_calls": 0,
       "cost_usd": 0.0
     },
     {
       "baseline": "Ours (no hint pack)",
-      "variant": "gloria_obfuscated",
+      "variant": "gloria_full",
       "latency_seconds": 0.01,
       "llm_calls": 0,
       "cost_usd": 0.0
     },
     {
       "baseline": "Ours (full)",
+      "variant": "gloria_full",
+      "latency_seconds": 0.0,
+      "llm_calls": 0,
+      "cost_usd": 0.0
+    },
+    {
+      "baseline": "Structural-only",
+      "variant": "gloria_no_fks",
+      "latency_seconds": 0.08,
+      "llm_calls": 0,
+      "cost_usd": 0.0
+    },
+    {
+      "baseline": "Ours (no hint pack)",
+      "variant": "gloria_no_fks",
+      "latency_seconds": 0.0,
+      "llm_calls": 0,
+      "cost_usd": 0.0
+    },
+    {
+      "baseline": "Ours (full)",
+      "variant": "gloria_no_fks",
+      "latency_seconds": 0.0,
+      "llm_calls": 0,
+      "cost_usd": 0.0
+    },
+    {
+      "baseline": "Structural-only",
       "variant": "gloria_obfuscated",
-      "latency_seconds": 0.01,
+      "latency_seconds": 0.08,
+      "llm_calls": 0,
+      "cost_usd": 0.0
+    },
+    {
+      "baseline": "Ours (no hint pack)",
+      "variant": "gloria_obfuscated",
+      "latency_seconds": 0.0,
+      "llm_calls": 0,
+      "cost_usd": 0.0
+    },
+    {
+      "baseline": "Ours (full)",
+      "variant": "gloria_obfuscated",
+      "latency_seconds": 0.0,
       "llm_calls": 0,
       "cost_usd": 0.0
     }
@@ -223,7 +223,7 @@
     },
     {
       "metric": "Discovery latency (s)",
-      "measured": 0.01,
+      "measured": 0.0,
       "target": 30.0,
       "met": true,
       "note": "MockLLM; real-LLM adds agent round-trips"
@@ -237,9 +237,9 @@
     }
   ],
   "remaining": [
-    "Real-LLM run: semantic + business-process agent FK contribution and a true LLM-only baseline (needs the proxy/API up; the golden set is tiny so the run is cheap \u2014 ~Haiku calls \u2014 but non-deterministic).",
-    "Scalability sweep (50 / 200 / 500 tables) \u2014 needs larger golden schemas.",
-    "Cross-pilot generalization \u2014 needs a 2nd real ERP family (plug a second hint pack / golden variant into the VAL-175 ablation mechanism).",
-    "Per-layer (L0-L5) latency/cost breakdown \u2014 needs pipeline instrumentation."
+    "Real-LLM run: semantic + business-process agent FK contribution and a true LLM-only baseline (needs the proxy/API up; the golden set is tiny so the run is cheap \u2014 ~Haiku calls \u2014 but non-deterministic). This is the last open item; everything below is DONE.",
+    "DONE \u2014 Scalability sweep (50 / 200 / 500 tables): scripts/discovery_scalability_eval.py \u2192 docs/experiments/val-145-scalability.md.",
+    "DONE \u2014 Cross-pilot generalization (2nd ERP family, Retail POS): scripts/discovery_cross_family_eval.py \u2192 docs/experiments/val-145-cross-family-generalization.md.",
+    "DONE \u2014 Per-layer (L0-L5) latency/cost breakdown: scripts/discovery_layer_profile.py \u2192 docs/experiments/val-145-layer-breakdown.md."
   ]
 }
