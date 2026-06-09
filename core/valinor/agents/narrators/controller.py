@@ -6,6 +6,7 @@ P&L analysis, provisions, anomalies, forecast, and regulatory flags.
 
 import json
 import logging
+import os
 
 from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
 
@@ -78,7 +79,7 @@ async def narrate_controller(
 ) -> str:
     """Produce the controller report."""
     options = ClaudeAgentOptions(
-        model="sonnet",
+        model=os.getenv("VALINOR_NARRATOR_MODEL", "sonnet"),
         system_prompt=SYSTEM_PROMPT,
         max_turns=15,
     )

@@ -118,3 +118,6 @@ web/*.tsbuildinfo
 
 # Secrets / keys (never commit — see CLAUDE.md non-negotiable #5)
 ssh_keys/
+
+# VAL-163 live A/B captures — contain real client data (Gloria), never commit
+docs/experiments/val-163/

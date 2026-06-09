@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -270,7 +271,7 @@ Emit the SalesReportV2 JSON now. Raw JSON only. No code fences. No prose.
 """
 
     options = ClaudeAgentOptions(
-        model="sonnet",
+        model=os.getenv("VALINOR_NARRATOR_MODEL", "sonnet"),
         system_prompt=SYSTEM_PROMPT,
         max_turns=10,
     )
