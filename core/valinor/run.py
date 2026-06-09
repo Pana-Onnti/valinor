@@ -9,6 +9,7 @@ Usage:
 import asyncio
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -355,6 +356,25 @@ async def main(client: str, period: str, source: str | None = None):
             f"  [yellow]⚠ {verification_report.failed_claims} claim(s) failed verification — "
             "narrators will see them flagged via verification_report context.[/yellow]"
         )
+
+    # ── VAL-163 A/B capture tap (inert unless VALINOR_AB_CAPTURE is set) ──
+    # Dumps the exact pipeline state that feeds the narrators so the Number
+    # Registry A/B can re-run them twice offline (control vs treatment) without
+    # re-running the swarm. See scripts/capture_narrator_ab.py.
+    _ab_capture_path = os.environ.get("VALINOR_AB_CAPTURE")
+    if _ab_capture_path:
+        state = {
+            "entity_map": entity_map,
+            "query_results": query_results,
+            "baseline": baseline,
+            "findings": findings,
+            "memory": memory,
+            "client_config": config,
+        }
+        _ab_out = Path(_ab_capture_path)
+        _ab_out.parent.mkdir(parents=True, exist_ok=True)
+        _ab_out.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
+        console.print(f"  [cyan]⦿ VAL-163: captured narrator state → {_ab_out}[/cyan]")
 
     # ═══ STAGE 4: NARRATORS ═══
     console.print("\n[bold]▸ Stage 4: Generating reports...[/bold]")
