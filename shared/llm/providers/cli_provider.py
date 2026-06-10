@@ -120,7 +120,10 @@ class ClaudeCliProvider(LLMProvider):
         except asyncio.TimeoutError:
             raise RuntimeError(f"claude CLI timed out after {self.timeout}s")
         if proc.returncode != 0:
-            raise RuntimeError(f"claude CLI error (exit {proc.returncode}): {stderr.decode().strip()}")
+            # The CLI reports some errors on stdout (e.g. "API Error: ... exceeded
+            # the 8192 output token maximum") with stderr empty — surface both.
+            detail = stderr.decode().strip() or stdout.decode().strip()[:500]
+            raise RuntimeError(f"claude CLI error (exit {proc.returncode}): {detail}")
         return stdout.decode().strip()
 
     async def _query_via_proxy(self, prompt: str, model_id: str) -> str:
