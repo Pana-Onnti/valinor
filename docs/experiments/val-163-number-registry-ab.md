@@ -23,8 +23,16 @@ el claim a "wiring entregado; delta sin medir". Este experimento lo midió.
 Mismos findings/query_results/baseline en ambas ramas y reps → todo delta es
 atribuible al registry. El VR del treatment se construye offline (el engine no
 re-queryea la DB). Narrators: ceo, controller, ejecutivo (sales stubbeado —
-known issue VAL-162; causa probable encontrada: techo de 8192 output tokens
-del CLI, error que iba a stdout y el provider ocultaba — fix en `cli_provider.py`).
+known issue VAL-162. Revisión 2026-06-10: la clase de error "API error a
+stdout con stderr vacío" está VERIFICADA y arreglada en `cli_provider.py`
+— el overflow de 8192 output tokens se reprodujo en vivo sobre los prompts
+control de controller/ejecutivo. Para SALES el overflow NO se reprodujo en
+este state: sonnet standalone emite 24.100 chars ≈6-7K tokens, bajo el techo,
+en 141s con JSON válido — la causa exacta de VAL-162 sigue abierta (overflow
+en states más ricos / otro API error bajo concurrencia); el fix de visibilidad
+mostrará el error real la próxima vez. Gotcha adicional: CLI v2.1.170 + sonnet
+CUELGA >600s en este prompt (v1.0.98: 141s; v2 + haiku: ok) — no migrar el
+bridge a v2 para narrators sonnet sin investigar).
 
 ## Resultados (mean ± std sobre 3 reps, medias por narrator)
 
