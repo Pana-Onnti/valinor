@@ -1,0 +1,5 @@
+{
+  "gate_metric": "case_accuracy/test/default",
+  "value": 1.0,
+  "note": "updated deliberately via eval.py golden --update-baseline"
+}

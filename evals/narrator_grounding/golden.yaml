@@ -1,0 +1,355 @@
+# Golden set — narrator grounding instrument (VAL-192 N1)
+#
+# Instrument-level cases: given narrator TEXT + run CONTEXT (query_results /
+# findings / registry), the expected classification of every number the
+# instrument should extract. This is the meta-eval that makes grounded-rate /
+# hallucinated-rate trustworthy — scripts/eval.py golden [--gate].
+#
+# Labels encode CURRENT-CORRECT behavior (regression gate), decided with
+# evidence on 2026-06-09 (see README.md). Changing a label is a deliberate
+# spec change, not a tweak.
+#
+# split: ~30% test — tune NOTHING while looking at test cases (no-overfit rule
+# of the epic). The gate runs on the test split only.
+#
+# All values/names are SYNTHETIC — no client data (non-negotiable rule).
+#
+# expect lists hold the normalized magnitudes the instrument must put in each
+# bucket (order-insensitive). expect_derived overrides expect when the
+# credit_derived config is ON (within-column arithmetic crediting).
+
+version: 1
+cases:
+  # ── Bug-1: DB values serialized as strings ─────────────────────────────────
+  - id: string-numeric-ltv
+    split: train
+    text: "ACME PET concentra €412.881,55 del revenue del periodo"
+    context:
+      query_results:
+        concentration_top_customers:
+          rows:
+            - {customer_id: "AAAA1111", ltv_eur: "412881.55", share_pct: "15.20"}
+    expect: {grounded: [412881.55], hallucinated: [], declared: []}
+
+  - id: string-percent-share
+    split: train
+    text: "con una participación del 15,2% sobre el total"
+    context:
+      query_results:
+        concentration_top_customers:
+          rows:
+            - {customer_id: "AAAA1111", ltv_eur: "412881.55", share_pct: "15.20"}
+    expect: {grounded: [15.2], hallucinated: [], declared: []}
+
+  - id: string-high-precision-avg
+    split: test
+    text: "ticket promedio de €487,44 por factura"
+    context:
+      query_results:
+        revenue_summary:
+          rows:
+            - {avg_invoice: "487.4391421309044694"}
+    expect: {grounded: [487.44], hallucinated: [], declared: []}
+
+  - id: postgres-interval-days
+    split: train
+    text: "el gap de 132 días impide confirmar actividad reciente"
+    context:
+      query_results:
+        data_freshness:
+          rows:
+            - {days_since_latest: "132 days, 0:00:00"}
+    expect: {grounded: [132], hallucinated: [], declared: []}
+
+  - id: negative-string-magnitude
+    split: test
+    text: "la mayor nota de crédito fue de €5.123,40"
+    context:
+      query_results:
+        revenue_summary:
+          rows:
+            - {min_invoice: "-5123.40"}
+    expect: {grounded: [5123.40], hallucinated: [], declared: []}
+
+  - id: date-strings-not-ground-truth
+    split: train
+    text: "se registraron 19 devoluciones"
+    context:
+      query_results:
+        returns:
+          rows:
+            - {last_purchase: "2025-06-19", first_purchase: "2024-03-12", total_returns: 4}
+    expect: {grounded: [], hallucinated: [19], declared: []}
+
+  # ── Bug-2: dates/times are not numeric claims ──────────────────────────────
+  - id: deadline-day-month
+    split: train
+    text: "**Deadline: viernes 10 mayo 2026** para la primera oleada"
+    context: {}
+    expect: {grounded: [], hallucinated: [], declared: []}
+
+  - id: day-de-month
+    split: test
+    text: "retractado el 31 de mayo tras la revisión"
+    context: {}
+    expect: {grounded: [], hallucinated: [], declared: []}
+
+  - id: iso-window
+    split: train
+    text: "Ventana de análisis: 2025-01-02 → 2025-03-31"
+    context: {}
+    expect: {grounded: [], hallucinated: [], declared: []}
+
+  - id: iso-timestamp
+    split: train
+    text: "Generado por Valinor v0 — 2026-05-08T14:05:56Z"
+    context: {}
+    expect: {grounded: [], hallucinated: [], declared: []}
+
+  - id: slash-date
+    split: test
+    text: "entregado el 12/05/2026 según protocolo"
+    context: {}
+    expect: {grounded: [], hallucinated: [], declared: []}
+
+  - id: ratio-with-slash-kept
+    split: train
+    text: "36/70 claims verificados (51%)"
+    context:
+      findings:
+        verification: {total_claims: 70, verified_claims: 36}
+    expect: {grounded: [36, 70], hallucinated: [51], declared: []}
+
+  - id: q-label-and-year
+    split: train
+    text: "El Q1 2025 cerró plano respecto a 2024"
+    context: {}
+    expect: {grounded: [], hallucinated: [], declared: []}
+
+  - id: duration-is-a-claim
+    split: test
+    text: "Datos con 380 días de retraso respecto al cierre"
+    context: {}
+    expect: {grounded: [], hallucinated: [380], declared: []}
+
+  # ── extractor edges (suffix boundary, formats) ─────────────────────────────
+  - id: heading-number-not-billions
+    split: train
+    text: "### 2. Base de clientes colapsando"
+    context: {}
+    expect: {grounded: [], hallucinated: [2], declared: []}
+
+  - id: b-suffix-needs-boundary
+    split: train
+    text: "marzo quedó €212.450 bajo enero"
+    context:
+      findings:
+        analyst: {note: "gap intermensual de €212.450 medido"}
+    expect: {grounded: [212450], hallucinated: [], declared: []}
+
+  - id: european-decimal
+    split: train
+    text: "La facturación fue 1.733.412,62 EUR"
+    context:
+      query_results:
+        revenue_summary: {rows: [{total_revenue: "1733412.62"}]}
+    expect: {grounded: [1733412.62], hallucinated: [], declared: []}
+
+  - id: anglo-decimal
+    split: test
+    text: "revenue of 1,733,412.62 with 3,139 invoices"
+    context:
+      query_results:
+        revenue_summary: {rows: [{total_revenue: "1733412.62", num_invoices: 3139}]}
+    expect: {grounded: [1733412.62, 3139], hallucinated: [], declared: []}
+
+  - id: magnitude-suffixes
+    split: train
+    text: "pico de €1,75M sobre un suelo de €920K; 3 millones proyectados"
+    context:
+      query_results:
+        seasonality: {rows: [{max_monthly: "1748020.00", min_monthly: "919800.00"}]}
+    expect: {grounded: [1750000, 920000], hallucinated: [3000000], declared: []}
+
+  # ── Bug-3: declared estimates are not fabrication ──────────────────────────
+  - id: estimado-tag
+    split: train
+    text: "Impacto de la reducción del 30% de volumen: -€98.250 [ESTIMADO — analyst]"
+    context:
+      findings:
+        analyst: {scenario: "reducción 30% volumen"}
+    expect: {grounded: [30], hallucinated: [], declared: [98250]}
+
+  - id: inferido-tag
+    split: test
+    text: "revenue promedio por cliente = €2.890,11 [INFERIDO]"
+    context: {}
+    expect: {grounded: [], hallucinated: [], declared: [2890.11]}
+
+  - id: parenthetical-estimado
+    split: train
+    text: "recuperar ≥120 cuentas = +€350K revenue (estimado)"
+    context: {}
+    expect: {grounded: [], hallucinated: [], declared: [120, 350000]}
+
+  - id: tilde-prefix
+    split: train
+    text: "proyección base: ~870 cuentas activas"
+    context: {}
+    expect: {grounded: [], hallucinated: [], declared: [870]}
+
+  - id: grounded-beats-declared
+    split: train
+    text: "cartera vencida €3.27M [ESTIMADO]"
+    context:
+      registry:
+        ar_outstanding: {value: 3267365.43}
+    expect: {grounded: [3270000], hallucinated: [], declared: []}
+
+  - id: canonical-hallucination-hedged
+    split: test
+    text: "La deuda ronda los €13.5M aproximadamente y podría crecer"
+    context:
+      registry:
+        ar_outstanding: {value: 3267365.43}
+    expect: {grounded: [], hallucinated: [13500000], declared: []}
+    expect_hedging: 2
+
+  # ── Bug-3: findings prose is narrator input ────────────────────────────────
+  - id: findings-prose-range
+    split: train
+    text: "Estimación del doble-conteo: €18.300–€45.700 pendiente de auditoría"
+    context:
+      findings:
+        sentinel:
+          findings:
+            - {id: "DQ-001", desc: "posible doble conteo de €18,300–€45,700 en c_invoice"}
+    expect: {grounded: [18300, 45700], hallucinated: [], declared: []}
+
+  - id: findings-numeric-field
+    split: test
+    text: "el analista cuantificó el riesgo en €77.500"
+    context:
+      findings:
+        analyst:
+          findings:
+            - {id: "FIN-003", value_eur: 77500}
+    expect: {grounded: [77500], hallucinated: [], declared: []}
+
+  # ── derived crediting (config dimension, OFF by default) ───────────────────
+  - id: mom-delta-derived
+    split: train
+    text: "marzo se queda €183.906 por debajo de enero"
+    context:
+      query_results:
+        revenue_by_period:
+          rows:
+            - {period: "2025-01-01 00:00:00", revenue: "1831839.38"}
+            - {period: "2025-03-01 00:00:00", revenue: "1647933.00"}
+    expect: {grounded: [], hallucinated: [183906], declared: []}
+    expect_derived: {grounded: [183906], hallucinated: [], declared: []}
+
+  - id: share-of-total-derived
+    split: test
+    text: "el top-1 representa el 42,5% de los tres grandes"
+    context:
+      query_results:
+        top_customers:
+          rows:
+            - {ltv: "425000.00"}
+            - {ltv: "330000.00"}
+            - {ltv: "245000.00"}
+    expect: {grounded: [], hallucinated: [42.5], declared: []}
+    expect_derived: {grounded: [42.5], hallucinated: [], declared: []}
+
+  - id: column-sum-derived
+    split: train
+    text: "los tres grandes suman €1.000.000"
+    context:
+      query_results:
+        top_customers:
+          rows:
+            - {ltv: "425000.00"}
+            - {ltv: "330000.00"}
+            - {ltv: "245000.00"}
+    expect: {grounded: [], hallucinated: [1000000], declared: []}
+    expect_derived: {grounded: [1000000], hallucinated: [], declared: []}
+
+  - id: cross-corpus-pairwise-NOT-credited
+    split: train
+    # 350 − 150 = 200 sería un delta CROSS-column — la frontera medida lo rechaza:
+    # solo column-mates derivan. El plan de acción "200 cuentas" queda ungrounded.
+    text: "llamar a 200 cuentas de mayor valor esta semana"
+    context:
+      query_results:
+        a: {rows: [{x: "350.00"}]}
+        b: {rows: [{y: "150.00"}]}
+    expect: {grounded: [], hallucinated: [200], declared: []}
+    expect_derived: {grounded: [], hallucinated: [200], declared: []}
+
+  - id: rank-label-not-a-claim
+    split: train
+    text: "el cliente más alto del top-50 lidera el ranking, seguido del #2"
+    context: {}
+    expect: {grounded: [], hallucinated: [], declared: []}
+
+  # ── tolerance edges (mirror VerificationEngine._values_match) ──────────────
+  - id: count-exact-match
+    split: train
+    text: "se emitieron 3.139 facturas"
+    context:
+      query_results:
+        revenue_summary: {rows: [{num_invoices: 3139}]}
+    expect: {grounded: [3139], hallucinated: [], declared: []}
+
+  - id: count-near-miss-fails
+    split: test
+    text: "se emitieron 3.200 facturas"
+    context:
+      query_results:
+        revenue_summary: {rows: [{num_invoices: 3139}]}
+    expect: {grounded: [], hallucinated: [3200], declared: []}
+
+  - id: percent-within-2pts
+    split: train
+    text: "concentración del 47%"
+    context:
+      query_results:
+        hhi: {rows: [{cr1_pct: "45.0"}]}
+    expect: {grounded: [47], hallucinated: [], declared: []}
+
+  - id: big-value-half-percent-band
+    split: train
+    text: "ingresos de €4,88M en el trimestre"
+    context:
+      query_results:
+        revenue_summary: {rows: [{total_revenue: "4876218.38"}]}
+    expect: {grounded: [4880000], hallucinated: [], declared: []}
+
+  - id: rounded-to-3-sig-figs-outside-band
+    split: test
+    # €412.881,55 citado como "€413K" desvía 0.03% → dentro de banda 0.1%;
+    # "€410K" desvía 0.7% → fuera. Documenta la banda 10K-1M = 0.1%.
+    text: "la cuenta principal aporta €410K"
+    context:
+      query_results:
+        concentration_top_customers: {rows: [{ltv_eur: "412881.55"}]}
+    expect: {grounded: [], hallucinated: [410000], declared: []}
+
+  # ── hedging metric ─────────────────────────────────────────────────────────
+  - id: hedging-counted
+    split: train
+    text: "Aproximadamente €2M, podría aumentar; roughly stable según se estima"
+    context: {}
+    expect: {grounded: [], hallucinated: [2000000], declared: []}
+    expect_hedging: 4
+
+  - id: no-hedging-clean-text
+    split: test
+    text: "La cartera vencida es €3.27M sobre 616 clientes"
+    context:
+      registry:
+        ar_outstanding: {value: 3267365.43}
+        customers_with_debt: {value: 616}
+    expect: {grounded: [3270000, 616], hallucinated: [], declared: []}
+    expect_hedging: 0
