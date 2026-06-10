@@ -323,8 +323,87 @@ def ab_main(args) -> int:
     return 0
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# GRAPHRAG MODE — N3 global-questions eval (VAL-192 N3)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def graphrag_main(args) -> int:
+    """Score the arm answers produced by scripts/graphrag_answer.py.
+
+    Layer 0 (deterministic) always; --judge adds LLM-as-judge (reps, needs the
+    console_cli bootstrap → only with --judge, CI runs layer 0 only). Gate per
+    the N3 milestone: community ≥0.8 on ≥min-wins questions where flat <0.5,
+    zero forbidden hits in the community arm.
+    """
+    import asyncio
+
+    from valinor.quality.global_judge import evaluate_gate, judge_layer0, judge_layer1
+
+    questions = yaml.safe_load(Path(args.questions).read_text(encoding="utf-8"))["questions"]
+    active = {q["id"]: q for q in questions if q.get("status") != "replaced"}
+    references = json.loads(Path(args.references).read_text(encoding="utf-8"))
+    base = Path(args.dir)
+    arms = {}
+    for arm in ("flat", "flat_narrator", "community"):
+        p = base / f"{arm}.json"
+        if p.exists():
+            arms[arm] = json.loads(p.read_text(encoding="utf-8"))
+    if "flat" not in arms or "community" not in arms:
+        raise SystemExit(f"need flat.json + community.json under {base}")
+
+    if args.judge:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from run_capture_ab_live import bootstrap
+        bootstrap(args.judge_model, args.cli_path)
+
+    rows = []
+    per_question: dict[str, dict] = {}
+    for qid, q in active.items():
+        entry: dict = {}
+        for arm, answers in arms.items():
+            ans = answers.get(qid, "")
+            l0 = judge_layer0(ans, q, references)
+            score, forbidden = l0.score, l0.forbidden_hits
+            if args.judge:
+                l1 = asyncio.run(judge_layer1(
+                    ans, q, references,
+                    reps=args.judge_reps if q.get("split") == "test" else 1))
+                if l1["max_points"]:
+                    score = l1["points"] / l1["max_points"]
+                    forbidden = max(forbidden, l1["forbidden_hits"])
+            rows.append({"question": qid, "split": q.get("split", "train"), "arm": arm,
+                         "score": round(score, 3), "forbidden": forbidden,
+                         "layer0": round(l0.score, 3), "detail": "; ".join(l0.details)[:120]})
+            entry[arm] = score
+            if arm == "community":
+                entry["community_forbidden"] = forbidden
+        per_question[qid] = entry
+
+    print(f"{'question':28s} {'split':6s} {'flat':>6s} {'flat_nar':>8s} {'community':>9s} {'forb':>4s}")
+    for qid, q in active.items():
+        e = per_question[qid]
+        fn = e.get("flat_narrator")
+        print(f"{qid:28s} {q.get('split','train'):6s} {e['flat']:6.2f} "
+              f"{(f'{fn:8.2f}' if fn is not None else '       —')} "
+              f"{e['community']:9.2f} {e.get('community_forbidden', 0):4d}")
+
+    gate = evaluate_gate(per_question, min_wins=args.min_wins)
+    print(f"\nflat fails (<0.5): {gate['flat_fails']}")
+    print(f"community wins (≥0.8, sin forbidden): {gate['wins']}")
+    print(f"GATE ({'≥'+str(gate['min_wins'])} wins): {'PASSED' if gate['gate_passed'] else 'NOT PASSED'}")
+
+    if args.csv:
+        with open(args.csv, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            w.writeheader()
+            w.writerows(rows)
+        print(f"csv → {args.csv}", file=sys.stderr)
+    return 0 if (gate["gate_passed"] or not args.gate) else 1
+
+
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="VAL-192 N1 eval harness")
+    ap = argparse.ArgumentParser(description="VAL-192 eval harness (N1 golden/ab + N3 graphrag)")
     sub = ap.add_subparsers(dest="mode", required=True)
 
     g = sub.add_parser("golden", help="instrument meta-eval on the golden set")
@@ -337,8 +416,24 @@ def main(argv=None) -> int:
     a.add_argument("--report", default=None)
     a.add_argument("--csv", default=None)
 
+    r = sub.add_parser("graphrag", help="score N3 global-question arms (VAL-192 N3)")
+    r.add_argument("--dir", required=True, help="dir with flat/flat_narrator/community.json")
+    r.add_argument("--references", required=True)
+    r.add_argument("--questions", default=str(ROOT / "evals" / "golden" / "global_questions.yaml"))
+    r.add_argument("--judge", action="store_true", help="add LLM-as-judge layer (needs local CLI)")
+    r.add_argument("--judge-reps", type=int, default=3)
+    r.add_argument("--judge-model", default="haiku")
+    r.add_argument("--cli-path", default=None)
+    r.add_argument("--min-wins", type=int, default=5)
+    r.add_argument("--gate", action="store_true", help="exit 1 if the N3 gate fails")
+    r.add_argument("--csv", default=None)
+
     args = ap.parse_args(argv)
-    return golden_main(args) if args.mode == "golden" else ab_main(args)
+    if args.mode == "golden":
+        return golden_main(args)
+    if args.mode == "ab":
+        return ab_main(args)
+    return graphrag_main(args)
 
 
 if __name__ == "__main__":

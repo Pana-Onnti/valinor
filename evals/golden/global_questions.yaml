@@ -1,0 +1,121 @@
+# Golden set — preguntas GLOBALES para el eval GraphRAG (VAL-192 N3)
+#
+# Preguntas que el análisis plano por-query falla ESTRUCTURALMENTE (cruzan
+# result sets que ningún query individual une) y que el modo-comunidad del
+# entity graph responde. Cada pregunta lleva:
+#   - required_facts: hechos atómicos con placeholder {REF:<clave>} resuelto por
+#     scripts/build_global_references.py vía joins deterministas sobre un
+#     state.json (demo committable o captura real gitignored). Una pregunta
+#     SOLO entra al set si su referencia es computable desde el state — regla
+#     de computabilidad: el builder falla fuerte si no puede.
+#   - must_include / must_not_include: gate determinista capa-0 (pre-juez).
+#   - split: test se CONGELA antes de iterar prompts (4 train / 3 test).
+#     Con n=7 esto guarda contra prompt-overfitting, no significancia.
+#
+# Regla de reemplazo: si en iteración de train el arm FLAT responde bien una
+# pregunta, se declara "no global" y se reemplaza (q6 ya cayó: ver status).
+#
+# Sin datos de cliente: placeholders + fixture sintética en evals/fixtures/.
+
+version: 1
+questions:
+  - id: q1-exposicion-compuesta
+    split: train
+    question: >
+      ¿Qué porcentaje de la facturación total está en clientes que además
+      presentan riesgo de churn o dormancia (>90 días sin comprar)? ¿Cuáles son?
+    seed_entities: ["churn", "dormancia", "facturación"]
+    required_facts:
+      - {fact: "share de facturación en riesgo compuesto", expected: "{REF:q1.exposed_share_pct}", tolerance_pct: 2.0}
+      - {fact: "monto expuesto EUR", expected: "{REF:q1.exposed_eur}", tolerance_pct: 1.0}
+      - {fact: "lista de clientes expuestos", expected: "{REF:q1.exposed_customers}", kind: labels}
+    must_not_include:
+      # Trampa: sumar churn + dormant SIN deduplicar la intersección.
+      - "{REF:q1.naive_double_count_eur}"
+    why_flat_fails: "une concentration/ltv × churn_risk × dormant — tres result sets que ningún query cruza; exige dedup de la intersección"
+
+  - id: q2-cross-sell-gap
+    split: train
+    question: >
+      ¿Qué segmento RFM concentra más facturación y qué categorías de producto
+      NO ha penetrado todavía? Cuantificá la oportunidad.
+    seed_entities: ["segmento", "categoría", "penetración"]
+    required_facts:
+      - {fact: "segmento líder", expected: "{REF:q2.top_segment}", kind: labels}
+      - {fact: "facturación del segmento líder", expected: "{REF:q2.top_segment_eur}", tolerance_pct: 1.0}
+      - {fact: "categorías sin penetrar por el líder", expected: "{REF:q2.missing_categories}", kind: labels}
+    granularity_notes: >
+      cross_sell es segmento×categoría: cualquier claim cliente→categoría es
+      inferencia 2-hop y el juez lo penaliza como groundedness failure.
+    why_flat_fails: "requiere agregar ltv por segmento (rfm) Y diferenciar el set de categorías compradas (cross_sell) — join + complemento de conjunto"
+
+  - id: q3-radio-explosion-churn
+    split: test
+    question: >
+      Si los 3 clientes con mayor deal-risk se van, ¿cuántos EUR de facturación
+      anual se golpean, qué % del total representa y qué segmentos toca?
+    seed_entities: ["deal-risk", "churn", "segmento"]
+    required_facts:
+      - {fact: "EUR en riesgo top-3", expected: "{REF:q3.blast_eur}", tolerance_pct: 1.0}
+      - {fact: "% del total", expected: "{REF:q3.blast_share_pct}", tolerance_pct: 2.0}
+      - {fact: "segmentos golpeados", expected: "{REF:q3.segments_hit}", kind: labels}
+    why_flat_fails: "rank por deal_risk (churn_risk) + ltv (concentration) + segmento (rfm) — agregación cruzando tres queries"
+
+  - id: q4-atribucion-hhi
+    split: train
+    question: >
+      ¿La concentración de facturación la explica un solo segmento RFM o cruza
+      varios? ¿Qué segmento aporta más share y cuánto?
+    seed_entities: ["concentración", "segmento", "share"]
+    required_facts:
+      - {fact: "segmento con mayor share", expected: "{REF:q4.top_segment}", kind: labels}
+      - {fact: "share del segmento líder", expected: "{REF:q4.top_segment_share_pct}", tolerance_pct: 2.0}
+      - {fact: "segmento del cliente top-1", expected: "{REF:q4.top1_customer_segment}", kind: labels}
+    why_flat_fails: "descompone shares individuales (concentration) agrupando por segmento (rfm) — group-by que no existe en ningún query"
+
+  - id: q5-convergencia-agentes
+    split: train
+    question: >
+      ¿Qué clientes aparecen mencionados en hallazgos de DOS o más agentes
+      distintos, y qué dice cada agente sobre ellos?
+    seed_entities: ["hallazgos", "agentes", "clientes"]
+    required_facts:
+      - {fact: "clientes con convergencia multi-agente", expected: "{REF:q5.convergent_customers}", kind: labels}
+      - {fact: "agentes que convergen", expected: "{REF:q5.agents_involved}", kind: labels}
+    why_flat_fails: "cruza menciones de entidades a través de findings de agentes distintos — grafo MENTIONS, no existe como tabla"
+
+  - id: q6-cobrabilidad-ar
+    split: train
+    status: replaced
+    replaced_reason: >
+      Regla de computabilidad: AR por-cliente no está en los states capturados
+      (ni demo ni referencia) — la referencia no es computable por joins.
+      Reemplazada por q8-puntos-ciegos. Se reintroduce si el query pack suma
+      ar_by_customer.
+    question: >
+      Del AR vencido, ¿cuánto está en clientes activos (recuperable) vs
+      dormidos/perdidos (probablemente incobrable)?
+    required_facts: []
+
+  - id: q7-columna-vertebral
+    split: test
+    question: >
+      ¿Cuál es el subconjunto mínimo de clientes que sostiene el 80% de la
+      facturación, y qué fragilidad tiene (riesgo de churn / dormancia dentro
+      de ese grupo)?
+    seed_entities: ["pareto", "facturación", "riesgo"]
+    required_facts:
+      - {fact: "tamaño del subconjunto Pareto-80", expected: "{REF:q7.pareto_n}", tolerance_pct: 0.0}
+      - {fact: "clientes frágiles dentro del grupo", expected: "{REF:q7.fragile_members}", kind: labels}
+    why_flat_fails: "Pareto acumulado sobre TODOS los clientes (no solo top-10 de un query) + flags de riesgo de otro result set"
+
+  - id: q8-puntos-ciegos
+    split: test
+    question: >
+      ¿Hay segmentos o grupos de clientes con share de facturación relevante
+      (>10%) sobre los que NINGÚN agente reportó hallazgos? ¿Cuáles?
+    seed_entities: ["segmento", "hallazgos", "cobertura"]
+    required_facts:
+      - {fact: "grupos sin cobertura de hallazgos", expected: "{REF:q8.blind_segments}", kind: labels}
+      - {fact: "share de los puntos ciegos", expected: "{REF:q8.blind_share_pct}", tolerance_pct: 2.0}
+    why_flat_fails: "auto-auditoría del swarm: requiere el complemento del set de menciones (grafo) contra el universo de segmentos con revenue — por construcción solo el grafo lo ve"

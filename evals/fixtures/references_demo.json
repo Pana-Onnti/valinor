@@ -1,0 +1,62 @@
+{
+  "q1": {
+    "exposed_eur": 945000.0,
+    "exposed_share_pct": 39.38,
+    "exposed_customers": [
+      "DISTRIBUIDORA ANDINA SRL",
+      "KIOSCO MAYORISTA SRL",
+      "PINTURERIA CENTRAL SRL",
+      "REPUESTOS RAPIDOS SA",
+      "VIVERO LAS LOMAS SRL"
+    ],
+    "naive_double_count_eur": 1770000.0
+  },
+  "q2": {
+    "top_segment": [
+      "Champions"
+    ],
+    "top_segment_eur": 980000.0,
+    "missing_categories": [
+      "JARDIN"
+    ]
+  },
+  "q3": {
+    "blast_eur": 635000.0,
+    "blast_share_pct": 26.46,
+    "segments_hit": [
+      "At Risk"
+    ]
+  },
+  "q4": {
+    "top_segment": [
+      "Champions"
+    ],
+    "top_segment_share_pct": 40.83,
+    "top1_customer_segment": [
+      "Champions"
+    ]
+  },
+  "q5": {
+    "convergent_customers": [
+      "FERRETERIA EL NORTE SA"
+    ],
+    "agents_involved": [
+      "analyst",
+      "sentinel"
+    ]
+  },
+  "q7": {
+    "pareto_n": 8,
+    "fragile_members": [
+      "DISTRIBUIDORA ANDINA SRL",
+      "KIOSCO MAYORISTA SRL",
+      "PINTURERIA CENTRAL SRL"
+    ]
+  },
+  "q8": {
+    "blind_segments": [
+      "Loyal"
+    ],
+    "blind_share_pct": 19.79
+  }
+}

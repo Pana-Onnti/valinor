@@ -121,3 +121,4 @@ ssh_keys/
 
 # VAL-163 live A/B captures — contain real client data (Gloria), never commit
 docs/experiments/val-163/
+docs/experiments/val-192-n3/

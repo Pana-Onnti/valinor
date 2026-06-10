@@ -1,0 +1,401 @@
+{
+  "entity_map": {
+    "entities": {
+      "c_invoice": {
+        "type": "transactional",
+        "row_count": 4800
+      },
+      "c_bpartner": {
+        "type": "master",
+        "row_count": 12
+      },
+      "m_product": {
+        "type": "master",
+        "row_count": 240
+      },
+      "m_product_category": {
+        "type": "master",
+        "row_count": 4
+      }
+    },
+    "relationships": [
+      {
+        "from": "c_invoice",
+        "to": "c_bpartner",
+        "type": "fk"
+      },
+      {
+        "from": "m_product",
+        "to": "m_product_category",
+        "type": "fk"
+      }
+    ]
+  },
+  "query_results": {
+    "results": {
+      "total_revenue_summary": {
+        "rows": [
+          {
+            "total_revenue": "2400000.00",
+            "num_invoices": 4800,
+            "avg_invoice": "500.00",
+            "min_invoice": "-850.00",
+            "max_invoice": "98000.00",
+            "distinct_customers": 12,
+            "date_from": "2025-01-02 00:00:00",
+            "date_to": "2025-03-31 00:00:00"
+          }
+        ]
+      },
+      "revenue_by_period": {
+        "rows": [
+          {
+            "period": "2025-01-01 00:00:00",
+            "revenue": "850000.00"
+          },
+          {
+            "period": "2025-02-01 00:00:00",
+            "revenue": "750000.00"
+          },
+          {
+            "period": "2025-03-01 00:00:00",
+            "revenue": "800000.00"
+          }
+        ]
+      },
+      "concentration_top_customers": {
+        "rows": [
+          {
+            "customer_id": "C001",
+            "customer_name": "FERRETERIA EL NORTE SA",
+            "ltv_eur": "480000.00",
+            "share_pct": "20.00"
+          },
+          {
+            "customer_id": "C002",
+            "customer_name": "DISTRIBUIDORA ANDINA SRL",
+            "ltv_eur": "360000.00",
+            "share_pct": "15.00"
+          },
+          {
+            "customer_id": "C003",
+            "customer_name": "COMERCIAL DEL SUR SA",
+            "ltv_eur": "280000.00",
+            "share_pct": "11.67"
+          },
+          {
+            "customer_id": "C004",
+            "customer_name": "ALMACENES UNIDOS SA",
+            "ltv_eur": "220000.00",
+            "share_pct": "9.17"
+          },
+          {
+            "customer_id": "C011",
+            "customer_name": "KIOSCO MAYORISTA SRL",
+            "ltv_eur": "190000.00",
+            "share_pct": "7.92"
+          },
+          {
+            "customer_id": "C005",
+            "customer_name": "PINTURERIA CENTRAL SRL",
+            "ltv_eur": "180000.00",
+            "share_pct": "7.50"
+          },
+          {
+            "customer_id": "C006",
+            "customer_name": "ELECTRO HOGAR SA",
+            "ltv_eur": "150000.00",
+            "share_pct": "6.25"
+          },
+          {
+            "customer_id": "C007",
+            "customer_name": "CONSTRUMART SRL",
+            "ltv_eur": "130000.00",
+            "share_pct": "5.42"
+          },
+          {
+            "customer_id": "C012",
+            "customer_name": "REPUESTOS RAPIDOS SA",
+            "ltv_eur": "120000.00",
+            "share_pct": "5.00"
+          },
+          {
+            "customer_id": "C008",
+            "customer_name": "BAZAR INDUSTRIAL SA",
+            "ltv_eur": "110000.00",
+            "share_pct": "4.58"
+          }
+        ]
+      },
+      "churn_risk_scoring": {
+        "rows": [
+          {
+            "customer_id": "C002",
+            "deal_risk_score": "85.0",
+            "days_since_purchase": 120,
+            "ltv_eur": "360000.00"
+          },
+          {
+            "customer_id": "C005",
+            "deal_risk_score": "72.5",
+            "days_since_purchase": 95,
+            "ltv_eur": "180000.00"
+          },
+          {
+            "customer_id": "C009",
+            "deal_risk_score": "64.0",
+            "days_since_purchase": 200,
+            "ltv_eur": "95000.00"
+          },
+          {
+            "customer_id": "C011",
+            "deal_risk_score": "55.0",
+            "days_since_purchase": 110,
+            "ltv_eur": "190000.00"
+          }
+        ]
+      },
+      "rfm_segmentation": {
+        "rows": [
+          {
+            "customer_id": "C001",
+            "customer_name": "FERRETERIA EL NORTE SA",
+            "segment": "Champions",
+            "monetary_eur": "480000.00"
+          },
+          {
+            "customer_id": "C002",
+            "customer_name": "DISTRIBUIDORA ANDINA SRL",
+            "segment": "At Risk",
+            "monetary_eur": "360000.00"
+          },
+          {
+            "customer_id": "C003",
+            "customer_name": "COMERCIAL DEL SUR SA",
+            "segment": "Champions",
+            "monetary_eur": "280000.00"
+          },
+          {
+            "customer_id": "C004",
+            "customer_name": "ALMACENES UNIDOS SA",
+            "segment": "Champions",
+            "monetary_eur": "220000.00"
+          },
+          {
+            "customer_id": "C005",
+            "customer_name": "PINTURERIA CENTRAL SRL",
+            "segment": "At Risk",
+            "monetary_eur": "180000.00"
+          },
+          {
+            "customer_id": "C006",
+            "customer_name": "ELECTRO HOGAR SA",
+            "segment": "Loyal",
+            "monetary_eur": "150000.00"
+          },
+          {
+            "customer_id": "C007",
+            "customer_name": "CONSTRUMART SRL",
+            "segment": "Loyal",
+            "monetary_eur": "130000.00"
+          },
+          {
+            "customer_id": "C008",
+            "customer_name": "BAZAR INDUSTRIAL SA",
+            "segment": "Loyal",
+            "monetary_eur": "110000.00"
+          },
+          {
+            "customer_id": "C009",
+            "customer_name": "VIVERO LAS LOMAS SRL",
+            "segment": "At Risk",
+            "monetary_eur": "95000.00"
+          },
+          {
+            "customer_id": "C010",
+            "customer_name": "TALLERES DEL ESTE SA",
+            "segment": "Loyal",
+            "monetary_eur": "85000.00"
+          },
+          {
+            "customer_id": "C011",
+            "customer_name": "KIOSCO MAYORISTA SRL",
+            "segment": "Hibernating",
+            "monetary_eur": "190000.00"
+          },
+          {
+            "customer_id": "C012",
+            "customer_name": "REPUESTOS RAPIDOS SA",
+            "segment": "Hibernating",
+            "monetary_eur": "120000.00"
+          }
+        ]
+      },
+      "dormant_customers": {
+        "rows": [
+          {
+            "customer_id": "C002",
+            "days_since_purchase": 120
+          },
+          {
+            "customer_id": "C009",
+            "days_since_purchase": 200
+          },
+          {
+            "customer_id": "C011",
+            "days_since_purchase": 110
+          },
+          {
+            "customer_id": "C012",
+            "days_since_purchase": 130
+          }
+        ]
+      },
+      "cross_sell_matrix": {
+        "rows": [
+          {
+            "segment": "Champions",
+            "category": "HERRAMIENTAS",
+            "penetration_pct": "92.00",
+            "category_revenue_eur": "620000.00"
+          },
+          {
+            "segment": "Champions",
+            "category": "PINTURA",
+            "penetration_pct": "71.00",
+            "category_revenue_eur": "250000.00"
+          },
+          {
+            "segment": "Champions",
+            "category": "ELECTRICIDAD",
+            "penetration_pct": "55.00",
+            "category_revenue_eur": "110000.00"
+          },
+          {
+            "segment": "At Risk",
+            "category": "HERRAMIENTAS",
+            "penetration_pct": "64.00",
+            "category_revenue_eur": "290000.00"
+          },
+          {
+            "segment": "At Risk",
+            "category": "PINTURA",
+            "penetration_pct": "58.00",
+            "category_revenue_eur": "200000.00"
+          },
+          {
+            "segment": "At Risk",
+            "category": "JARDIN",
+            "penetration_pct": "41.00",
+            "category_revenue_eur": "145000.00"
+          },
+          {
+            "segment": "Loyal",
+            "category": "HERRAMIENTAS",
+            "penetration_pct": "49.00",
+            "category_revenue_eur": "190000.00"
+          },
+          {
+            "segment": "Loyal",
+            "category": "PINTURA",
+            "penetration_pct": "52.00",
+            "category_revenue_eur": "150000.00"
+          },
+          {
+            "segment": "Loyal",
+            "category": "ELECTRICIDAD",
+            "penetration_pct": "77.00",
+            "category_revenue_eur": "340000.00"
+          },
+          {
+            "segment": "Hibernating",
+            "category": "JARDIN",
+            "penetration_pct": "38.00",
+            "category_revenue_eur": "105000.00"
+          }
+        ]
+      },
+      "customer_retention": {
+        "rows": [
+          {
+            "retained_customers": 8,
+            "churned_customers": 4,
+            "retention_rate": "66.70"
+          }
+        ]
+      },
+      "data_freshness": {
+        "rows": [
+          {
+            "days_since_latest": "45 days, 0:00:00"
+          }
+        ]
+      }
+    },
+    "errors": {}
+  },
+  "baseline": {
+    "data_available": true,
+    "total_revenue": 2400000.0,
+    "num_invoices": 4800,
+    "avg_invoice": 500.0,
+    "min_invoice": -850.0,
+    "max_invoice": 98000.0,
+    "distinct_customers": 12,
+    "data_freshness_days": 45,
+    "date_from": "2025-01-02",
+    "date_to": "2025-03-31"
+  },
+  "findings": {
+    "analyst": {
+      "findings": [
+        {
+          "id": "FIN-001",
+          "severity": "high",
+          "desc": "Concentración: FERRETERIA EL NORTE SA representa el 20.00% de la facturación (€480,000.00) — riesgo de dependencia."
+        },
+        {
+          "id": "FIN-002",
+          "severity": "medium",
+          "desc": "Caída de revenue en febrero: €750,000.00 vs €850,000.00 de enero (-11.8% MoM)."
+        }
+      ]
+    },
+    "sentinel": {
+      "findings": [
+        {
+          "id": "DQ-001",
+          "severity": "medium",
+          "desc": "Posibles facturas duplicadas en categoría PINTURA, incluye operaciones de FERRETERIA EL NORTE SA — auditar."
+        }
+      ]
+    },
+    "hunter": {
+      "findings": [
+        {
+          "id": "HUN-001",
+          "severity": "high",
+          "desc": "DISTRIBUIDORA ANDINA SRL: deal_risk_score 85.0, 120 días sin comprar, €360,000.00 de LTV en riesgo de churn."
+        },
+        {
+          "id": "HUN-002",
+          "severity": "medium",
+          "desc": "Dormancia: VIVERO LAS LOMAS SRL (200 días) y KIOSCO MAYORISTA SRL (110 días) sin actividad."
+        }
+      ]
+    },
+    "_reconciliation": {
+      "notes": "Sin contradicciones entre agentes."
+    }
+  },
+  "memory": null,
+  "client_config": {
+    "name": "demo",
+    "display_name": "Demo Ferretera (sintética)",
+    "sector": "distribucion",
+    "currency": "EUR",
+    "language": "es",
+    "erp": "demo"
+  },
+  "narrator_timeout": 300
+}
