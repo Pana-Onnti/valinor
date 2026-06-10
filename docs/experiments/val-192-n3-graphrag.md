@@ -76,13 +76,64 @@ venv/bin/python scripts/eval.py graphrag \
     --judge --gate --csv docs/experiments/val-192-n3/demo/scores.csv
 ```
 
-## Resultados `[TK]`
+## Resultados
+
+### Demo fixture (capa 0 determinista, 2026-06-10)
 
 | Pregunta | Split | flat | flat_narrator | community | forbidden |
 |---|---|---|---|---|---|
-| `[TK]` | | | | | |
+| q1-exposicion-compuesta | train | 1.00 | 0.20 | 1.00 | 0 |
+| q2-cross-sell-gap | train | 1.00 | 0.00 | 1.00 | 0 |
+| q3-radio-explosion-churn | test | 1.00 | 0.00 | 1.00 | 0 |
+| q4-atribucion-hhi | train | 1.00 | 0.67 | 1.00 | 0 |
+| q5-convergencia-agentes | train | 1.00 | 1.00 | 1.00 | 0 |
+| q7-columna-vertebral | test | 1.00 | 0.17 | 1.00 | 0 |
+| q8-puntos-ciegos | test | 0.50 | 0.50 | 0.50 | 0 |
 
-Gate: `[TK]` · Run real (Gloria): `[TK]`
+**Lectura**: en la demo (38 nodos, TODO entra en el budget de contexto) el
+flat fuerte resuelve 1.00 — el grafo no puede ganar cuando los datos crudos
+caben enteros en el prompt, como predijo el diseño. Lo que la demo SÍ valida:
+(a) plumbing end-to-end (grafo→comunidades→PPR→answer→judge), (b) **la brecha
+flat_narrator** (0.00–0.67): lo que los narrators ven hoy falla
+estructuralmente estas preguntas — el claim de producto, medido. El gate
+discriminante corre sobre la captura real (abajo), donde las filas crudas NO
+entran en el budget.
+
+### Captura real (Gloria) — capa 0 + juez LLM (3 reps test, 2026-06-10)
+
+Grafo real: 101 nodos / 137 edges / **52 comunidades** (fragmentación alta —
+los datos reales tienen menos links cross-query que la demo).
+
+| Pregunta | Split | flat | flat_nar | community | forbidden (comm) |
+|---|---|---|---|---|---|
+| q1-exposicion-compuesta | train | 0.50 | 0.50 | 0.33 | 4 |
+| q2-cross-sell-gap | train | 0.00 | 0.00 | **0.67** | 6 |
+| q3-radio-explosion-churn | test | 0.33 | 0.17 | **0.67** | 0 |
+| q4-atribucion-hhi | train | 0.00 | 0.17 | **0.83** | 1 |
+| q5-convergencia-agentes | train | 0.00 | 0.00 | 0.00 | 2 |
+| q7-columna-vertebral | test | 0.25 | 0.25 | 0.25 | 1 |
+| q8-puntos-ciegos | test | 1.00 | 0.00 | 0.50 | 1 |
+
+**Gate: NOT PASSED** (0 wins con la vara ≥0.8 + cero forbidden; se necesitan ≥5).
+
+**Lectura honesta del primer datapoint:**
+1. **flat falla 5/7** con el juez (6/7 en capa 0) — las preguntas son
+   genuinamente globales en datos reales; el claim estructural se sostiene.
+2. **community supera a flat direccionalmente en las estructurales**
+   (q2 0→0.67, q3 0.33→0.67, q4 0→0.83) — la única que cruza 0.8 es q4.
+3. **El bloqueo del gate son los forbidden hits**: el arm community hace
+   claims sobre-granulares / no derivables que el juez castiga — el harness
+   detecta el defecto exacto a iterar (no es un fallo del juez, es la regla
+   de oro de N5 asomando: toda afirmación con cita o marcada como inferencia).
+
+**Iteración v2 (SOLO sobre train — test congelado):**
+- Consolidar comunidades (52 fragmentos → menos y más grandes: tunear
+  hub_degree_frac / merge de singletons por tipo).
+- Seeds: el matching lexical devuelve vacío seguido → indexar sinónimos de
+  labels de nodos (churn/dormancia/segmento) o sembrar por tipo de pregunta.
+- Facts con listas largas (q1: 20 clientes) → re-especificar a top-k.
+- Prompt del answerer: endurecer la instrucción de granularidad y de
+  "decí 'no derivable' en vez de inferir" (los forbidden vienen de ahí).
 
 ## Wiring a producción
 
