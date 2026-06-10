@@ -183,7 +183,9 @@ def golden_main(args) -> int:
 
 
 def _is_broken(text: str) -> bool:
-    return any(marker in text for marker in _BROKEN_MARKERS)
+    # Empty/near-empty captures are corrupt too (seen live: CLI returned "" with
+    # exit 0 on one rep) — averaging a 0-char output poisons the aggregate.
+    return len(text.strip()) < 50 or any(marker in text for marker in _BROKEN_MARKERS)
 
 
 def _score_branch_outputs(outputs: dict, dataset: dict) -> dict:
