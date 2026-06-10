@@ -86,6 +86,34 @@ def stub_sales() -> None:
     print("[setup] reporte_ventas stubbed (VAL-162)", flush=True)
 
 
+async def build_enriched_vr(state: dict):
+    """VAL-192 N2 treatment2: stage-1 VR + generic registry enrichment +
+    LLM rerank of UNVERIFIABLE claims (one batched call, deterministic confirm)."""
+    from valinor.knowledge_graph import build_knowledge_graph
+    from valinor.verification import VerificationEngine
+    from valinor.verification_rerank import enrich_registry, rerank_unverifiable
+
+    kg = build_knowledge_graph(state["entity_map"])
+    eng = VerificationEngine(state["query_results"], state["baseline"], kg)
+    report = eng.verify_findings(state["findings"])
+    claims = {}
+    for agent_name, agent_data in state["findings"].items():
+        if agent_name.startswith("_") or not isinstance(agent_data, dict):
+            continue
+        for f in eng._parse_agent_findings(agent_data):
+            for c in (eng._decompose_finding(f, agent_name)
+                      + eng._detect_temporal_claims(f, agent_name)
+                      + eng._detect_negative_claims(f, agent_name)):
+                claims[c.claim_id] = c
+    added = enrich_registry(report, state["query_results"])
+    out = await rerank_unverifiable(report, state["query_results"], claims)
+    print(f"[N2] registry +{added} → {len(report.number_registry)} | "
+          f"rerank upgraded={len(out.upgraded)} rejected={len(out.rejected)} "
+          f"disputed={len(out.disputed)} | verified={report.verified_claims}/"
+          f"{report.total_claims}", flush=True)
+    return report
+
+
 async def run(args) -> int:
     from capture_narrator_ab import capture_ab  # noqa: E402  (after bootstrap)
 
@@ -96,11 +124,17 @@ async def run(args) -> int:
     if not args.keep_sales:
         stub_sales()
 
+    build_vr_fn = None
+    if args.enriched:
+        vr2 = await build_enriched_vr(state)   # once; reps reuse it (deterministic input)
+        build_vr_fn = lambda _s: vr2  # noqa: E731
+
     out_root = Path(args.out_dir)
     for rep in range(1, args.reps + 1):
         t0 = time.time()
         print(f"[rep {rep}/{args.reps}] running control + treatment…", flush=True)
-        control, treatment, dataset = await capture_ab(state, only=only)
+        kwargs = {"build_vr_fn": build_vr_fn} if build_vr_fn else {}
+        control, treatment, dataset = await capture_ab(state, only=only, **kwargs)
 
         rep_dir = out_root / f"rep{rep}"
         rep_dir.mkdir(parents=True, exist_ok=True)
@@ -133,6 +167,8 @@ def main(argv=None) -> int:
                     help="run the real sales narrator instead of the VAL-162 stub")
     ap.add_argument("--cli-path", default=None,
                     help="claude CLI binary (needs ≥2.x for the output-token override)")
+    ap.add_argument("--enriched", action="store_true",
+                    help="VAL-192 N2: treatment uses the enriched+reranked VR (treatment2)")
     args = ap.parse_args(argv)
 
     bootstrap(args.model, args.cli_path)
