@@ -210,14 +210,51 @@ sería teach-to-the-test).
 3. Las preguntas seen están saturadas (0.83–1.00) — el cuello ya no es
    iteración de prompts sino **capacidades del grafo**.
 
-### v4 (próxima sesión — features ANTES de un test nuevo)
+### v4 — re-freeze #2 ejecutado (2026-06-11)
 
-1. Agregados de cobertura/membresía deterministas: attr `rank_by_ltv` en
-   customers, nodo `metric:cobertura_scoring` (n/% sin score + top-3, espejo
-   de exposicion_riesgo), listas explícitas top-N en el header de agregados.
-2. q10/q13 quedan QUEMADAS como test (vistas) → pasan a train para iterar
-   esas features; el gate v4 exige otro par de candidatas frescas + re-freeze.
-3. q3 (train) sigue a 1 forbidden — revisar con sus forbidden_quotes.
+Protocolo: q10/q13 → train; features genéricas construidas e iteradas contra
+train (`rank_by_ltv`, `metric:cobertura_scoring` espejo de exposicion_riesgo,
+header TOP-10 POR LTV con flags riesgo/score, aliases de cobertura) — q10 y
+q13 pasaron de 0.50/0.00 a **6/6 con forbidden 0 en UNA ronda**. Test virgen
+nuevo (q14 dormancia×segmento, q15 top10∩sin-score, q16 concentración del
+riesgo por score), referencias verificadas adversarialmente (MATCH, cero
+mismatches). Código congelado → una pasada, mediana 3 reps.
+
+**Veredicto v4: NOT PASSED — 7 wins totales (≥5 ✓) pero 1/2 test (✗).**
+
+| Pregunta | Split | flat | community | forb | Win |
+|---|---|---|---|---|---|
+| q1/q2/q3/q4/q5/q13 | train | 0.00–0.33 | **0.83–1.00** | 0 | ✅ ×6 |
+| q10 | train | 0.50 | 1.00 | 0 | borde (flat 0.50) |
+| q7 | train | 0.50 | **0.25** | 0 | ✗ regresión (1.00 en v3) |
+| q9 (vista en v3; mal etiquetada test en este run, no sumó win) | train | 0.00 | 0.67 | 2 | ✗ regresión (1.00 en v3) |
+| **q15-top10-sin-score** | **test** | 0.00 | **1.00** | 0 | ✅ **win virgen** |
+| q14-dormancia-por-segmento | test | 0.00 | 0.67 | 1 | ✗ |
+| q16-concentracion-del-riesgo | test | 0.00 | 0.67 | 2 | ✗ |
+
+**Lecciones (las tres importan):**
+1. **El patrón se confirma por tercera vez**: las preguntas cuyo agregado
+   determinista está pre-servido dan 1.00 (q15 virgen ✅ — las features
+   nuevas generalizaron a una combinación no vista); las que exigen un
+   group-by NO servido dan ~0.67 con forbidden (q14: dormancia×segmento;
+   q16: ranking por score). **El techo de capacidad ES la biblioteca de
+   agregados** — coherente con el diseño "el LLM narra, nunca calcula".
+2. **Varianza answer-side sin medir**: q7 (1.00→0.25) y q9 (1.00→0.67)
+   regresionaron al re-samplear sus respuestas bajo la evidencia v4 (header
+   nuevo desplaza contexto + n=1 por respuesta). El juez tiene mediana de 3;
+   la RESPUESTA no. Gap de instrumento para v5.
+3. Progresión de wins por ronda: v1 0 → v2 3 → v3 4 → v4 7 (test virgen:
+   0 → — → 1/3 → 1/3).
+
+### v5 (definido, NO ejecutado)
+
+1. **Group-by genérico**: servir en fact sheets/header los agregados
+   segmento × {AT_RISK, DORMANT, UNSCORED} × (suma LTV, n, top-3) de forma
+   SISTEMÁTICA (no por pregunta) — cubre la clase q9/q14/q16 entera, no el
+   síntoma. Ídem ranking por cualquier attr numérico (score) además de LTV.
+2. **Respuestas con mediana**: samplear cada respuesta 3× y juzgar la
+   mediana (o las tres) — eliminar el n=1 answer-side.
+3. q14/q15/q16 se queman a train; par fresco + re-freeze #3 para el gate.
 
 ## Wiring a producción
 

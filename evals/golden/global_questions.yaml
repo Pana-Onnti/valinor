@@ -136,7 +136,10 @@ questions:
   # ── v3: test split NUEVO (re-freeze) — diseñadas desde el catálogo de
   # queries, sin mirar respuestas de ningún arm. Código congelado en v2.2.
   - id: q9-riesgo-por-segmento
-    split: test
+    # v4 bookkeeping: vista en el run congelado v3 → train. (En el run v4
+    # quedó mal etiquetada como test; no sumó win así que el veredicto v4 no
+    # cambia, pero la etiqueta correcta es esta.)
+    split: train
     question: >
       ¿Qué segmento RFM concentra el mayor LTV en riesgo de churn (clientes
       con deal_risk_score>0)? ¿Cuánto LTV en riesgo acumula ese segmento y
