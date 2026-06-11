@@ -126,14 +126,55 @@ los datos reales tienen menos links cross-query que la demo).
    detecta el defecto exacto a iterar (no es un fallo del juez, es la regla
    de oro de N5 asomando: toda afirmación con cita o marcada como inferencia).
 
-**Iteración v2 (SOLO sobre train — test congelado):**
-- Consolidar comunidades (52 fragmentos → menos y más grandes: tunear
-  hub_degree_frac / merge de singletons por tipo).
-- Seeds: el matching lexical devuelve vacío seguido → indexar sinónimos de
-  labels de nodos (churn/dormancia/segmento) o sembrar por tipo de pregunta.
-- Facts con listas largas (q1: 20 clientes) → re-especificar a top-k.
-- Prompt del answerer: endurecer la instrucción de granularidad y de
-  "decí 'no derivable' en vez de inferir" (los forbidden vienen de ahí).
+### Iteración v2 (2026-06-10, SOLO train — ejecutada con swarm de agentes cheap)
+
+Diagnóstico (2 agentes) → fixes medidos → train gate **PASSED** (4/4 community
+≥0.83, forbidden 0, 3 wins estrictas):
+1. **Consolidación**: hub-detach exime segment/category (detachar
+   `segment:at_risk` huérfanaba el grafo) + absorción de singletons → 52→6
+   comunidades de contenido. Resúmenes 639s→~55s (skip singletons).
+2. **Agregados deterministas**: nodos segmento (ΣLTV, share, n) +
+   `metric:exposicion_riesgo` (unión dedup churn∪dormancia) +
+   `missing_categories_top5` por segmento — y un header "Agregados clave"
+   auto-descriptivo en la evidencia (el dict crudo no lo usaba el modelo).
+3. **El grafo encontró un bug en la REFERENCIA**: rfm/churn traen
+   `recency_days` que el builder no leía — KONG DE (champion, €582K,
+   recency>90) era dormancia real que la referencia perdía. Tras el fix ambas
+   implementaciones independientes convergen al centavo (€2.653.209,27 /
+   54,41%). Ídem share de champions: 45,3% (el grafo sumaba shares parciales
+   del top-10 — inconsistencia interna detectada por el juez).
+4. **Juez auditable**: forbidden = solo frases citables (atribución
+   cliente→categoría o contradicción de referencia); ausencia-de-la-referencia
+   NO es forbidden. `forbidden_quotes` persistidas. Mediana de 3 reps en ambos
+   splits (a 1 rep el forbidden oscila ±1, medido).
+5. **Facts top-k**: listas de 20 elementos son inevaluables en 250 palabras →
+   top-5 por valor (q1 clientes, q2 categorías).
+
+### Veredicto FINAL — test congelado (3-rep mediana, código frozen)
+
+| Pregunta | Split | flat | flat_nar | community | forb | Win |
+|---|---|---|---|---|---|---|
+| q1-exposicion-compuesta | train | 0.50 | 0.50 | **1.00** | 0 | borde (flat 0.50) |
+| q2-cross-sell-gap | train | 0.00 | 0.00 | **1.00** | 0 | ✅ |
+| q3-radio-explosion-churn | test | 0.33 | 0.50 | **0.83** | 1 | ✗ (1 forbidden) |
+| q4-atribucion-hhi | train | 0.00 | 0.33 | **1.00** | 0 | ✅ |
+| q5-convergencia-agentes | train | 0.25 | 0.50 | **1.00** | 0 | ✅ |
+| q7-columna-vertebral | test | 0.25 | 0.25 | 0.25 | 0 | ✗ (spec 10-labels sin re-spec) |
+| q8-puntos-ciegos | test | 0.75 | 0.50 | **1.00** | 0 | ✗ (flat no falla acá) |
+
+**Gate (≥5 wins): NOT PASSED — 3 wins.** Community domina en calidad absoluta
+(≥0.83 en 6/7, forbidden ≈0 — v1 era 0.00–0.83 con forbidden 1–6), pero el
+hito exige wins ESTRUCTURALES (flat <0.5 ∧ community ≥0.8) y en este state
+q8 no es estructuralmente global (flat 0.75: con puntos ciegos vacíos en
+Gloria, "no hay" es fácil para flat) y q7 arrastra el defecto de spec de
+listas largas que NO se re-especificó en test (disciplina de freeze).
+
+### v3 (protocolo documentado, NO ejecutado — sería tunear sobre test)
+
+Regla de reemplazo del diseño original: q8 queda declarada "no global en este
+state" y q7 necesita el mismo top-k re-spec que q1/q2 — ambas correcciones
+requieren **nuevas candidatas + re-freeze del test** antes de re-medir. El
+pool de candidatas se amplía y el gate se re-corre sobre un test virgen.
 
 ## Wiring a producción
 
