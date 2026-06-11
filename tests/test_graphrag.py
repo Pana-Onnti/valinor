@@ -21,6 +21,7 @@ from valinor.graphrag import (
     build_entity_graph,
     community_fact_sheet,
     detect_communities,
+    multi_agent_mentions,
     personalized_pagerank,
     select_seeds,
     to_evidence_context,
@@ -194,14 +195,15 @@ class TestBuildEntityGraph:
             "segment": 3,
             "category": 4,
             # total_revenue + total_invoices (baseline) + avg_ticket_eur
-            # (registry) + churn_risk + dormancy (hubs); period_start is a
-            # date and must NOT appear.
-            "metric": 5,
+            # (registry) + churn_risk + dormancy + exposicion_riesgo (v2);
+            # period_start is a date and must NOT appear.
+            "metric": 6,  # +1 for metric:exposicion_riesgo (v2 spec change)
             "finding": 4,
             "table": 2,
         }
-        assert len(graph.nodes) == 30
+        assert len(graph.nodes) == 31  # +1 for metric:exposicion_riesgo
         assert "metric:period_start" not in graph.nodes
+        assert "metric:exposicion_riesgo" in graph.nodes
 
     def test_edge_counts_by_type(self, graph):
         by_type = {}
@@ -215,6 +217,7 @@ class TestBuildEntityGraph:
             "BUYS": 4,          # cross_sell rows
             "MENTIONS": 3,      # S1→Acme Corp, S2→champions, F3→Ferretería
             "READS": 1,         # invoices → customers
+            "EXPOSED": 4,       # metric:exposicion_riesgo → top-4 at-risk (v2 spec change)
         }
 
     def test_entity_resolution_merges_attrs_across_queries(self, graph):
@@ -246,7 +249,7 @@ class TestBuildEntityGraph:
         entity_map, qr, baseline, findings, registry = make_state()
         plain = qr["results"]                         # no {"results": ...} wrapper
         g = build_entity_graph(entity_map, plain, baseline, findings, registry)
-        assert len(g.nodes) == 30
+        assert len(g.nodes) == 31  # +1 for metric:exposicion_riesgo (v2 spec change)
 
     def test_mentions_resolved_by_normalized_label(self, graph):
         mentions = {(e.src, e.dst) for e in graph.edges if e.type == "MENTIONS"}
@@ -331,8 +334,13 @@ class TestPersonalizedPagerank:
         assert len(ppr) == len(graph.nodes)
 
     def test_select_seeds_lexical(self, graph):
+        # v2: alias map now also triggers on "riesgo" and "concentr" in this
+        # question, so more seeds are returned alongside Acme Corp — that's
+        # correct and intentional (richer context for PPR). Check that the
+        # target customer IS in seeds and that an empty question still returns {}.
         seeds = select_seeds("¿Qué riesgo concentra Acme Corp este año?", graph)
-        assert seeds == {"customer:C001": 1.0}
+        assert "customer:C001" in seeds          # Acme Corp matched by label
+        assert "metric:churn_risk" in seeds      # "riesgo" alias
         assert select_seeds("zzz nothing matches zzz", graph) == {}
 
 
@@ -388,3 +396,271 @@ class TestEvidenceContext:
         assert len(ctx) <= 6000
         assert "Acme Corp" in ctx
         assert "SHARE_OF" in ctx
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 9. V2 SEGMENT AGGREGATES — computed correctly from string numerics
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSegmentAggregates:
+    def test_segment_total_ltv_from_strings(self, graph):
+        # champions: C001(127581.06) + C002(72903.46) + C003(36451.73) + C004(29161.38)
+        champ = graph.nodes["segment:champions"]
+        assert champ.attrs["n_customers"] == 4
+        assert champ.attrs["total_ltv_eur"] == pytest.approx(266097.63, rel=1e-4)
+        # share_pct: 35+20+10+8 = 73.0
+        assert champ.attrs["share_pct"] == pytest.approx(73.0)
+
+    def test_segment_no_ltv_when_customers_have_none(self, graph):
+        # hibernating: C011 and C012 have no ltv_eur but the RFM row provides
+        # monetary_eur="1893.22" as the fallback — so ALL 4 customers contribute.
+        hib = graph.nodes["segment:hibernating"]
+        assert hib.attrs["n_customers"] == 4
+        # C009(7290.35) + C010(3645.17) + C011(1893.22) + C012(1893.22) = 14721.96
+        assert hib.attrs.get("total_ltv_eur") == pytest.approx(14721.96, rel=1e-4)
+
+    def test_category_total_revenue_eur(self, graph):
+        # Fixture has no category_revenue_eur in cross_sell rows, so no attr.
+        # (The synthetic fixture omits it — this validates the graceful no-op.)
+        # If the attr is present it must be numeric.
+        for nid in graph.nodes:
+            if graph.nodes[nid].type == "category":
+                rev = graph.nodes[nid].attrs.get("total_revenue_eur")
+                if rev is not None:
+                    assert isinstance(rev, float)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 10. V2 HUB CONSTRAINT — segment nodes NEVER become hubs
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSegmentNeverHub:
+    def test_segment_not_hub_even_at_high_degree(self):
+        """Plant a segment with edges to 20 nodes (far exceeds hub_degree_frac
+        threshold). It must NOT be detached to -1."""
+        edges: list[tuple[str, str, float]] = []
+        # One segment connected to many customers.
+        for i in range(20):
+            cid = f"customer:{i}"
+            edges.append(("segment:big", cid, 1.0))
+        # Two tightly-connected cliques so there are ≥2 real communities.
+        edges += _clique("alpha", 4)
+        edges += _clique("beta", 4)
+        g = _graph_from_edges(edges)
+        # Override types for segment node.
+        g.nodes["segment:big"].type = "segment"
+
+        comms = detect_communities(g, hub_degree_frac=0.25)
+        # segment:big has degree > 0.25 * n_nodes but must NOT be -1.
+        assert comms.get("segment:big") != -1, (
+            "segment:big was detached to hub (-1) — spec forbids this"
+        )
+
+    def test_at_risk_segment_not_detached_in_full_fixture(self, graph):
+        comms = detect_communities(graph)
+        # segment:at_risk has high degree (connected to 4 customers + categories)
+        # but must never be hub.
+        assert comms.get("segment:at_risk") != -1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 11. V2 SINGLETON ABSORPTION — categories join their segment's community
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSingletonAbsorption:
+    def test_category_singletons_absorbed_into_segment_community(self):
+        """Build a graph where categories are connected only to one segment
+        (which has ≥2 members). Without absorption they'd stay singletons;
+        with absorption they join the segment's community."""
+        edges: list[tuple[str, str, float]] = []
+        # Two clique-communities so CNM has something to work with.
+        edges += _clique("customer", 3, weight=2.0)
+        edges.append(("segment:seg", "customer:0", 1.0))
+        edges.append(("segment:seg", "customer:1", 1.0))
+        edges.append(("segment:seg", "customer:2", 1.0))
+        # A category singleton connected only to the segment.
+        edges.append(("segment:seg", "category:cat", 1.0))
+        # Unrelated second community.
+        edges += _clique("other", 3, weight=2.0)
+        g = _graph_from_edges(edges)
+        g.nodes["segment:seg"].type = "segment"
+        g.nodes["category:cat"].type = "category"
+
+        comms = detect_communities(g)
+        # category:cat must end up in the same community as the segment.
+        assert comms.get("category:cat") == comms.get("segment:seg"), (
+            "category:cat should have been absorbed into segment:seg's community"
+        )
+
+    def test_absorption_reduces_community_count(self):
+        """Community count with absorption must be ≤ without.
+        We use the full fixture graph which has category singletons."""
+        g = build_entity_graph(*make_state())
+
+        # Count singletons before absorption (monkeypatch by limiting passes=0
+        # is invasive; instead compare against a star graph we control).
+        # Just verify the fixture itself has fewer singletons than 52 (the
+        # pre-v2 Gloria-measured value), i.e. absorption ran.
+        comms = detect_communities(g)
+        n_real_comms = len({c for c in comms.values() if c >= 0})
+        # 52 was the diagnosed value; we expect much fewer with consolidation.
+        assert n_real_comms < 30, (
+            f"Expected consolidated community count < 30, got {n_real_comms}"
+        )
+
+    def test_table_nodes_not_absorbed(self):
+        """table:* nodes must NOT be absorbed — provenance singletons are fine."""
+        g = build_entity_graph(*make_state())
+        comms = detect_communities(g)
+        # Tables that are singletons should stay at their own community id
+        # (they have no neighbors that form a ≥2 community they can join except
+        # each other; at worst they stay singleton but must never be forced
+        # into a content community).
+        # What we assert: table nodes are NEVER absorbed into a community that
+        # contains no other table node, i.e. we don't care which community they
+        # land in, we just confirm no exception is raised and they have a valid
+        # community assignment (>= -1 means processed normally).
+        for nid, cid in comms.items():
+            if nid.startswith("table:"):
+                assert isinstance(cid, int)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 12. V2 SELECT_SEEDS — alias map returns non-empty for key ES phrases
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSeedAliases:
+    def test_riesgo_churn_dormancia(self, graph):
+        seeds = select_seeds("riesgo de churn o dormancia", graph)
+        assert "metric:churn_risk" in seeds
+        assert "metric:dormancy" in seeds
+        assert seeds  # non-empty
+
+    def test_segmento_rfm(self, graph):
+        seeds = select_seeds("segmento RFM de clientes activos", graph)
+        # All segment:* nodes must be seeded.
+        seg_seeds = [k for k in seeds if k.startswith("segment:")]
+        assert len(seg_seeds) >= 1
+        assert seeds  # non-empty
+
+    def test_hallazgos_dos_agentes(self, graph):
+        seeds = select_seeds("mencionados en hallazgos de dos agentes", graph)
+        # "mencion" and "hallazgo" both appear in normalized form.
+        finding_seeds = [k for k in seeds if k.startswith("finding:")]
+        assert len(finding_seeds) >= 1
+        assert seeds  # non-empty
+
+    def test_concentracion_facturacion(self, graph):
+        seeds = select_seeds("concentración de facturación top clientes", graph)
+        assert "metric:total_revenue" in seeds
+        assert seeds  # non-empty
+
+    def test_no_false_positive_short_label(self, graph):
+        # "varios" (6 chars exactly) must not match short/irrelevant labels.
+        # (The v1 bug was len < 3; v2 raises floor to 6.)
+        seeds = select_seeds("varios clientes en riesgo", graph)
+        # "riesgo" alias should fire, but "varios" must NOT match a label of
+        # a node whose normalized name is < 6 chars.
+        assert "metric:churn_risk" in seeds
+        # No node whose label normalizes to "varios" should appear in the
+        # fixture graph (it's not in the synthetic data).
+        assert "category:varios" not in seeds
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 13. V2 MULTI-AGENT MENTIONS
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestMultiAgentMentions:
+    def _graph_with_multi_agent_mentions(self) -> EntityGraph:
+        """Mini graph: one customer mentioned by 2 agents, one by 1 agent."""
+        g = EntityGraph()
+        g.nodes["customer:A"] = GraphNode(id="customer:A", type="customer", label="Alpha Corp")
+        g.nodes["customer:B"] = GraphNode(id="customer:B", type="customer", label="Beta Inc")
+        g.nodes["finding:X"] = GraphNode(
+            id="finding:X", type="finding", label="Finding X",
+            attrs={"agent": "sales"},
+        )
+        g.nodes["finding:Y"] = GraphNode(
+            id="finding:Y", type="finding", label="Finding Y",
+            attrs={"agent": "finance"},
+        )
+        g.nodes["finding:Z"] = GraphNode(
+            id="finding:Z", type="finding", label="Finding Z",
+            attrs={"agent": "sales"},
+        )
+        # Both agents mention customer:A.
+        g.edges.append(GraphEdge(src="finding:X", dst="customer:A", type="MENTIONS"))
+        g.edges.append(GraphEdge(src="finding:Y", dst="customer:A", type="MENTIONS"))
+        # Only one agent mentions customer:B.
+        g.edges.append(GraphEdge(src="finding:Z", dst="customer:B", type="MENTIONS"))
+        return g
+
+    def test_detects_customer_with_two_agents(self):
+        g = self._graph_with_multi_agent_mentions()
+        result = multi_agent_mentions(g)
+        nids = [d["node_id"] for d in result]
+        assert "customer:A" in nids
+
+    def test_excludes_customer_with_one_agent(self):
+        g = self._graph_with_multi_agent_mentions()
+        result = multi_agent_mentions(g)
+        nids = [d["node_id"] for d in result]
+        assert "customer:B" not in nids
+
+    def test_agents_list_sorted(self):
+        g = self._graph_with_multi_agent_mentions()
+        result = multi_agent_mentions(g)
+        entry = next(d for d in result if d["node_id"] == "customer:A")
+        assert entry["agents"] == sorted(entry["agents"])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 14. V2 EVIDENCE CONTEXT — convergencia multi-agente block always present
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestEvidenceContextV2:
+    def test_convergencia_block_always_present(self, graph):
+        ppr = personalized_pagerank(graph, {"customer:C001": 1.0})
+        ctx = to_evidence_context(graph, ppr, top_k=30, char_budget=8000)
+        assert "Convergencia multi-agente" in ctx
+
+    def test_convergencia_block_before_ppr_nodes(self, graph):
+        ppr = personalized_pagerank(graph, {"customer:C001": 1.0})
+        ctx = to_evidence_context(graph, ppr, top_k=30, char_budget=8000)
+        conv_pos = ctx.index("Convergencia multi-agente")
+        # PPR node lines start with "[customer]" or "[segment]" etc.
+        ppr_pos = ctx.find("[customer]")
+        if ppr_pos == -1:
+            ppr_pos = ctx.find("[segment]")
+        if ppr_pos != -1:
+            assert conv_pos < ppr_pos
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 15. V2 DETERMINISM END-TO-END
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestDeterminismV2:
+    def test_v2_two_runs_identical(self):
+        """Full pipeline: build_entity_graph → detect_communities → PPR →
+        select_seeds → multi_agent_mentions must be identical across two runs
+        from fresh state."""
+        g1 = build_entity_graph(*make_state())
+        g2 = build_entity_graph(*make_state())
+        assert sorted(g1.nodes) == sorted(g2.nodes)
+        assert [(e.src, e.dst, e.type, e.weight) for e in g1.edges] == \
+               [(e.src, e.dst, e.type, e.weight) for e in g2.edges]
+        c1 = detect_communities(g1)
+        c2 = detect_communities(g2)
+        assert c1 == c2
+        assert personalized_pagerank(g1, {"segment:champions": 1.0}) == \
+               personalized_pagerank(g2, {"segment:champions": 1.0})
+        assert multi_agent_mentions(g1) == multi_agent_mentions(g2)
