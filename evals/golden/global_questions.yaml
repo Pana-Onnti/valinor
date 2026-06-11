@@ -54,7 +54,8 @@ questions:
     why_flat_fails: "requiere agregar ltv por segmento (rfm) Y diferenciar el set de categorías compradas (cross_sell) — join + complemento de conjunto"
 
   - id: q3-radio-explosion-churn
-    split: test
+    # v3: vista en el run congelado v2 → pasa a train (no puede volver a gatear).
+    split: train
     question: >
       Si los 3 clientes con mayor deal-risk se van, ¿cuántos EUR de facturación
       anual se golpean, qué % del total representa y qué segmentos toca?
@@ -102,7 +103,9 @@ questions:
     required_facts: []
 
   - id: q7-columna-vertebral
-    split: test
+    # v3: vista en el run congelado v2 → train; y recibe el mismo re-spec top-k
+    # que q1/q2 (10 labels eran inevaluables en 250 palabras).
+    split: train
     question: >
       ¿Cuál es el subconjunto mínimo de clientes que sostiene el 80% de la
       facturación, y qué fragilidad tiene (riesgo de churn / dormancia dentro
@@ -110,11 +113,17 @@ questions:
     seed_entities: ["pareto", "facturación", "riesgo"]
     required_facts:
       - {fact: "tamaño del subconjunto Pareto-80", expected: "{REF:q7.pareto_n}", tolerance_pct: 0.0}
-      - {fact: "clientes frágiles dentro del grupo", expected: "{REF:q7.fragile_members}", kind: labels}
+      - {fact: "top-5 clientes frágiles del grupo (por LTV)", expected: "{REF:q7.fragile_members_top5}", kind: labels}
     why_flat_fails: "Pareto acumulado sobre TODOS los clientes (no solo top-10 de un query) + flags de riesgo de otro result set"
 
   - id: q8-puntos-ciegos
     split: test
+    status: replaced
+    replaced_reason: >
+      Regla de reemplazo (v3): en el state de referencia los puntos ciegos son
+      vacíos y "no hay" le sale fácil al flat (0.75 medido en el run congelado
+      v2) — no es estructuralmente global EN ESTE STATE. Se revive cuando el
+      state de referencia tenga blind spots reales (la demo sí los tiene).
     question: >
       ¿Hay segmentos o grupos de clientes con share de facturación relevante
       (>10%) sobre los que NINGÚN agente reportó hallazgos? ¿Cuáles?
@@ -123,3 +132,47 @@ questions:
       - {fact: "grupos sin cobertura de hallazgos", expected: "{REF:q8.blind_segments}", kind: labels}
       - {fact: "share de los puntos ciegos", expected: "{REF:q8.blind_share_pct}", tolerance_pct: 2.0}
     why_flat_fails: "auto-auditoría del swarm: requiere el complemento del set de menciones (grafo) contra el universo de segmentos con revenue — por construcción solo el grafo lo ve"
+
+  # ── v3: test split NUEVO (re-freeze) — diseñadas desde el catálogo de
+  # queries, sin mirar respuestas de ningún arm. Código congelado en v2.2.
+  - id: q9-riesgo-por-segmento
+    split: test
+    question: >
+      ¿Qué segmento RFM concentra el mayor LTV en riesgo de churn (clientes
+      con deal_risk_score>0)? ¿Cuánto LTV en riesgo acumula ese segmento y
+      cuántos clientes son?
+    seed_entities: ["segmento", "churn", "riesgo"]
+    required_facts:
+      - {fact: "segmento con mayor LTV en riesgo", expected: "{REF:q9.risk_top_segment}", kind: labels}
+      - {fact: "LTV en riesgo del segmento líder", expected: "{REF:q9.risk_top_segment_ltv_eur}", tolerance_pct: 1.0}
+      - {fact: "clientes en riesgo del segmento líder", expected: "{REF:q9.risk_top_segment_n}", tolerance_pct: 0.0}
+    why_flat_fails: "join churn_risk_scoring × rfm_segmentation por customer_id + group-by segmento + suma — ningún query lo trae y las filas crudas no entran juntas en el budget"
+
+  - id: q10-doble-exposicion
+    split: test
+    question: >
+      Del top-10 de clientes por facturación, ¿cuáles están ADEMÁS en riesgo
+      de churn (deal_risk_score>0), y qué share de la facturación total suman
+      esos clientes doblemente expuestos?
+    seed_entities: ["concentración", "churn", "riesgo"]
+    required_facts:
+      - {fact: "clientes doblemente expuestos", expected: "{REF:q10.double_exposed}", kind: labels}
+      - {fact: "share de los doblemente expuestos", expected: "{REF:q10.double_exposed_share_pct}", tolerance_pct: 2.0}
+      - {fact: "cantidad de doblemente expuestos", expected: "{REF:q10.double_exposed_n}", tolerance_pct: 0.0}
+    must_not_include:
+      # Trampa: usar el share de TODOS los clientes en riesgo, no la intersección con el top-10.
+      - "{REF:q10.all_risky_share_pct}"
+    why_flat_fails: "intersección concentration_top_customers ∩ churn_risk_scoring por customer_id — dos result sets que ningún query cruza"
+
+  - id: q13-cobertura-scoring
+    split: test
+    question: >
+      ¿Qué parte de la cartera conocida NO está cubierta por el scoring de
+      churn? Cuantificá: cuántos clientes con LTV conocido no tienen
+      deal_risk_score y cuánto LTV suman (nombrá los 3 mayores).
+    seed_entities: ["churn", "cobertura", "cartera"]
+    required_facts:
+      - {fact: "clientes sin score", expected: "{REF:q13.unscored_n}", tolerance_pct: 0.0}
+      - {fact: "LTV sin cobertura de scoring", expected: "{REF:q13.unscored_ltv_eur}", tolerance_pct: 1.0}
+      - {fact: "top-3 sin score por LTV", expected: "{REF:q13.unscored_top3}", kind: labels}
+    why_flat_fails: "complemento entre result sets (clientes con LTV en rfm/concentration que NO aparecen en churn_risk_scoring) — razonamiento por ausencia cruzando queries"

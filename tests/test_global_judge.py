@@ -46,8 +46,11 @@ class TestLayer0:
             "DISTRIBUIDORA ANDINA SRL y VIVERO LAS LOMAS SRL en riesgo.")
     BAD = "La exposición ronda el 12% (€300.000) y afecta a clientes varios."
     TRAP = ("Sumando churn (€1.050.000) y dormancia (€720.000) la exposición "
-            "es €1.770.000 — el 39.38% (€945.000) según deduplicación: "
-            "DISTRIBUIDORA ANDINA SRL, VIVERO LAS LOMAS SRL.")
+            "total es €1.770.000 en DISTRIBUIDORA ANDINA SRL y VIVERO LAS "
+            "LOMAS SRL.")
+    TRAP_WITH_CORRECT = ("La exposición deduplicada es €945.000 (39.38%) — "
+                         "nota: la suma naive sin dedup daría €1.770.000 — "
+                         "DISTRIBUIDORA ANDINA SRL, VIVERO LAS LOMAS SRL.")
 
     def test_good_answer_scores_full(self):
         res = judge_layer0(self.GOOD, QUESTION, REFS)
@@ -59,9 +62,16 @@ class TestLayer0:
         res = judge_layer0(self.BAD, QUESTION, REFS)
         assert res.score == pytest.approx(0.0)
 
-    def test_forbidden_trap_detected(self):
+    def test_forbidden_trap_is_substitution(self):
+        # Trap number INSTEAD of the right one → hit.
         res = judge_layer0(self.TRAP, QUESTION, REFS)
         assert res.forbidden_hits == 1
+
+    def test_trap_with_correct_facts_is_context_not_hit(self):
+        # v3 rule: co-occurrence next to the correct facts is legitimate
+        # context, not a substitution error.
+        res = judge_layer0(self.TRAP_WITH_CORRECT, QUESTION, REFS)
+        assert res.forbidden_hits == 0
 
     def test_partial_labels(self):
         res = judge_layer0(

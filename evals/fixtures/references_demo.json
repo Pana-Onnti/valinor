@@ -61,6 +61,37 @@
       "DISTRIBUIDORA ANDINA SRL",
       "KIOSCO MAYORISTA SRL",
       "PINTURERIA CENTRAL SRL"
+    ],
+    "fragile_members_top5": [
+      "DISTRIBUIDORA ANDINA SRL",
+      "KIOSCO MAYORISTA SRL",
+      "PINTURERIA CENTRAL SRL"
+    ]
+  },
+  "q9": {
+    "risk_top_segment": [
+      "At Risk"
+    ],
+    "risk_top_segment_ltv_eur": 635000.0,
+    "risk_top_segment_n": 3
+  },
+  "q10": {
+    "double_exposed": [
+      "DISTRIBUIDORA ANDINA SRL",
+      "KIOSCO MAYORISTA SRL",
+      "PINTURERIA CENTRAL SRL"
+    ],
+    "double_exposed_share_pct": 30.42,
+    "double_exposed_n": 3,
+    "all_risky_share_pct": 34.38
+  },
+  "q13": {
+    "unscored_n": 8,
+    "unscored_ltv_eur": 1575000.0,
+    "unscored_top3": [
+      "ALMACENES UNIDOS SA",
+      "COMERCIAL DEL SUR SA",
+      "FERRETERIA EL NORTE SA"
     ]
   },
   "q8": {

@@ -262,11 +262,62 @@ def compute_references(state: dict) -> tuple[dict, list[str]]:
             if acc >= 0.80 * total:
                 break
         members = ranked[:n]
-        fragile = [c["name"] for c in members
+        fragile = [c for c in members
                    if (c["risk"] or 0) > 0 or (c["days_since"] or 0) > 90]
-        refs["q7"] = {"pareto_n": n, "fragile_members": sorted(filter(None, fragile))}
+        fragile_names = sorted(filter(None, (c["name"] for c in fragile)))
+        top5 = sorted(fragile, key=lambda c: -c["ltv"])[:5]
+        refs["q7"] = {
+            "pareto_n": n,
+            "fragile_members": fragile_names,
+            # v3 re-spec (q7 ya es train): 10 labels eran inevaluables — top-5.
+            "fragile_members_top5": sorted(filter(None, (c["name"] for c in top5))),
+        }
     else:
         not_computable.append("q7")
+
+    # ── v3 test split (re-freeze): q9 / q10 / q13 ───────────────────────────
+
+    # q9 — segmento con mayor LTV en riesgo (join churn × rfm + group-by)
+    risk_by_seg: dict[str, list] = {}
+    for c in with_ltv.values():
+        if (c["risk"] or 0) > 0 and c["segment"]:
+            risk_by_seg.setdefault(c["segment"], []).append(c)
+    if risk_by_seg:
+        top_seg = max(risk_by_seg, key=lambda s: sum(c["ltv"] for c in risk_by_seg[s]))
+        refs["q9"] = {
+            "risk_top_segment": [top_seg],
+            "risk_top_segment_ltv_eur": round(sum(c["ltv"] for c in risk_by_seg[top_seg]), 2),
+            "risk_top_segment_n": len(risk_by_seg[top_seg]),
+        }
+    else:
+        not_computable.append("q9")
+
+    # q10 — top-10 por LTV ∩ riesgo de churn (doble exposición)
+    if with_ltv and total:
+        top10 = sorted(with_ltv.values(), key=lambda c: -c["ltv"])[:10]
+        double = [c for c in top10 if (c["risk"] or 0) > 0]
+        all_risky = [c for c in with_ltv.values() if (c["risk"] or 0) > 0]
+        refs["q10"] = {
+            "double_exposed": sorted(filter(None, (c["name"] for c in double))),
+            "double_exposed_share_pct": round(sum(c["ltv"] for c in double) / total * 100, 2),
+            "double_exposed_n": len(double),
+            # Trampa: share de TODOS los riesgosos (no la intersección con top-10).
+            "all_risky_share_pct": round(sum(c["ltv"] for c in all_risky) / total * 100, 2),
+        }
+    else:
+        not_computable.append("q10")
+
+    # q13 — cobertura del scoring: clientes con LTV pero sin deal_risk_score
+    if with_ltv:
+        unscored = [c for c in with_ltv.values() if c["risk"] is None]
+        top3 = sorted(unscored, key=lambda c: -c["ltv"])[:3]
+        refs["q13"] = {
+            "unscored_n": len(unscored),
+            "unscored_ltv_eur": round(sum(c["ltv"] for c in unscored), 2),
+            "unscored_top3": sorted(filter(None, (c["name"] for c in top3))),
+        }
+    else:
+        not_computable.append("q13")
 
     # q8 — segments with share >10% and zero finding mentions
     if seg_ltv and total:

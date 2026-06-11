@@ -395,7 +395,13 @@ def graphrag_main(args) -> int:
     gate = evaluate_gate(per_question, min_wins=args.min_wins)
     print(f"\nflat fails (<0.5): {gate['flat_fails']}")
     print(f"community wins (≥0.8, sin forbidden): {gate['wins']}")
-    print(f"GATE ({'≥'+str(gate['min_wins'])} wins): {'PASSED' if gate['gate_passed'] else 'NOT PASSED'}")
+    # v3: a gate that can pass on train wins alone is weak — require unseen wins.
+    test_wins = [q for q in gate["wins"] if active[q].get("split") == "test"]
+    test_ok = len(test_wins) >= args.min_test_wins
+    gate["gate_passed"] = gate["gate_passed"] and test_ok
+    print(f"test wins: {test_wins} (need ≥{args.min_test_wins})")
+    print(f"GATE (≥{gate['min_wins']} wins ∧ ≥{args.min_test_wins} test): "
+          f"{'PASSED' if gate['gate_passed'] else 'NOT PASSED'}")
 
     if args.csv:
         with open(args.csv, "w", newline="", encoding="utf-8") as f:
@@ -431,6 +437,8 @@ def main(argv=None) -> int:
     r.add_argument("--judge-model", default="haiku")
     r.add_argument("--cli-path", default=None)
     r.add_argument("--min-wins", type=int, default=5)
+    r.add_argument("--min-test-wins", type=int, default=0,
+                   help="v3: wins required on the (unseen) test split")
     r.add_argument("--gate", action="store_true", help="exit 1 if the N3 gate fails")
     r.add_argument("--csv", default=None)
 

@@ -101,15 +101,25 @@ def judge_layer0(answer: str, question: dict, references: dict) -> Layer0Result:
             if not ok:
                 res.details.append(f"missing numeric {fact['fact']} ≈ {expected}")
 
+    # A numeric trap is a SUBSTITUTION trap: it only counts when some required
+    # numeric fact is missing (the answer used the wrong number INSTEAD of the
+    # right one). Mere co-occurrence next to the correct facts is legitimate
+    # context ("del total en riesgo X%, los doblemente expuestos son Y%").
+    numeric_facts_all_present = all(
+        _numeric_present(answer, float(resolve_placeholder(f.get("expected"), qid_short, references)),
+                         float(f.get("tolerance_pct", 1.0)))
+        for f in question.get("required_facts", [])
+        if f.get("kind") != "labels"
+        and resolve_placeholder(f.get("expected"), qid_short, references) is not None
+    )
     for trap in question.get("must_not_include", []):
         t = resolve_placeholder(trap, qid_short, references)
         if t is None:
             continue
         if isinstance(t, (int, float)):
-            # the trap number present AND no required fact equals it
-            if _numeric_present(answer, float(t), 0.5):
+            if _numeric_present(answer, float(t), 0.5) and not numeric_facts_all_present:
                 res.forbidden_hits += 1
-                res.details.append(f"forbidden number present: {t}")
+                res.details.append(f"forbidden number present (substitution): {t}")
         elif isinstance(t, str) and _norm(t) and _norm(t) in _norm(answer):
             res.forbidden_hits += 1
             res.details.append(f"forbidden text present: {t}")
