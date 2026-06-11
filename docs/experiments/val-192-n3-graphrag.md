@@ -169,12 +169,55 @@ q8 no es estructuralmente global (flat 0.75: con puntos ciegos vacíos en
 Gloria, "no hay" es fácil para flat) y q7 arrastra el defecto de spec de
 listas largas que NO se re-especificó en test (disciplina de freeze).
 
-### v3 (protocolo documentado, NO ejecutado — sería tunear sobre test)
+### v3 — re-freeze del test (2026-06-11, ejecutada)
 
-Regla de reemplazo del diseño original: q8 queda declarada "no global en este
-state" y q7 necesita el mismo top-k re-spec que q1/q2 — ambas correcciones
-requieren **nuevas candidatas + re-freeze del test** antes de re-medir. El
-pool de candidatas se amplía y el gate se re-corre sobre un test virgen.
+Protocolo: q3/q7 → train (vistas; q7 con re-spec top-k ya legal), q8 →
+replaced (flat 0.75 en este state), **3 candidatas nuevas** diseñadas solo
+desde el catálogo de queries (q9 riesgo×segmento, q10 top-10∩churn, q13
+cobertura del scoring), referencias **verificadas adversarialmente por una
+implementación independiente (agente): MATCH, cero mismatches** en demo y
+Gloria. Trampas capa-0 pasan a semántica de sustitución (co-ocurrencia junto
+al número correcto = contexto legítimo). **Gate v3 endurecido**: ≥5 wins
+totales ∧ ≥2 wins en test virgen. Código del grafo congelado en v2.2 (cero
+features nuevas — agregar agregados "casualmente útiles" para las candidatas
+sería teach-to-the-test).
+
+**Veredicto (una pasada, mediana 3 reps):**
+
+| Pregunta | Split | flat | flat_nar | community | forb | Win |
+|---|---|---|---|---|---|---|
+| q1-exposicion-compuesta | train | 0.50 | 0.50 | **1.00** | 0 | borde (flat 0.50) |
+| q2-cross-sell-gap | train | 0.00 | 0.00 | **1.00** | 0 | ✅ |
+| q3-radio-explosion-churn | train | 0.33 | 0.50 | 0.83 | 1 | ✗ |
+| q4-atribucion-hhi | train | 0.00 | 0.50 | **1.00** | 0 | ✅ |
+| q5-convergencia-agentes | train | 0.00 | 0.00 | **1.00** | 0 | ✅ |
+| q7-columna-vertebral | train | 0.50 | 0.25 | **1.00** | 0 | borde (flat 0.50) |
+| **q9-riesgo-por-segmento** | **test** | 0.00 | 0.00 | **1.00** | 0 | ✅ **win en test VIRGEN** |
+| q10-doble-exposicion | test | 0.33 | 0.50 | 0.50 | 2 | ✗ (mordió la trampa all-risky) |
+| q13-cobertura-scoring | test | 0.00 | 0.33 | 0.00 | 2 | ✗ (flat también 0.00) |
+
+**GATE v3 (≥5 ∧ ≥2 test): NOT PASSED — 4 wins, 1/2 test.**
+
+**Lectura:**
+1. **q9 = la win que importa**: join churn×rfm con group-by, en pregunta
+   nunca vista, sin features nuevas — el sistema v2 GENERALIZA a la clase de
+   preguntas que modela (joins/agregaciones sobre entidades y segmentos).
+2. **El test virgen localizó los límites de capacidad reales** (lo que train
+   ya no podía ver): q10 exige membresía de set explícita (top-10 por LTV —
+   la evidencia está rankeada por PPR, no por LTV) y q13 exige razonamiento
+   por AUSENCIA (quién NO tiene score — la evidencia muestra edges presentes,
+   no faltantes). Ninguna es alcanzable con la evidencia actual.
+3. Las preguntas seen están saturadas (0.83–1.00) — el cuello ya no es
+   iteración de prompts sino **capacidades del grafo**.
+
+### v4 (próxima sesión — features ANTES de un test nuevo)
+
+1. Agregados de cobertura/membresía deterministas: attr `rank_by_ltv` en
+   customers, nodo `metric:cobertura_scoring` (n/% sin score + top-3, espejo
+   de exposicion_riesgo), listas explícitas top-N en el header de agregados.
+2. q10/q13 quedan QUEMADAS como test (vistas) → pasan a train para iterar
+   esas features; el gate v4 exige otro par de candidatas frescas + re-freeze.
+3. q3 (train) sigue a 1 forbidden — revisar con sus forbidden_quotes.
 
 ## Wiring a producción
 
