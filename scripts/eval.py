@@ -344,6 +344,8 @@ def graphrag_main(args) -> int:
 
     questions = yaml.safe_load(Path(args.questions).read_text(encoding="utf-8"))["questions"]
     active = {q["id"]: q for q in questions if q.get("status") != "replaced"}
+    if args.split:
+        active = {qid: q for qid, q in active.items() if q.get("split", "train") == args.split}
     references = json.loads(Path(args.references).read_text(encoding="utf-8"))
     base = Path(args.dir)
     arms = {}
@@ -368,9 +370,9 @@ def graphrag_main(args) -> int:
             l0 = judge_layer0(ans, q, references)
             score, forbidden = l0.score, l0.forbidden_hits
             if args.judge:
-                l1 = asyncio.run(judge_layer1(
-                    ans, q, references,
-                    reps=args.judge_reps if q.get("split") == "test" else 1))
+                # median over reps for BOTH splits — single-rep forbidden counts
+                # oscillate ±1 (measured on train) and poison the gate margin.
+                l1 = asyncio.run(judge_layer1(ans, q, references, reps=args.judge_reps))
                 if l1["max_points"]:
                     score = l1["points"] / l1["max_points"]
                     forbidden = max(forbidden, l1["forbidden_hits"])
@@ -422,6 +424,8 @@ def main(argv=None) -> int:
     r.add_argument("--dir", required=True, help="dir with flat/flat_narrator/community.json")
     r.add_argument("--references", required=True)
     r.add_argument("--questions", default=str(ROOT / "evals" / "golden" / "global_questions.yaml"))
+    r.add_argument("--split", default=None, choices=("train", "test"),
+                   help="score one split only (train iteration / frozen test run)")
     r.add_argument("--judge", action="store_true", help="add LLM-as-judge layer (needs local CLI)")
     r.add_argument("--judge-reps", type=int, default=3)
     r.add_argument("--judge-model", default="haiku")

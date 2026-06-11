@@ -36,8 +36,14 @@ class TestSummaries:
             return "resumen"
 
         out = await summarize_communities(graph, comm, STATE["client_config"], query_fn=fake)
-        n_comm = len({c for c in comm.values() if c >= 0})
-        assert len(out) == n_comm == len(prompts)
+        # one call per community with ≥2 members — singletons ride in the evidence
+        sizes: dict[int, int] = {}
+        for c in comm.values():
+            if c >= 0:
+                sizes[c] = sizes.get(c, 0) + 1
+        n_multi = sum(1 for n in sizes.values() if n >= 2)
+        assert len(out) == n_multi == len(prompts)
+        assert 0 < n_multi < len(sizes) or n_multi == len(sizes)
         # prompts narrate the deterministic sheet (verbatim-numbers instruction)
         assert all("VERBATIM" in p for p in prompts)
 

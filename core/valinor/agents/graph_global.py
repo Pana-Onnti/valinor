@@ -63,7 +63,13 @@ async def summarize_communities(
     """One Spanish narrative per community from its deterministic fact sheet."""
     query_fn = query_fn or _default_query
     out: dict[int, str] = {}
-    for cid in sorted({c for c in communities.values() if c >= 0}):
+    sizes: dict[int, int] = {}
+    for c in communities.values():
+        if c >= 0:
+            sizes[c] = sizes.get(c, 0) + 1
+    # Singleton communities (disconnected findings/metrics) carry no community
+    # structure worth narrating — their content rides in the PPR evidence.
+    for cid in sorted(c for c, n in sizes.items() if n >= 2):
         sheet = community_fact_sheet(graph, communities, cid)
         prompt = (
             f"CLIENTE: {client_config.get('display_name', '?')} "
@@ -105,10 +111,18 @@ async def answer_global_question(
         f"atributos y aristas):\n{evidence}\n\n"
         f"NUMBER REGISTRY:\n{registry_txt}\n\n"
         f"PREGUNTA GLOBAL:\n{question}\n\n"
-        "Respondé con números exactos de la evidencia (no inventes ni recalcules "
-        "fuera de sumas explícitas en la evidencia). Si la granularidad de los "
-        "datos no soporta un claim (p.ej. cross-sell es segmento×categoría, no "
-        "cliente×categoría), decilo en vez de inferir. ≤250 palabras."
+        # Guardrails v2 (iteración train): los forbidden hits del primer run
+        # vinieron de inferencias sobre-granulares y aritmética inventada.
+        "REGLAS DURAS:\n"
+        "1. Solo números que estén TEXTUALES en la evidencia/resúmenes/registry, "
+        "o sumas explícitas de valores presentes (decí 'suma de X valores').\n"
+        "2. Si un dato no está en la evidencia, escribí literalmente 'no "
+        "derivable de los datos disponibles' — NUNCA lo infieras ni redondees "
+        "desde memoria.\n"
+        "3. Granularidad: cross-sell es segmento×categoría — PROHIBIDO atribuir "
+        "categorías a clientes individuales.\n"
+        "4. Nombrá como máximo 5 entidades por lista, las de mayor valor.\n"
+        "≤250 palabras."
     )
     return await query_fn(prompt)
 

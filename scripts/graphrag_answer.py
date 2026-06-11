@@ -50,6 +50,11 @@ async def run(args) -> int:
     state = json.loads(Path(args.state).read_text(encoding="utf-8"))
     questions = yaml.safe_load(Path(args.questions).read_text(encoding="utf-8"))["questions"]
     active = [q for q in questions if q.get("status") != "replaced"]
+    if args.split:
+        active = [q for q in active if q.get("split", "train") == args.split]
+    if args.only:
+        wanted = {s.strip() for s in args.only.split(",")}
+        active = [q for q in active if q["id"] in wanted]
     arms = [a.strip() for a in args.arms.split(",")]
 
     await warm_up(args.model)
@@ -111,6 +116,9 @@ def main(argv=None) -> int:
     ap.add_argument("--questions", default="evals/golden/global_questions.yaml")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--arms", default="flat,flat_narrator,community")
+    ap.add_argument("--split", default=None, choices=("train", "test"),
+                    help="iterate on train only; test stays frozen until the final run")
+    ap.add_argument("--only", default=None, help="comma-separated question ids")
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--cli-path", default=None)
     args = ap.parse_args(argv)
