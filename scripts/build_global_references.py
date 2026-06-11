@@ -319,6 +319,52 @@ def compute_references(state: dict) -> tuple[dict, list[str]]:
     else:
         not_computable.append("q13")
 
+    # ── v4 test split (re-freeze #2): q14 / q15 / q16 ───────────────────────
+
+    # q14 — segmento con más LTV dormido (>90 días sin comprar)
+    dormant_by_seg: dict[str, list] = {}
+    for c in with_ltv.values():
+        if (c["days_since"] or 0) > 90 and c["segment"]:
+            dormant_by_seg.setdefault(c["segment"], []).append(c)
+    if dormant_by_seg:
+        top_seg = max(dormant_by_seg,
+                      key=lambda s: sum(c["ltv"] for c in dormant_by_seg[s]))
+        refs["q14"] = {
+            "dormant_top_segment": [top_seg],
+            "dormant_top_segment_ltv_eur": round(
+                sum(c["ltv"] for c in dormant_by_seg[top_seg]), 2),
+            "dormant_top_segment_n": len(dormant_by_seg[top_seg]),
+        }
+    else:
+        not_computable.append("q14")
+
+    # q15 — top-10 por LTV ∩ sin score (membresía × ausencia)
+    if with_ltv:
+        top10 = sorted(with_ltv.values(), key=lambda c: -c["ltv"])[:10]
+        t10_unscored = [c for c in top10 if c["risk"] is None]
+        refs["q15"] = {
+            "top10_unscored_n": len(t10_unscored),
+            "top10_unscored": sorted(filter(None, (c["name"] for c in t10_unscored))),
+            "top10_unscored_ltv_eur": round(sum(c["ltv"] for c in t10_unscored), 2),
+        }
+    else:
+        not_computable.append("q15")
+
+    # q16 — concentración del riesgo: top-3 por score dentro del LTV en riesgo
+    risky_all = [c for c in with_ltv.values() if (c["risk"] or 0) > 0]
+    if len(risky_all) >= 3:
+        top3_score = sorted(risky_all, key=lambda c: (-c["risk"], -c["ltv"]))[:3]
+        risky_total = sum(c["ltv"] for c in risky_all)
+        refs["q16"] = {
+            "top3_by_score": sorted(filter(None, (c["name"] for c in top3_score))),
+            "top3_score_ltv_share_pct": round(
+                sum(c["ltv"] for c in top3_score) / risky_total * 100, 2)
+            if risky_total else None,
+            "risky_total_ltv_eur": round(risky_total, 2),
+        }
+    else:
+        not_computable.append("q16")
+
     # q8 — segments with share >10% and zero finding mentions
     if seg_ltv and total:
         seg_mentions = findings_mentions(state, {s: s for s in seg_ltv})

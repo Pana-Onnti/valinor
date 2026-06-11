@@ -15,10 +15,12 @@ What lives here:
                              dormant queries becomes ONE node with merged
                              attrs — this resolution is the value), plus
                              typed edges (BELONGS_TO, SHARE_OF, AT_RISK,
-                             DORMANT, BUYS, MENTIONS, READS, EXPOSED).
+                             DORMANT, BUYS, MENTIONS, READS, EXPOSED, UNSCORED).
                              v2: segment aggregates (total_ltv_eur, share_pct,
                              n_customers), category total_revenue_eur, and
                              metric:exposicion_riesgo synthetic node.
+                             v4: rank_by_ltv attr on customer nodes,
+                             metric:cobertura_scoring synthetic node.
   * detect_communities     — hub detach (never segments/categories) →
                              greedy modularity (CNM) → connectivity refinement
                              → singleton absorption (excl. table nodes).
@@ -40,7 +42,7 @@ prior instrument silently dropped them.
 
 Domain purity: stdlib + numpy only. No LLM, no DB, no infra imports.
 
-Refs: VAL-192 (N3 v2)
+Refs: VAL-192 (N3 v4)
 """
 
 from __future__ import annotations
@@ -490,6 +492,47 @@ def build_entity_graph(
             w = ltv_val / exp_ltv_total if exp_ltv_total > 0 else 1.0 / len(top5_sorted)
             graph.edges.append(GraphEdge(src=exp_nid, dst=cid, type="EXPOSED", weight=w))
 
+    # ── v4 A. rank_by_ltv — deterministic 1-based rank on all customers ─────
+    # Use ltv_eur or monetary_eur, sort desc, tie-break by node id (lex asc).
+    ltv_customers: list[tuple[float, str]] = []
+    for nid in sorted(graph.nodes):
+        node = graph.nodes[nid]
+        if node.type != "customer":
+            continue
+        ltv = _num(node.attrs.get("ltv_eur") or node.attrs.get("monetary_eur"))
+        if ltv is not None:
+            ltv_customers.append((ltv, nid))
+    ltv_customers.sort(key=lambda x: (-x[0], x[1]))
+    for rank, (_, cid) in enumerate(ltv_customers, start=1):
+        graph.nodes[cid].attrs["rank_by_ltv"] = rank
+
+    # ── v4 A3-mirror. metric:cobertura_scoring — customers with LTV but no ──
+    # deal_risk_score. Mirrors the A3 (exposicion_riesgo) block exactly.
+    unscored_customers: list[tuple[float, str]] = []  # (ltv, nid) for known-LTV unscored
+    for ltv_val, cid in ltv_customers:
+        cnode = graph.nodes[cid]
+        if _num(cnode.attrs.get("deal_risk_score")) is None:
+            unscored_customers.append((ltv_val, cid))
+
+    if unscored_customers:
+        unscored_ltv_total = sum(ltv for ltv, _ in unscored_customers)
+        # Top-3 by ltv desc, deterministic tie-break by node id.
+        top3_unscored = sorted(unscored_customers, key=lambda x: (-x[0], x[1]))[:3]
+        top3_labels = [graph.nodes[cid].label for _, cid in top3_unscored]
+
+        cov_nid = _ensure_metric(graph, "cobertura_scoring")
+        cov_node = graph.nodes[cov_nid]
+        cov_node.attrs["n_customers"] = len(unscored_customers)
+        cov_node.attrs["ltv_eur"] = round(unscored_ltv_total, 2)
+        cov_node.attrs["top3"] = top3_labels
+        if total_rev:
+            cov_node.attrs["share_pct"] = round(unscored_ltv_total / total_rev * 100.0, 2)
+
+        # UNSCORED edges toward top-3 customers (weight = ltv/ltv_total_del_grupo).
+        for ltv_val, cid in top3_unscored:
+            w = ltv_val / unscored_ltv_total if unscored_ltv_total > 0 else 1.0 / len(top3_unscored)
+            graph.edges.append(GraphEdge(src=cov_nid, dst=cid, type="UNSCORED", weight=w))
+
     return graph
 
 
@@ -757,6 +800,12 @@ _ALIAS_MAP: list[tuple[str, str]] = [
     ("agente",        "finding:*"),
     ("mencion",       "finding:*"),
     ("concentr",      "metric:total_revenue"),
+    # v4 new aliases — cobertura scoring / sin score / ltv rank
+    ("cobertura",     "metric:cobertura_scoring"),
+    ("scoring",       "metric:cobertura_scoring"),
+    ("scoring",       "metric:churn_risk"),
+    ("sin score",     "metric:cobertura_scoring"),
+    ("ltv",           "metric:total_revenue"),
 ]
 
 
@@ -965,6 +1014,36 @@ def to_evidence_context(
             f"€{a.get('ltv_eur'):,.2f} = {a.get('share_pct')}% de la facturación "
             f"total, {a.get('n_customers')} clientes. Top-5 por LTV: "
             f"{', '.join(a.get('top5', []))}")
+    # v4 B: COBERTURA SCORING line (omit if node absent).
+    cov = graph.nodes.get("metric:cobertura_scoring")
+    if cov is not None and cov.attrs:
+        ca = cov.attrs
+        top3_str = ", ".join(ca.get("top3", []))
+        agg_lines.append(
+            f"  COBERTURA SCORING: {ca.get('n_customers')} clientes con LTV conocido "
+            f"SIN deal_risk_score = €{ca.get('ltv_eur'):,.2f} "
+            f"({ca.get('share_pct')}% del total). Top-3 sin score: {top3_str}")
+    # v4 B: TOP-10 POR LTV — customers ranked 1..10 with risk/score flags.
+    # Collect all customers that have rank_by_ltv set, sort by rank.
+    ranked_customers: list[tuple[int, str]] = []
+    for nid, node in graph.nodes.items():
+        if node.type == "customer" and "rank_by_ltv" in node.attrs:
+            ranked_customers.append((node.attrs["rank_by_ltv"], nid))
+    if ranked_customers:
+        ranked_customers.sort(key=lambda x: (x[0], x[1]))
+        top10 = ranked_customers[:10]
+        # Build flags: riesgo = has AT_RISK edge, score = has deal_risk_score attr.
+        at_risk_set = {e.src for e in graph.edges if e.type == "AT_RISK"}
+        top10_parts: list[str] = []
+        for rank, nid in top10:
+            node = graph.nodes[nid]
+            ltv_val = _num(node.attrs.get("ltv_eur") or node.attrs.get("monetary_eur"))
+            ltv_str = f"€{ltv_val:,.2f}" if ltv_val is not None else "€?"
+            has_risk = "sí" if nid in at_risk_set else "no"
+            has_score = "sí" if _num(node.attrs.get("deal_risk_score")) is not None else "no"
+            top10_parts.append(
+                f"{rank}. {node.label} {ltv_str} [riesgo: {has_risk}] [score: {has_score}]")
+        agg_lines.append("  TOP-10 POR LTV: " + " · ".join(top10_parts))
     tot = graph.nodes.get("metric:total_revenue")
     if tot is not None and tot.attrs.get("value") is not None:
         agg_lines.append(f"  FACTURACIÓN TOTAL: €{_num(tot.attrs['value']):,.2f}")

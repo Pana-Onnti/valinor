@@ -94,6 +94,35 @@
       "FERRETERIA EL NORTE SA"
     ]
   },
+  "q14": {
+    "dormant_top_segment": [
+      "At Risk"
+    ],
+    "dormant_top_segment_ltv_eur": 635000.0,
+    "dormant_top_segment_n": 3
+  },
+  "q15": {
+    "top10_unscored_n": 7,
+    "top10_unscored": [
+      "ALMACENES UNIDOS SA",
+      "BAZAR INDUSTRIAL SA",
+      "COMERCIAL DEL SUR SA",
+      "CONSTRUMART SRL",
+      "ELECTRO HOGAR SA",
+      "FERRETERIA EL NORTE SA",
+      "REPUESTOS RAPIDOS SA"
+    ],
+    "top10_unscored_ltv_eur": 1490000.0
+  },
+  "q16": {
+    "top3_by_score": [
+      "DISTRIBUIDORA ANDINA SRL",
+      "PINTURERIA CENTRAL SRL",
+      "VIVERO LAS LOMAS SRL"
+    ],
+    "top3_score_ltv_share_pct": 76.97,
+    "risky_total_ltv_eur": 825000.0
+  },
   "q8": {
     "blind_segments": [
       "Loyal"

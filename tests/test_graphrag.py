@@ -195,15 +195,16 @@ class TestBuildEntityGraph:
             "segment": 3,
             "category": 4,
             # total_revenue + total_invoices (baseline) + avg_ticket_eur
-            # (registry) + churn_risk + dormancy + exposicion_riesgo (v2);
-            # period_start is a date and must NOT appear.
-            "metric": 6,  # +1 for metric:exposicion_riesgo (v2 spec change)
+            # (registry) + churn_risk + dormancy + exposicion_riesgo (v2) +
+            # cobertura_scoring (v4); period_start is a date and must NOT appear.
+            "metric": 7,  # +1 for metric:cobertura_scoring (v4 spec change)
             "finding": 4,
             "table": 2,
         }
-        assert len(graph.nodes) == 31  # +1 for metric:exposicion_riesgo
+        assert len(graph.nodes) == 32  # +1 for metric:cobertura_scoring (v4)
         assert "metric:period_start" not in graph.nodes
         assert "metric:exposicion_riesgo" in graph.nodes
+        assert "metric:cobertura_scoring" in graph.nodes
 
     def test_edge_counts_by_type(self, graph):
         by_type = {}
@@ -218,6 +219,7 @@ class TestBuildEntityGraph:
             "MENTIONS": 3,      # S1→Acme Corp, S2→champions, F3→Ferretería
             "READS": 1,         # invoices → customers
             "EXPOSED": 4,       # metric:exposicion_riesgo → top-4 at-risk (v2 spec change)
+            "UNSCORED": 3,      # metric:cobertura_scoring → top-3 unscored by LTV (v4)
         }
 
     def test_entity_resolution_merges_attrs_across_queries(self, graph):
@@ -249,7 +251,7 @@ class TestBuildEntityGraph:
         entity_map, qr, baseline, findings, registry = make_state()
         plain = qr["results"]                         # no {"results": ...} wrapper
         g = build_entity_graph(entity_map, plain, baseline, findings, registry)
-        assert len(g.nodes) == 31  # +1 for metric:exposicion_riesgo (v2 spec change)
+        assert len(g.nodes) == 32  # +1 for metric:cobertura_scoring (v4 spec change)
 
     def test_mentions_resolved_by_normalized_label(self, graph):
         mentions = {(e.src, e.dst) for e in graph.edges if e.type == "MENTIONS"}
@@ -392,8 +394,8 @@ class TestEvidenceContext:
 
     def test_top_nodes_present_under_generous_budget(self, graph):
         ppr = personalized_pagerank(graph, {"customer:C001": 1.0})
-        ctx = to_evidence_context(graph, ppr, top_k=30, char_budget=6000)
-        assert len(ctx) <= 6000
+        ctx = to_evidence_context(graph, ppr, top_k=30, char_budget=10000)
+        assert len(ctx) <= 10000
         assert "Acme Corp" in ctx
         assert "SHARE_OF" in ctx
 
@@ -664,3 +666,248 @@ class TestDeterminismV2:
         assert personalized_pagerank(g1, {"segment:champions": 1.0}) == \
                personalized_pagerank(g2, {"segment:champions": 1.0})
         assert multi_agent_mentions(g1) == multi_agent_mentions(g2)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 16. V4 RANK_BY_LTV — deterministic 1-based rank on customer nodes
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestRankByLtv:
+    def test_rank1_is_highest_ltv(self, graph):
+        """C001 (Acme Corp, ltv_eur=127581.06) must be rank 1."""
+        assert graph.nodes["customer:C001"].attrs.get("rank_by_ltv") == 1
+
+    def test_rank_order_descending(self, graph):
+        """Ranks must be strictly descending by LTV (ties broken lex by node id)."""
+        ranked = sorted(
+            [(node.attrs["rank_by_ltv"], _num(node.attrs.get("ltv_eur") or node.attrs.get("monetary_eur")), nid)
+             for nid, node in graph.nodes.items()
+             if node.type == "customer" and "rank_by_ltv" in node.attrs],
+        )
+        # The ranks form a contiguous 1..N sequence with no gaps.
+        ranks = [r[0] for r in ranked]
+        assert ranks == list(range(1, len(ranks) + 1))
+        # Each rank-k LTV >= rank-(k+1) LTV.
+        for i in range(len(ranked) - 1):
+            ltv_k = ranked[i][1]
+            ltv_next = ranked[i + 1][1]
+            assert ltv_k >= ltv_next
+
+    def test_all_ltv_known_customers_have_rank(self, graph):
+        """Every customer with ltv_eur or monetary_eur must have rank_by_ltv."""
+        for nid, node in graph.nodes.items():
+            if node.type != "customer":
+                continue
+            ltv = _num(node.attrs.get("ltv_eur") or node.attrs.get("monetary_eur"))
+            if ltv is not None:
+                assert "rank_by_ltv" in node.attrs, f"{nid} has LTV but no rank_by_ltv"
+
+    def test_no_ltv_customers_have_no_rank(self, graph):
+        """Customers with no LTV at all must NOT have rank_by_ltv.
+        In the fixture C011 and C012 DO get monetary_eur from the RFM row,
+        so they WILL have a rank; this test ensures no extras appear."""
+        for nid, node in graph.nodes.items():
+            if node.type != "customer":
+                continue
+            ltv = _num(node.attrs.get("ltv_eur") or node.attrs.get("monetary_eur"))
+            if ltv is None:
+                assert "rank_by_ltv" not in node.attrs, (
+                    f"{nid} has no LTV but rank_by_ltv={node.attrs.get('rank_by_ltv')}"
+                )
+
+    def test_tiebreak_is_lexicographic(self):
+        """Two customers with the same LTV must break ties by node id lex order."""
+        from valinor.graphrag import EntityGraph, GraphNode, build_entity_graph
+        # Build a minimal fixture with two customers sharing the same LTV.
+        entity_map = {"entities": {}, "relationships": []}
+        qr = {"results": {
+            "concentration_top_customers": {"rows": [
+                {"customer_id": "ZZZ", "customer_name": "ZZZ Co", "ltv_eur": "1000.00", "share_pct": 10},
+                {"customer_id": "AAA", "customer_name": "AAA Co", "ltv_eur": "1000.00", "share_pct": 10},
+            ]},
+        }}
+        g = build_entity_graph(entity_map, qr, {}, {})
+        # AAA lexicographically < ZZZ, so customer:AAA should rank 1.
+        assert g.nodes["customer:AAA"].attrs["rank_by_ltv"] == 1
+        assert g.nodes["customer:ZZZ"].attrs["rank_by_ltv"] == 2
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 17. V4 COBERTURA_SCORING — customers with LTV but no deal_risk_score
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestCoberturaScoring:
+    def test_node_exists(self, graph):
+        """metric:cobertura_scoring must be created when unscored customers exist."""
+        assert "metric:cobertura_scoring" in graph.nodes
+
+    def test_n_customers_correct(self, graph):
+        """In the fixture: C001-C004 (champions), C009-C010, C011-C012 = 8 unscored
+        with LTV known. C005-C008 have deal_risk_score so they are excluded."""
+        cov = graph.nodes["metric:cobertura_scoring"]
+        assert cov.attrs["n_customers"] == 8
+
+    def test_ltv_eur_is_sum_of_unscored(self, graph):
+        """ltv_eur = sum of all LTV-known unscored customers."""
+        # C001:127581.06 + C002:72903.46 + C003:36451.73 + C004:29161.38
+        # + C009:7290.35 + C010:3645.17 + C011:1893.22 + C012:1893.22 = 280819.59
+        expected = 127581.06 + 72903.46 + 36451.73 + 29161.38 + 7290.35 + 3645.17 + 1893.22 + 1893.22
+        cov = graph.nodes["metric:cobertura_scoring"]
+        assert cov.attrs["ltv_eur"] == pytest.approx(expected, rel=1e-4)
+
+    def test_top3_by_ltv_desc(self, graph):
+        """Top-3 must be the 3 highest-LTV unscored customers: Acme, Borealis, Cobalt."""
+        cov = graph.nodes["metric:cobertura_scoring"]
+        assert cov.attrs["top3"] == ["Acme Corp", "Borealis Foods", "Cobalt Trading"]
+
+    def test_unscored_edges_toward_top3(self, graph):
+        """Exactly 3 UNSCORED edges from metric:cobertura_scoring to top-3."""
+        unscored_edges = [e for e in graph.edges if e.type == "UNSCORED"]
+        assert len(unscored_edges) == 3
+        dsts = {e.dst for e in unscored_edges}
+        assert dsts == {"customer:C001", "customer:C002", "customer:C003"}
+        # All edges start from the cobertura node.
+        assert all(e.src == "metric:cobertura_scoring" for e in unscored_edges)
+
+    def test_weights_relative_to_full_group(self, graph):
+        """Edge weights = ltv_customer / ltv_total_del_grupo (full unscored group,
+        not just top-3). The top-3 LTVs sum to < ltv_total_del_grupo so weights
+        sum to < 1.0 — this mirrors the exposicion_riesgo pattern exactly.
+        Each weight must be in (0, 1)."""
+        unscored_edges = [e for e in graph.edges if e.type == "UNSCORED"]
+        cov = graph.nodes["metric:cobertura_scoring"]
+        total_unscored_ltv = cov.attrs["ltv_eur"]
+        for e in unscored_edges:
+            cnode = graph.nodes[e.dst]
+            ltv = _num(cnode.attrs.get("ltv_eur") or cnode.attrs.get("monetary_eur"))
+            assert ltv is not None
+            expected_w = ltv / total_unscored_ltv
+            assert e.weight == pytest.approx(expected_w, rel=1e-5)
+
+    def test_node_absent_when_all_have_score(self):
+        """metric:cobertura_scoring must NOT be created when every LTV-known
+        customer already has deal_risk_score."""
+        entity_map = {"entities": {}, "relationships": []}
+        # Single customer WITH deal_risk_score.
+        qr = {"results": {
+            "churn_risk_all": {"rows": [
+                {"customer_id": "X1", "customer_name": "X One",
+                 "deal_risk_score": 50.0, "ltv_eur": "5000.00"},
+            ]},
+        }}
+        g = build_entity_graph(entity_map, qr, {}, {})
+        assert "metric:cobertura_scoring" not in g.nodes
+
+    def test_share_pct_relative_to_total_revenue(self, graph):
+        """share_pct = unscored_ltv / total_revenue * 100."""
+        cov = graph.nodes["metric:cobertura_scoring"]
+        total_rev = 364517.30  # from fixture baseline
+        expected_share = round(cov.attrs["ltv_eur"] / total_rev * 100.0, 2)
+        assert cov.attrs.get("share_pct") == pytest.approx(expected_share, rel=1e-4)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 18. V4 EVIDENCE CONTEXT HEADER — COBERTURA SCORING + TOP-10 POR LTV
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestEvidenceContextV4:
+    def _ctx(self, graph, budget: int = 20000) -> str:
+        ppr = personalized_pagerank(graph, {"customer:C001": 1.0})
+        return to_evidence_context(graph, ppr, top_k=30, char_budget=budget)
+
+    def test_cobertura_scoring_line_present(self, graph):
+        ctx = self._ctx(graph)
+        assert "COBERTURA SCORING" in ctx
+
+    def test_cobertura_scoring_contains_n_and_ltv(self, graph):
+        ctx = self._ctx(graph)
+        # 8 unscored customers in the fixture.
+        assert "8 clientes" in ctx
+
+    def test_top10_ltv_line_present(self, graph):
+        ctx = self._ctx(graph)
+        assert "TOP-10 POR LTV" in ctx
+
+    def test_top10_rank1_is_acme(self, graph):
+        """Rank 1 in TOP-10 must be Acme Corp."""
+        ctx = self._ctx(graph)
+        # The line is "1. Acme Corp €127,581.06 ..."
+        assert "1. Acme Corp" in ctx
+
+    def test_top10_acme_flags_score_no(self, graph):
+        """Acme Corp has no deal_risk_score → [score: no]."""
+        ctx = self._ctx(graph)
+        idx = ctx.index("1. Acme Corp")
+        snippet = ctx[idx:idx + 80]
+        assert "[score: no]" in snippet
+
+    def test_top10_estrella_flags_risk_yes_score_yes(self, graph):
+        """Estrella Pack (C005, rank=5) has deal_risk_score AND AT_RISK edge.
+        Its entry in the TOP-10 line must show [riesgo: sí] [score: sí]."""
+        ctx = self._ctx(graph)
+        top10_idx = ctx.find("TOP-10 POR LTV")
+        assert top10_idx != -1
+        top10_section = ctx[top10_idx:]
+        # Find Estrella Pack's entry within the TOP-10 section.
+        idx = top10_section.find("Estrella Pack")
+        assert idx != -1, "Estrella Pack not found in TOP-10 POR LTV section"
+        snippet = top10_section[idx:idx + 80]
+        assert "[riesgo: sí]" in snippet
+        assert "[score: sí]" in snippet
+
+    def test_header_order_cobertura_before_top10(self, graph):
+        """COBERTURA SCORING line must appear before TOP-10 POR LTV in header."""
+        ctx = self._ctx(graph)
+        assert ctx.index("COBERTURA SCORING") < ctx.index("TOP-10 POR LTV")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 19. V4 SELECT_SEEDS — new aliases
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSeedAliasesV4:
+    def test_cobertura_alias(self, graph):
+        seeds = select_seeds("¿qué parte de la cartera no está cubierta por el scoring?", graph)
+        assert "metric:cobertura_scoring" in seeds
+
+    def test_sin_score_alias(self, graph):
+        seeds = select_seeds("clientes sin score asignado", graph)
+        assert "metric:cobertura_scoring" in seeds
+
+    def test_scoring_alias(self, graph):
+        seeds = select_seeds("modelo de scoring de clientes", graph)
+        assert "metric:cobertura_scoring" in seeds
+        assert "metric:churn_risk" in seeds
+
+    def test_ltv_alias(self, graph):
+        seeds = select_seeds("top clientes por LTV", graph)
+        assert "metric:total_revenue" in seeds
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 20. V4 DETERMINISM END-TO-END
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestDeterminismV4:
+    def test_v4_two_runs_identical(self):
+        """rank_by_ltv and cobertura_scoring are deterministic across two fresh builds."""
+        g1 = build_entity_graph(*make_state())
+        g2 = build_entity_graph(*make_state())
+        # Node attrs (including rank_by_ltv) must match.
+        for nid in g1.nodes:
+            assert g1.nodes[nid].attrs == g2.nodes[nid].attrs, (
+                f"Attrs differ for {nid}: {g1.nodes[nid].attrs} vs {g2.nodes[nid].attrs}"
+            )
+        # Edge list (including UNSCORED) must match exactly.
+        edges1 = [(e.src, e.dst, e.type, e.weight) for e in g1.edges]
+        edges2 = [(e.src, e.dst, e.type, e.weight) for e in g2.edges]
+        assert edges1 == edges2
+        # PPR over new seeds must match.
+        p1 = personalized_pagerank(g1, {"metric:cobertura_scoring": 1.0})
+        p2 = personalized_pagerank(g2, {"metric:cobertura_scoring": 1.0})
+        assert p1 == p2

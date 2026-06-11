@@ -149,7 +149,9 @@ questions:
     why_flat_fails: "join churn_risk_scoring × rfm_segmentation por customer_id + group-by segmento + suma — ningún query lo trae y las filas crudas no entran juntas en el budget"
 
   - id: q10-doble-exposicion
-    split: test
+    # v4: vista en el run congelado v3 → train (las features de membresía
+    # top-N se iteran contra esta).
+    split: train
     question: >
       Del top-10 de clientes por facturación, ¿cuáles están ADEMÁS en riesgo
       de churn (deal_risk_score>0), y qué share de la facturación total suman
@@ -165,7 +167,9 @@ questions:
     why_flat_fails: "intersección concentration_top_customers ∩ churn_risk_scoring por customer_id — dos result sets que ningún query cruza"
 
   - id: q13-cobertura-scoring
-    split: test
+    # v4: vista en el run congelado v3 → train (la feature de cobertura se
+    # itera contra esta).
+    split: train
     question: >
       ¿Qué parte de la cartera conocida NO está cubierta por el scoring de
       churn? Cuantificá: cuántos clientes con LTV conocido no tienen
@@ -176,3 +180,45 @@ questions:
       - {fact: "LTV sin cobertura de scoring", expected: "{REF:q13.unscored_ltv_eur}", tolerance_pct: 1.0}
       - {fact: "top-3 sin score por LTV", expected: "{REF:q13.unscored_top3}", kind: labels}
     why_flat_fails: "complemento entre result sets (clientes con LTV en rfm/concentration que NO aparecen en churn_risk_scoring) — razonamiento por ausencia cruzando queries"
+
+  # ── v4: test split NUEVO (re-freeze #2) — diseñadas solo del catálogo de
+  # queries; q14 testea la forma group-by ya probada con otro filtro, q15
+  # generaliza las features nuevas a una combinación no vista, q16 exige
+  # ranking por una dimensión distinta (score, no LTV).
+  - id: q14-dormancia-por-segmento
+    split: test
+    question: >
+      ¿Qué segmento RFM acumula más LTV dormido (clientes con más de 90 días
+      sin comprar)? ¿Cuánto LTV dormido tiene ese segmento y cuántos clientes
+      son?
+    seed_entities: ["segmento", "dormancia"]
+    required_facts:
+      - {fact: "segmento con más LTV dormido", expected: "{REF:q14.dormant_top_segment}", kind: labels}
+      - {fact: "LTV dormido del segmento líder", expected: "{REF:q14.dormant_top_segment_ltv_eur}", tolerance_pct: 1.0}
+      - {fact: "clientes dormidos del segmento líder", expected: "{REF:q14.dormant_top_segment_n}", tolerance_pct: 0.0}
+    why_flat_fails: "join recency (rfm/churn) × segmento (rfm) + group-by + suma — mismo gap estructural que q9 con otro filtro"
+
+  - id: q15-top10-sin-score
+    split: test
+    question: >
+      Del top-10 de clientes por LTV, ¿cuántos NO tienen score de churn,
+      quiénes son y cuánto LTV suman?
+    seed_entities: ["scoring", "cobertura", "ltv"]
+    required_facts:
+      - {fact: "cantidad de top-10 sin score", expected: "{REF:q15.top10_unscored_n}", tolerance_pct: 0.0}
+      - {fact: "top-10 sin score (nombres)", expected: "{REF:q15.top10_unscored}", kind: labels}
+      - {fact: "LTV de los top-10 sin score", expected: "{REF:q15.top10_unscored_ltv_eur}", tolerance_pct: 1.0}
+    why_flat_fails: "membresía top-10 (ranking global por LTV) ∩ ausencia de score — combina los dos gaps estructurales del flat"
+
+  - id: q16-concentracion-del-riesgo
+    split: test
+    question: >
+      Dentro de los clientes en riesgo de churn (deal_risk_score>0), ¿qué
+      porcentaje de su LTV conjunto concentran los 3 con mayor score? ¿Quiénes
+      son?
+    seed_entities: ["churn", "riesgo", "concentración"]
+    required_facts:
+      - {fact: "top-3 por deal_risk_score", expected: "{REF:q16.top3_by_score}", kind: labels}
+      - {fact: "share del LTV en riesgo que concentran", expected: "{REF:q16.top3_score_ltv_share_pct}", tolerance_pct: 2.0}
+      - {fact: "LTV conjunto de todos los en riesgo", expected: "{REF:q16.risky_total_ltv_eur}", tolerance_pct: 1.0}
+    why_flat_fails: "ranking por score (no por LTV) + share dentro del subconjunto en riesgo — doble agregación sobre el join churn×ltv"
