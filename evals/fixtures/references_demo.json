@@ -9,6 +9,13 @@
       "REPUESTOS RAPIDOS SA",
       "VIVERO LAS LOMAS SRL"
     ],
+    "exposed_customers_top5": [
+      "DISTRIBUIDORA ANDINA SRL",
+      "KIOSCO MAYORISTA SRL",
+      "PINTURERIA CENTRAL SRL",
+      "REPUESTOS RAPIDOS SA",
+      "VIVERO LAS LOMAS SRL"
+    ],
     "naive_double_count_eur": 1770000.0
   },
   "q2": {
@@ -17,6 +24,9 @@
     ],
     "top_segment_eur": 980000.0,
     "missing_categories": [
+      "JARDIN"
+    ],
+    "missing_categories_top5": [
       "JARDIN"
     ]
   },

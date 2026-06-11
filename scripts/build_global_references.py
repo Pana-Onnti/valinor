@@ -92,6 +92,12 @@ def build_customers(state: dict) -> dict[str, dict]:
         c["name"] = c["name"] or _field(row, "customer_name", "name")
         c["segment"] = _field(row, "segment", "rfm_segment", "segmento")
         c["ltv"] = c["ltv"] if c["ltv"] is not None else _num(_field(row, "monetary_eur", "ltv_eur"))
+        # v2: RFM carries recency_days — "dormancia >90 días" lives here too
+        # (found via the graph arm disagreeing with the reference: KONG DE,
+        # champion with recency>90, was exposed in-graph but missed here).
+        days = _num(_field(row, "recency_days"))
+        if days is not None:
+            c["days_since"] = max(days, c["days_since"] or 0)
 
     for row in _rows(state, "concentration", "customers"):
         cid = _field(row, "customer_id", "bpartner_id")
@@ -109,7 +115,9 @@ def build_customers(state: dict) -> dict[str, dict]:
             continue
         c = slot(cid)
         c["risk"] = _num(_field(row, "deal_risk_score", "risk_score"))
-        c["days_since"] = _num(_field(row, "days_since_purchase", "days_since_last_purchase"))
+        days = _num(_field(row, "recency_days", "days_since_purchase", "days_since_last_purchase"))
+        if days is not None:
+            c["days_since"] = max(days, c["days_since"] or 0)
         if c["ltv"] is None:
             c["ltv"] = _num(_field(row, "ltv_eur"))
 
@@ -164,10 +172,14 @@ def compute_references(state: dict) -> tuple[dict, list[str]]:
         eur = sum(c["ltv"] for c in exposed.values())
         risky = sum(c["ltv"] for c in with_ltv.values() if (c["risk"] or 0) > 0)
         dormant = sum(c["ltv"] for c in with_ltv.values() if (c["days_since"] or 0) > 90)
+        top5 = sorted(exposed.values(), key=lambda c: -c["ltv"])[:5]
         refs["q1"] = {
             "exposed_eur": round(eur, 2),
             "exposed_share_pct": round(eur / total * 100, 2),
             "exposed_customers": sorted(c["name"] or cid for cid, c in exposed.items()),
+            # v2 (train iteration): a 250-word answer cannot name 20 customers —
+            # the gradable fact is the top-5 by LTV. Full list kept for audit.
+            "exposed_customers_top5": sorted(filter(None, (c["name"] for c in top5))),
             "naive_double_count_eur": round(risky + dormant, 2),  # the trap
         }
     else:
@@ -184,10 +196,21 @@ def compute_references(state: dict) -> tuple[dict, list[str]]:
         all_cats = {_field(r, "category", "categoria") for r in xsell} - {None}
         bought = {_field(r, "category", "categoria") for r in xsell
                   if _field(r, "segment", "segmento") == top_seg}
+        missing = all_cats - bought
+        # v2: 20 categorías no caben en 250 palabras — el fact evaluable es el
+        # top-5 de las faltantes por revenue total de categoría (los gaps que valen).
+        cat_rev: dict[str, float] = {}
+        for r in xsell:
+            cat = _field(r, "category", "categoria")
+            rev = _num(_field(r, "category_revenue_eur", "revenue_eur", "revenue"))
+            if cat and rev:
+                cat_rev[cat] = cat_rev.get(cat, 0) + rev
+        top5_missing = sorted(missing, key=lambda c: (-cat_rev.get(c, 0.0), c))[:5]
         refs["q2"] = {
             "top_segment": [top_seg],
             "top_segment_eur": round(seg_ltv[top_seg], 2),
-            "missing_categories": sorted(all_cats - bought),
+            "missing_categories": sorted(missing),
+            "missing_categories_top5": sorted(top5_missing),
         }
     else:
         not_computable.append("q2")

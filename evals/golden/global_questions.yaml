@@ -28,7 +28,9 @@ questions:
     required_facts:
       - {fact: "share de facturación en riesgo compuesto", expected: "{REF:q1.exposed_share_pct}", tolerance_pct: 2.0}
       - {fact: "monto expuesto EUR", expected: "{REF:q1.exposed_eur}", tolerance_pct: 1.0}
-      - {fact: "lista de clientes expuestos", expected: "{REF:q1.exposed_customers}", kind: labels}
+      # v2 (iteración train): pedir los 20 nombres en 250 palabras era imposible
+      # de cumplir — el fact evaluable es el top-5 por LTV.
+      - {fact: "top-5 clientes expuestos por LTV", expected: "{REF:q1.exposed_customers_top5}", kind: labels}
     must_not_include:
       # Trampa: sumar churn + dormant SIN deduplicar la intersección.
       - "{REF:q1.naive_double_count_eur}"
@@ -43,7 +45,9 @@ questions:
     required_facts:
       - {fact: "segmento líder", expected: "{REF:q2.top_segment}", kind: labels}
       - {fact: "facturación del segmento líder", expected: "{REF:q2.top_segment_eur}", tolerance_pct: 1.0}
-      - {fact: "categorías sin penetrar por el líder", expected: "{REF:q2.missing_categories}", kind: labels}
+      # v2 (iteración train): 20 categorías faltantes no caben en 250 palabras —
+      # el fact evaluable es el top-5 por revenue de categoría (los gaps valiosos).
+      - {fact: "top-5 categorías sin penetrar (por revenue)", expected: "{REF:q2.missing_categories_top5}", kind: labels}
     granularity_notes: >
       cross_sell es segmento×categoría: cualquier claim cliente→categoría es
       inferencia 2-hop y el juez lo penaliza como groundedness failure.

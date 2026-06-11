@@ -134,10 +134,18 @@ RESPUESTA A EVALUAR:
 {answer}
 
 Por cada required_fact puntuá: 0 = ausente, 1 = presente pero número/lista incorrecta,
-2 = presente y correcto (dentro de la tolerancia). Si la respuesta hace claims con
-granularidad mayor a la que los datos soportan (ver nota), marcá forbidden_hit.
+2 = presente y correcto (dentro de la tolerancia).
+
+FORBIDDEN: un forbidden es SOLO una frase citable de la respuesta que (a) atribuye
+una categoría de producto a un CLIENTE individual (los datos son segmento×categoría),
+o (b) CONTRADICE un valor de la referencia (mismo concepto, número incompatible).
+NO son forbidden: mencionar clientes por nombre, citar números del contexto que la
+referencia no cubre (la referencia es mínima, no exhaustiva), decir "no derivable
+de los datos disponibles", ni los números correctos. Por cada forbidden citá la
+frase textual.
+
 Respondé SOLO un objeto JSON:
-{{"facts": [{{"fact": "...", "score": 0|1|2}}], "forbidden_hits": <int>, "rationale": "<máx 30 palabras>"}}
+{{"facts": [{{"fact": "...", "score": 0|1|2}}], "forbidden_quotes": ["<frase textual>", ...], "rationale": "<máx 30 palabras>"}}
 
 REQUIRED FACTS:
 {facts}
@@ -197,7 +205,11 @@ async def judge_layer1(
         raw.append(verdict)
         pts = sum(min(2, max(0, int(f.get("score", 0)))) for f in verdict.get("facts", []))
         rep_points.append(pts)
-        rep_forbidden.append(int(verdict.get("forbidden_hits", 0)))
+        # Auditable forbidden: count = quotable claims; legacy int kept for
+        # injected test judges that don't emit quotes.
+        quotes = verdict.get("forbidden_quotes")
+        rep_forbidden.append(
+            len(quotes) if isinstance(quotes, list) else int(verdict.get("forbidden_hits", 0)))
     return {
         "points": statistics.median(rep_points),
         "max_points": 2 * len(facts),
