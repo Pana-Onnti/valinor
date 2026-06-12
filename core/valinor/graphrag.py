@@ -21,6 +21,9 @@ What lives here:
                              metric:exposicion_riesgo synthetic node.
                              v4: rank_by_ltv attr on customer nodes,
                              metric:cobertura_scoring synthetic node.
+                             v5: group-by attrs per segment (avg_ltv_eur,
+                             at_risk_ltv_eur/n, dormant_ltv_eur/n,
+                             unscored_ltv_eur/n).
   * detect_communities     — hub detach (never segments/categories) →
                              greedy modularity (CNM) → connectivity refinement
                              → singleton absorption (excl. table nodes).
@@ -42,7 +45,7 @@ prior instrument silently dropped them.
 
 Domain purity: stdlib + numpy only. No LLM, no DB, no infra imports.
 
-Refs: VAL-192 (N3 v4)
+Refs: VAL-192 (N3 v5)
 """
 
 from __future__ import annotations
@@ -434,6 +437,74 @@ def build_entity_graph(
         elif seg_id in _seg_share:
             seg_node.attrs["share_pct"] = round(_seg_share[seg_id], 2)
 
+    # ── v5 A1-ext. Group-by attrs per segment ──────────────────────────────
+    # Walk BELONGS_TO edges again; for each member check AT_RISK/DORMANT edges
+    # and deal_risk_score attr.  All use _num for coercion (string numerics).
+    # Accumulators: (ltv_sum, count) per segment per sub-group.
+    _seg_at_risk_ltv: dict[str, float] = {}
+    _seg_at_risk_n: dict[str, int] = {}
+    _seg_dormant_ltv: dict[str, float] = {}
+    _seg_dormant_n: dict[str, int] = {}
+    _seg_unscored_ltv: dict[str, float] = {}
+    _seg_unscored_n: dict[str, int] = {}
+
+    # Build fast lookup sets from edge types.
+    at_risk_cids: set[str] = {
+        e.src for e in graph.edges
+        if e.type == "AT_RISK" and e.src.startswith("customer:")
+    }
+    dormant_cids: set[str] = {
+        e.src for e in graph.edges
+        if e.type == "DORMANT" and e.src.startswith("customer:")
+    }
+
+    for e in graph.edges:
+        if e.type != "BELONGS_TO":
+            continue
+        seg_id = e.dst
+        cust_node = graph.nodes.get(e.src)
+        if cust_node is None:
+            continue
+        ltv = _num(cust_node.attrs.get("ltv_eur") or cust_node.attrs.get("monetary_eur"))
+
+        # at_risk: has AT_RISK edge (deal_risk_score > 0 by construction)
+        if e.src in at_risk_cids:
+            _seg_at_risk_n[seg_id] = _seg_at_risk_n.get(seg_id, 0) + 1
+            if ltv is not None:
+                _seg_at_risk_ltv[seg_id] = _seg_at_risk_ltv.get(seg_id, 0.0) + ltv
+
+        # dormant: has DORMANT edge
+        if e.src in dormant_cids:
+            _seg_dormant_n[seg_id] = _seg_dormant_n.get(seg_id, 0) + 1
+            if ltv is not None:
+                _seg_dormant_ltv[seg_id] = _seg_dormant_ltv.get(seg_id, 0.0) + ltv
+
+        # unscored: has LTV but no deal_risk_score
+        if ltv is not None and _num(cust_node.attrs.get("deal_risk_score")) is None:
+            _seg_unscored_n[seg_id] = _seg_unscored_n.get(seg_id, 0) + 1
+            _seg_unscored_ltv[seg_id] = _seg_unscored_ltv.get(seg_id, 0.0) + ltv
+
+    for seg_id in sorted(_seg_ncust):
+        seg_node = graph.nodes.get(seg_id)
+        if seg_node is None:
+            continue
+        # avg_ltv_eur = total_ltv / n (only when total_ltv known)
+        if seg_id in _seg_ltv and _seg_ncust.get(seg_id, 0) > 0:
+            seg_node.attrs["avg_ltv_eur"] = round(
+                _seg_ltv[seg_id] / _seg_ncust[seg_id], 2)
+        if seg_id in _seg_at_risk_n:
+            seg_node.attrs["at_risk_n"] = _seg_at_risk_n[seg_id]
+        if seg_id in _seg_at_risk_ltv:
+            seg_node.attrs["at_risk_ltv_eur"] = round(_seg_at_risk_ltv[seg_id], 2)
+        if seg_id in _seg_dormant_n:
+            seg_node.attrs["dormant_n"] = _seg_dormant_n[seg_id]
+        if seg_id in _seg_dormant_ltv:
+            seg_node.attrs["dormant_ltv_eur"] = round(_seg_dormant_ltv[seg_id], 2)
+        if seg_id in _seg_unscored_n:
+            seg_node.attrs["unscored_n"] = _seg_unscored_n[seg_id]
+        if seg_id in _seg_unscored_ltv:
+            seg_node.attrs["unscored_ltv_eur"] = round(_seg_unscored_ltv[seg_id], 2)
+
     # Per-segment cross-sell gap (deterministic complement): categories the
     # segment does NOT buy, ranked by category revenue — the model cannot
     # reliably compute a 20-element complement from prose (measured: q2).
@@ -806,6 +877,10 @@ _ALIAS_MAP: list[tuple[str, str]] = [
     ("scoring",       "metric:churn_risk"),
     ("sin score",     "metric:cobertura_scoring"),
     ("ltv",           "metric:total_revenue"),
+    # v5 new aliases — group-by / average / promedio → all segments
+    ("promedio",      "segment:*"),
+    ("group by",      "segment:*"),
+    ("por segmento",  "segment:*"),
 ]
 
 
@@ -975,7 +1050,7 @@ def community_fact_sheet(
         for d in conv:
             lines.append(f"  - {d['label']} ← {', '.join(d['agents'])}")
 
-    # Segment / metric attrs (aggregates).
+    # Segment / metric attrs (aggregates), including v5 group-by attrs.
     for nid in member_ids:
         node = graph.nodes[nid]
         if node.type in ("segment", "metric") and node.attrs:
@@ -985,6 +1060,27 @@ def community_fact_sheet(
             )
             if attr_str:
                 lines.append(f"  [{node.type}] {node.label}: {attr_str}")
+            # v5: emit a human-readable GROUP-BY line for segment nodes.
+            if node.type == "segment":
+                a = node.attrs
+                gb_parts: list[str] = []
+                avg = a.get("avg_ltv_eur")
+                if avg is not None:
+                    gb_parts.append(f"avg €{avg:,.2f}")
+                ar_ltv = a.get("at_risk_ltv_eur")
+                ar_n = a.get("at_risk_n")
+                if ar_ltv is not None:
+                    gb_parts.append(f"en-riesgo €{ar_ltv:,.2f} (n={ar_n})")
+                do_ltv = a.get("dormant_ltv_eur")
+                do_n = a.get("dormant_n")
+                if do_ltv is not None:
+                    gb_parts.append(f"dormido €{do_ltv:,.2f} (n={do_n})")
+                un_ltv = a.get("unscored_ltv_eur")
+                un_n = a.get("unscored_n")
+                if un_ltv is not None:
+                    gb_parts.append(f"sin-score €{un_ltv:,.2f} (n={un_n})")
+                if gb_parts:
+                    lines.append(f"    GROUP-BY {node.label}: " + " · ".join(gb_parts))
 
     return "\n".join(lines)
 
@@ -1014,6 +1110,24 @@ def to_evidence_context(
             f"€{a.get('ltv_eur'):,.2f} = {a.get('share_pct')}% de la facturación "
             f"total, {a.get('n_customers')} clientes. Top-5 por LTV: "
             f"{', '.join(a.get('top5', []))}")
+    # v5: GLOBAL per-edge-type totals — the symmetric counterpart of the
+    # per-segment group-by. Measured on train: without the global at-risk
+    # total the model picks a wrong denominator for within-risky shares.
+    _risky = [(_num(n.attrs.get("ltv_eur") or n.attrs.get("monetary_eur")) or 0.0)
+              for n in graph.nodes.values()
+              if n.type == "customer" and (_num(n.attrs.get("deal_risk_score")) or 0) > 0]
+    if _risky:
+        agg_lines.append(
+            f"  EN RIESGO (global, score>0): €{sum(_risky):,.2f} "
+            f"LTV conjunto, {len(_risky)} clientes")
+    _dormant_ids = {e.src for e in graph.edges if e.type == "DORMANT"}
+    _dorm = [(_num(graph.nodes[nid].attrs.get("ltv_eur")
+                   or graph.nodes[nid].attrs.get("monetary_eur")) or 0.0)
+             for nid in _dormant_ids if nid in graph.nodes]
+    if _dorm:
+        agg_lines.append(
+            f"  DORMIDOS (global, >90d): €{sum(_dorm):,.2f} "
+            f"LTV conjunto, {len(_dorm)} clientes")
     # v4 B: COBERTURA SCORING line (omit if node absent).
     cov = graph.nodes.get("metric:cobertura_scoring")
     if cov is not None and cov.attrs:
@@ -1058,6 +1172,94 @@ def to_evidence_context(
             if missing:
                 line += f" | categorías SIN penetrar (top revenue): {', '.join(missing)}"
             agg_lines.append(line)
+
+    # ── v5: GROUP-BY SEGMENTO — one line per segment with group-by attrs ────
+    seg_gb_lines: list[str] = []
+    for nid in sorted(graph.nodes):
+        node = graph.nodes[nid]
+        if node.type != "segment":
+            continue
+        a = node.attrs
+        total_ltv = a.get("total_ltv_eur")
+        if total_ltv is None:
+            continue
+        share = a.get("share_pct")
+        n = a.get("n_customers")
+        avg = a.get("avg_ltv_eur")
+        parts = [f"total €{total_ltv:,.2f} ({share}%, n={n})"]
+        if avg is not None:
+            parts.append(f"avg €{avg:,.2f}")
+        ar_ltv = a.get("at_risk_ltv_eur")
+        ar_n = a.get("at_risk_n")
+        if ar_ltv is not None or ar_n is not None:
+            parts.append(f"en-riesgo €{ar_ltv:,.2f} ({ar_n})" if ar_ltv is not None
+                         else f"en-riesgo n={ar_n}")
+        do_ltv = a.get("dormant_ltv_eur")
+        do_n = a.get("dormant_n")
+        if do_ltv is not None or do_n is not None:
+            parts.append(f"dormido €{do_ltv:,.2f} ({do_n})" if do_ltv is not None
+                         else f"dormido n={do_n}")
+        un_ltv = a.get("unscored_ltv_eur")
+        un_n = a.get("unscored_n")
+        if un_ltv is not None or un_n is not None:
+            parts.append(f"sin-score €{un_ltv:,.2f} ({un_n})" if un_ltv is not None
+                         else f"sin-score n={un_n}")
+        seg_gb_lines.append(f"  SEGMENTO {node.label}: " + " · ".join(parts))
+
+    if seg_gb_lines:
+        agg_lines.append("## GROUP-BY SEGMENTO")
+        agg_lines.extend(seg_gb_lines)
+
+    # ── v5: TOP-5 POR DEAL_RISK_SCORE ────────────────────────────────────────
+    scored_customers: list[tuple[float, str]] = []
+    for cid, cnode in graph.nodes.items():
+        if cnode.type != "customer":
+            continue
+        score = _num(cnode.attrs.get("deal_risk_score"))
+        if score is not None:
+            scored_customers.append((score, cid))
+    if scored_customers:
+        scored_customers.sort(key=lambda x: (-x[0], x[1]))
+        top5_scored = scored_customers[:5]
+        risk_parts: list[str] = []
+        for score, cid in top5_scored:
+            cnode = graph.nodes[cid]
+            ltv_val = _num(cnode.attrs.get("ltv_eur") or cnode.attrs.get("monetary_eur"))
+            ltv_str = f"€{ltv_val:,.2f}" if ltv_val is not None else "€?"
+            risk_parts.append(f"{cnode.label} (score {score:.1f}, {ltv_str})")
+        agg_lines.append("## TOP-5 POR DEAL_RISK_SCORE: " + " · ".join(risk_parts))
+
+    # ── v5: TOP-5 CATEGORÍAS POR REVENUE ─────────────────────────────────────
+    cat_revenue: list[tuple[float, str]] = []
+    for cat_nid, cat_node in graph.nodes.items():
+        if cat_node.type != "category":
+            continue
+        rev = _num(cat_node.attrs.get("total_revenue_eur"))
+        if rev is not None:
+            cat_revenue.append((rev, cat_nid))
+    if cat_revenue:
+        cat_revenue.sort(key=lambda x: (-x[0], x[1]))
+        top5_cats = cat_revenue[:5]
+        # For each category, collect segment BUYS edges (weight = penetration/100).
+        seg_buys: dict[str, list[tuple[str, float]]] = {}  # cat_nid → [(seg_label, pen_pct)]
+        for e in graph.edges:
+            if e.type == "BUYS" and e.dst in graph.nodes:
+                seg_node = graph.nodes.get(e.src)
+                if seg_node is not None and seg_node.type == "segment":
+                    seg_buys.setdefault(e.dst, []).append(
+                        (seg_node.label, round(e.weight * 100.0, 1)))
+        cat_parts: list[str] = []
+        for rev_val, cat_nid in top5_cats:
+            cat_node = graph.nodes[cat_nid]
+            segs = seg_buys.get(cat_nid, [])
+            segs_sorted = sorted(segs, key=lambda x: (-x[1], x[0]))
+            seg_str = ", ".join(f"{sl} ({sp}%)" for sl, sp in segs_sorted)
+            entry = f"{cat_node.label} €{rev_val:,.2f}"
+            if seg_str:
+                entry += f" · compran: {seg_str}"
+            cat_parts.append(entry)
+        agg_lines.append("## TOP-5 CATEGORÍAS POR REVENUE: " + " | ".join(cat_parts))
+
     agg_block = "\n".join(agg_lines)
 
     # ── Global multi-agent block (always prepended) ──────────────────────

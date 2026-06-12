@@ -76,24 +76,43 @@ async def run(args) -> int:
 
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    answers: dict[str, dict[str, str]] = {arm: {} for arm in arms}
+    n_samples = args.samples
+    # With n_samples>1: answers[arm][qid] is a list; with n_samples==1: a string.
+    answers: dict[str, dict] = {arm: {} for arm in arms}
     seeds_audit = {}
 
     for q in active:
         qid = q["id"]
         seeds_audit[qid] = sorted(select_seeds(q["question"], graph))
         for arm in arms:
-            t0 = time.time()
-            if arm == "community":
-                ans = await answer_global_question(
-                    q["question"], graph, communities, summaries,
-                    None, state["client_config"])
+            if n_samples > 1:
+                sample_list: list[str] = []
+                for k in range(n_samples):
+                    t0 = time.time()
+                    if arm == "community":
+                        ans = await answer_global_question(
+                            q["question"], graph, communities, summaries,
+                            None, state["client_config"])
+                    else:
+                        ans = await answer_flat(
+                            q["question"], state, state["client_config"],
+                            include_raw_rows=(arm == "flat"))
+                    elapsed = time.time() - t0
+                    print(f"[{qid}] {arm} sample {k+1}/{n_samples}: {len(ans)} chars ({elapsed:.0f}s)", flush=True)
+                    sample_list.append(ans)
+                answers[arm][qid] = sample_list
             else:
-                ans = await answer_flat(
-                    q["question"], state, state["client_config"],
-                    include_raw_rows=(arm == "flat"))
-            answers[arm][qid] = ans
-            print(f"[{qid}] {arm}: {len(ans)} chars ({time.time()-t0:.0f}s)", flush=True)
+                t0 = time.time()
+                if arm == "community":
+                    ans = await answer_global_question(
+                        q["question"], graph, communities, summaries,
+                        None, state["client_config"])
+                else:
+                    ans = await answer_flat(
+                        q["question"], state, state["client_config"],
+                        include_raw_rows=(arm == "flat"))
+                answers[arm][qid] = ans
+                print(f"[{qid}] {arm}: {len(ans)} chars ({time.time()-t0:.0f}s)", flush=True)
 
     for arm in arms:
         (out / f"{arm}.json").write_text(
@@ -121,6 +140,8 @@ def main(argv=None) -> int:
     ap.add_argument("--only", default=None, help="comma-separated question ids")
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--cli-path", default=None)
+    ap.add_argument("--samples", type=int, default=1,
+                    help="N>1: generate each answer N times; output saves a list per qid")
     args = ap.parse_args(argv)
     bootstrap(args.model, args.cli_path)
     return asyncio.run(run(args))

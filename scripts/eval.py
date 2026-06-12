@@ -366,19 +366,32 @@ def graphrag_main(args) -> int:
     for qid, q in active.items():
         entry: dict = {}
         for arm, answers in arms.items():
-            ans = answers.get(qid, "")
-            l0 = judge_layer0(ans, q, references)
-            score, forbidden = l0.score, l0.forbidden_hits
-            if args.judge:
-                # median over reps for BOTH splits — single-rep forbidden counts
-                # oscillate ±1 (measured on train) and poison the gate margin.
-                l1 = asyncio.run(judge_layer1(ans, q, references, reps=args.judge_reps))
-                if l1["max_points"]:
-                    score = l1["points"] / l1["max_points"]
-                    forbidden = max(forbidden, l1["forbidden_hits"])
-            rows.append({"question": qid, "split": q.get("split", "train"), "arm": arm,
-                         "score": round(score, 3), "forbidden": forbidden,
-                         "layer0": round(l0.score, 3), "detail": "; ".join(l0.details)[:120]})
+            raw_ans = answers.get(qid, "")
+            # Support str (n_samples=1, compat) or list (n_samples>1, v5 protocol)
+            sample_list: list[str] = raw_ans if isinstance(raw_ans, list) else [raw_ans]
+            sample_scores: list[float] = []
+            sample_forbidden: list[int] = []
+            for k, ans in enumerate(sample_list):
+                l0 = judge_layer0(ans, q, references)
+                s_score, s_forbidden = l0.score, l0.forbidden_hits
+                if args.judge:
+                    # median over reps for BOTH splits — single-rep forbidden counts
+                    # oscillate ±1 (measured on train) and poison the gate margin.
+                    l1 = asyncio.run(judge_layer1(ans, q, references, reps=args.judge_reps))
+                    if l1["max_points"]:
+                        s_score = l1["points"] / l1["max_points"]
+                        s_forbidden = max(s_forbidden, l1["forbidden_hits"])
+                sample_scores.append(s_score)
+                sample_forbidden.append(s_forbidden)
+                rows.append({
+                    "question": qid, "split": q.get("split", "train"), "arm": arm,
+                    "sample": k,
+                    "score": round(s_score, 3), "forbidden": s_forbidden,
+                    "layer0": round(l0.score, 3), "detail": "; ".join(l0.details)[:120],
+                })
+            # Aggregate: median across samples
+            score = statistics.median(sample_scores)
+            forbidden = int(statistics.median(sample_forbidden))
             entry[arm] = score
             if arm == "community":
                 entry["community_forbidden"] = forbidden

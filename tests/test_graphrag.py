@@ -911,3 +911,276 @@ class TestDeterminismV4:
         p1 = personalized_pagerank(g1, {"metric:cobertura_scoring": 1.0})
         p2 = personalized_pagerank(g2, {"metric:cobertura_scoring": 1.0})
         assert p1 == p2
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 21. V5 GROUP-BY ATTRS PER SEGMENT — correct computation from string numerics
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestGroupBySegmentAttrs:
+    """v5: avg_ltv_eur, at_risk_ltv_eur/n, dormant_ltv_eur/n, unscored_ltv_eur/n
+    computed correctly even when input numerics are DB strings."""
+
+    def test_avg_ltv_eur_champions(self, graph):
+        """champions avg = total_ltv / n_customers."""
+        champ = graph.nodes["segment:champions"]
+        total = champ.attrs["total_ltv_eur"]
+        n = champ.attrs["n_customers"]
+        assert champ.attrs["avg_ltv_eur"] == pytest.approx(round(total / n, 2), rel=1e-4)
+
+    def test_avg_ltv_eur_at_risk(self, graph):
+        at_risk = graph.nodes["segment:at_risk"]
+        total = at_risk.attrs["total_ltv_eur"]
+        n = at_risk.attrs["n_customers"]
+        assert at_risk.attrs["avg_ltv_eur"] == pytest.approx(round(total / n, 2), rel=1e-4)
+
+    def test_at_risk_attrs_on_at_risk_segment(self, graph):
+        """Segment 'at_risk' has all 4 members with deal_risk_score → at_risk_n=4."""
+        seg = graph.nodes["segment:at_risk"]
+        assert seg.attrs["at_risk_n"] == 4
+        # at_risk_ltv_eur = 25516.21 + 18225.87 + 14580.69 + 10935.52
+        expected = 25516.21 + 18225.87 + 14580.69 + 10935.52
+        assert seg.attrs["at_risk_ltv_eur"] == pytest.approx(expected, rel=1e-4)
+
+    def test_no_at_risk_on_champions(self, graph):
+        """champions have no deal_risk_score → no at_risk attrs."""
+        champ = graph.nodes["segment:champions"]
+        assert "at_risk_n" not in champ.attrs
+        assert "at_risk_ltv_eur" not in champ.attrs
+
+    def test_dormant_attrs_on_at_risk_segment(self, graph):
+        """C005-C008 have recency_days > 90 → all dormant; all in at_risk segment."""
+        seg = graph.nodes["segment:at_risk"]
+        assert seg.attrs["dormant_n"] == 4
+        expected = 25516.21 + 18225.87 + 14580.69 + 10935.52
+        assert seg.attrs["dormant_ltv_eur"] == pytest.approx(expected, rel=1e-4)
+
+    def test_no_dormant_on_champions(self, graph):
+        """champions recency_days ≤ 30 → never dormant."""
+        champ = graph.nodes["segment:champions"]
+        assert "dormant_n" not in champ.attrs
+        assert "dormant_ltv_eur" not in champ.attrs
+
+    def test_unscored_attrs_on_champions(self, graph):
+        """champions: 4 members with LTV, none have deal_risk_score."""
+        champ = graph.nodes["segment:champions"]
+        assert champ.attrs["unscored_n"] == 4
+        # total_ltv = 127581.06 + 72903.46 + 36451.73 + 29161.38
+        expected = 127581.06 + 72903.46 + 36451.73 + 29161.38
+        assert champ.attrs["unscored_ltv_eur"] == pytest.approx(expected, rel=1e-4)
+
+    def test_no_unscored_on_fully_scored_segment(self, graph):
+        """at_risk: all 4 members have deal_risk_score → no unscored attrs."""
+        seg = graph.nodes["segment:at_risk"]
+        assert "unscored_n" not in seg.attrs
+        assert "unscored_ltv_eur" not in seg.attrs
+
+    def test_avg_ltv_uses_num_coercion(self):
+        """avg_ltv_eur must be computed even when LTV arrives as a DB string."""
+        entity_map = {"entities": {}, "relationships": []}
+        qr = {"results": {
+            "rfm_segmentation": {"rows": [
+                {"customer_id": "X1", "segment": "vip", "monetary_eur": "1000.00"},
+                {"customer_id": "X2", "segment": "vip", "monetary_eur": "3000.00"},
+            ]},
+        }}
+        g = build_entity_graph(entity_map, qr, {}, {})
+        seg = g.nodes.get("segment:vip")
+        assert seg is not None
+        assert seg.attrs.get("avg_ltv_eur") == pytest.approx(2000.0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 22. V5 EVIDENCE CONTEXT — new headers present and correct
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _make_state_with_cat_revenue() -> tuple[dict, dict, dict, dict, dict]:
+    """Extend make_state() cross_sell rows to include category_revenue_eur,
+    enabling the TOP-5 CATEGORÍAS POR REVENUE header."""
+    entity_map, query_results, baseline, findings, number_registry = make_state()
+    # Replace cross_sell rows with revenue-bearing ones.
+    query_results["results"]["cross_sell_matrix"]["rows"] = [
+        {"segment": "champions",   "category": "Alimentos",  "penetration_pct": "80.00",
+         "category_revenue_eur": "5000.00"},
+        {"segment": "champions",   "category": "Bebidas",    "penetration_pct": 60.0,
+         "category_revenue_eur": "3000.00"},
+        {"segment": "at_risk",     "category": "Limpieza",   "penetration_pct": "50.00",
+         "category_revenue_eur": "2000.00"},
+        {"segment": "hibernating", "category": "Ferretería", "penetration_pct": 30.0,
+         "category_revenue_eur": "1000.00"},
+    ]
+    return entity_map, query_results, baseline, findings, number_registry
+
+
+class TestEvidenceContextV5:
+    def _ctx(self, graph, budget: int = 20000) -> str:
+        ppr = personalized_pagerank(graph, {"customer:C001": 1.0})
+        return to_evidence_context(graph, ppr, top_k=30, char_budget=budget)
+
+    def test_group_by_segmento_header_present(self, graph):
+        """GROUP-BY SEGMENTO section must appear after TOP-10 POR LTV."""
+        ctx = self._ctx(graph)
+        assert "GROUP-BY SEGMENTO" in ctx
+
+    def test_group_by_after_top10(self, graph):
+        ctx = self._ctx(graph)
+        assert ctx.index("TOP-10 POR LTV") < ctx.index("GROUP-BY SEGMENTO")
+
+    def test_group_by_champions_line_correct(self, graph):
+        """champions line must contain avg_ltv and unscored_ltv values."""
+        ctx = self._ctx(graph)
+        # Find the champions line within the GROUP-BY block.
+        gb_idx = ctx.index("GROUP-BY SEGMENTO")
+        gb_section = ctx[gb_idx:]
+        assert "SEGMENTO champions" in gb_section
+        # avg_ltv_eur = 266097.63 / 4 = 66524.41 (approx)
+        assert "66,524.41" in gb_section or "66524.41" in gb_section
+
+    def test_group_by_at_risk_shows_en_riesgo(self, graph):
+        """at_risk line must show en-riesgo value (69258.29)."""
+        ctx = self._ctx(graph)
+        gb_idx = ctx.index("GROUP-BY SEGMENTO")
+        gb_section = ctx[gb_idx:]
+        assert "en-riesgo" in gb_section
+        # at_risk_ltv_eur = 69258.29
+        assert "69,258.29" in gb_section or "69258.29" in gb_section
+
+    def test_top5_por_deal_risk_score_present(self, graph):
+        """TOP-5 POR DEAL_RISK_SCORE header must be present."""
+        ctx = self._ctx(graph)
+        assert "TOP-5 POR DEAL_RISK_SCORE" in ctx
+
+    def test_top5_risk_rank1_is_estrella(self, graph):
+        """Estrella Pack has deal_risk_score=78.5 — highest in fixture."""
+        ctx = self._ctx(graph)
+        idx = ctx.index("TOP-5 POR DEAL_RISK_SCORE")
+        snippet = ctx[idx:idx + 200]
+        assert "Estrella Pack" in snippet
+        assert "78.5" in snippet
+
+    def test_top5_risk_order(self, graph):
+        """Rank order must be descending by score: 78.5, 65.0, 52.3, 49.0."""
+        ctx = self._ctx(graph)
+        idx = ctx.index("TOP-5 POR DEAL_RISK_SCORE")
+        line = ctx[idx:idx + 300]
+        pos_78 = line.index("78.5")
+        pos_65 = line.index("65.0")
+        pos_52 = line.index("52.3")
+        assert pos_78 < pos_65 < pos_52
+
+    def test_top5_categorias_por_revenue_present(self):
+        """TOP-5 CATEGORÍAS POR REVENUE header requires category_revenue_eur data."""
+        g = build_entity_graph(*_make_state_with_cat_revenue())
+        ppr = personalized_pagerank(g, {"customer:C001": 1.0})
+        ctx = to_evidence_context(g, ppr, top_k=30, char_budget=20000)
+        assert "TOP-5 CATEGORÍAS POR REVENUE" in ctx
+
+    def test_top5_categorias_rank1_is_alimentos(self):
+        """With revenue data, Alimentos (5000) must appear before Bebidas (3000)."""
+        g = build_entity_graph(*_make_state_with_cat_revenue())
+        ppr = personalized_pagerank(g, {"customer:C001": 1.0})
+        ctx = to_evidence_context(g, ppr, top_k=30, char_budget=20000)
+        idx = ctx.index("TOP-5 CATEGORÍAS POR REVENUE")
+        line = ctx[idx:idx + 300]
+        assert "Alimentos" in line
+        # Alimentos must come before Bebidas in the line.
+        assert line.index("Alimentos") < line.index("Bebidas")
+
+    def test_top5_categorias_includes_segment_penetration(self):
+        """Category lines must include segment penetration info."""
+        g = build_entity_graph(*_make_state_with_cat_revenue())
+        ppr = personalized_pagerank(g, {"customer:C001": 1.0})
+        ctx = to_evidence_context(g, ppr, top_k=30, char_budget=20000)
+        idx = ctx.index("TOP-5 CATEGORÍAS POR REVENUE")
+        section = ctx[idx:idx + 400]
+        assert "compran:" in section
+        # champions has 80% penetration in Alimentos.
+        assert "champions" in section
+
+    def test_no_top5_categorias_without_revenue_data(self, graph):
+        """When categories have no revenue data, the header must be absent."""
+        # The base fixture has no category_revenue_eur → header absent.
+        ctx = self._ctx(graph)
+        assert "TOP-5 CATEGORÍAS POR REVENUE" not in ctx
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 23. V5 COMMUNITY FACT SHEET — GROUP-BY line for segment members
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestCommunityFactSheetV5:
+    def test_group_by_line_in_sheet_for_segment(self, graph):
+        """community_fact_sheet must emit a GROUP-BY line for segment nodes."""
+        comms = detect_communities(graph)
+        champ_comm = comms["segment:champions"]
+        sheet = community_fact_sheet(graph, comms, champ_comm)
+        assert "GROUP-BY champions" in sheet
+
+    def test_group_by_line_contains_avg(self, graph):
+        comms = detect_communities(graph)
+        champ_comm = comms["segment:champions"]
+        sheet = community_fact_sheet(graph, comms, champ_comm)
+        assert "avg" in sheet
+
+    def test_group_by_at_risk_segment_has_en_riesgo(self, graph):
+        comms = detect_communities(graph)
+        ar_comm = comms["segment:at_risk"]
+        sheet = community_fact_sheet(graph, comms, ar_comm)
+        assert "en-riesgo" in sheet
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 24. V5 SEED ALIAS — "promedio" → all segment nodes
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSeedAliasesV5:
+    def test_promedio_seeds_all_segments(self, graph):
+        seeds = select_seeds("¿cuál es el promedio de LTV por segmento?", graph)
+        seg_seeds = [k for k in seeds if k.startswith("segment:")]
+        assert len(seg_seeds) == 3  # champions, at_risk, hibernating
+
+    def test_promedio_seeds_non_empty(self, graph):
+        seeds = select_seeds("promedio de clientes", graph)
+        assert seeds
+
+    def test_por_segmento_alias(self, graph):
+        seeds = select_seeds("distribución por segmento RFM", graph)
+        seg_seeds = [k for k in seeds if k.startswith("segment:")]
+        assert len(seg_seeds) >= 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 25. V5 DETERMINISM — group-by attrs identical across two fresh builds
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestDeterminismV5:
+    def test_v5_group_by_attrs_deterministic(self):
+        """avg_ltv_eur / at_risk_ltv_eur / dormant_ltv_eur / unscored_ltv_eur
+        must be byte-identical across two independent builds."""
+        g1 = build_entity_graph(*make_state())
+        g2 = build_entity_graph(*make_state())
+        for nid in g1.nodes:
+            node1 = g1.nodes[nid]
+            node2 = g2.nodes[nid]
+            if node1.type == "segment":
+                for k in ("avg_ltv_eur", "at_risk_ltv_eur", "at_risk_n",
+                          "dormant_ltv_eur", "dormant_n",
+                          "unscored_ltv_eur", "unscored_n"):
+                    assert node1.attrs.get(k) == node2.attrs.get(k), (
+                        f"{nid}.{k}: {node1.attrs.get(k)} != {node2.attrs.get(k)}"
+                    )
+
+    def test_v5_headers_deterministic(self):
+        """to_evidence_context output must be identical across two builds."""
+        g1 = build_entity_graph(*make_state())
+        g2 = build_entity_graph(*make_state())
+        ppr1 = personalized_pagerank(g1, {"customer:C001": 1.0})
+        ppr2 = personalized_pagerank(g2, {"customer:C001": 1.0})
+        ctx1 = to_evidence_context(g1, ppr1, top_k=30, char_budget=20000)
+        ctx2 = to_evidence_context(g2, ppr2, top_k=30, char_budget=20000)
+        assert ctx1 == ctx2

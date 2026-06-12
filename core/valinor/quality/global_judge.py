@@ -145,6 +145,9 @@ RESPUESTA A EVALUAR:
 
 Por cada required_fact puntuá: 0 = ausente, 1 = presente pero número/lista incorrecta,
 2 = presente y correcto (dentro de la tolerancia).
+IMPORTANTE: las listas de la referencia son CONJUNTOS sin orden (vienen ordenadas
+alfabéticamente por convención) — NO penalices el orden en que la respuesta las
+presenta; solo importa la pertenencia.
 
 FORBIDDEN: un forbidden es SOLO una frase citable de la respuesta que (a) atribuye
 una categoría de producto a un CLIENTE individual (los datos son segmento×categoría),

@@ -123,6 +123,31 @@
     "top3_score_ltv_share_pct": 76.97,
     "risky_total_ltv_eur": 825000.0
   },
+  "q17": {
+    "convergent_customers": [
+      "FERRETERIA EL NORTE SA"
+    ],
+    "convergent_ltv_eur": 480000.0,
+    "convergent_share_pct": 20.0
+  },
+  "q18": {
+    "avg_top_segment": [
+      "Champions"
+    ],
+    "avg_top_segment_avg_ltv_eur": 326666.67,
+    "avg_top_segment_n": 3
+  },
+  "q20": {
+    "top_category": [
+      "HERRAMIENTAS"
+    ],
+    "top_category_revenue_eur": 1100000.0,
+    "buying_segments": [
+      "At Risk",
+      "Champions",
+      "Loyal"
+    ]
+  },
   "q8": {
     "blind_segments": [
       "Loyal"

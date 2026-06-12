@@ -189,7 +189,8 @@ questions:
   # generaliza las features nuevas a una combinación no vista, q16 exige
   # ranking por una dimensión distinta (score, no LTV).
   - id: q14-dormancia-por-segmento
-    split: test
+    # v5: vista en el run congelado v4 → train.
+    split: train
     question: >
       ¿Qué segmento RFM acumula más LTV dormido (clientes con más de 90 días
       sin comprar)? ¿Cuánto LTV dormido tiene ese segmento y cuántos clientes
@@ -202,7 +203,8 @@ questions:
     why_flat_fails: "join recency (rfm/churn) × segmento (rfm) + group-by + suma — mismo gap estructural que q9 con otro filtro"
 
   - id: q15-top10-sin-score
-    split: test
+    # v5: vista en el run congelado v4 → train.
+    split: train
     question: >
       Del top-10 de clientes por LTV, ¿cuántos NO tienen score de churn,
       quiénes son y cuánto LTV suman?
@@ -214,7 +216,8 @@ questions:
     why_flat_fails: "membresía top-10 (ranking global por LTV) ∩ ausencia de score — combina los dos gaps estructurales del flat"
 
   - id: q16-concentracion-del-riesgo
-    split: test
+    # v5: vista en el run congelado v4 → train.
+    split: train
     question: >
       Dentro de los clientes en riesgo de churn (deal_risk_score>0), ¿qué
       porcentaje de su LTV conjunto concentran los 3 con mayor score? ¿Quiénes
@@ -225,3 +228,46 @@ questions:
       - {fact: "share del LTV en riesgo que concentran", expected: "{REF:q16.top3_score_ltv_share_pct}", tolerance_pct: 2.0}
       - {fact: "LTV conjunto de todos los en riesgo", expected: "{REF:q16.risky_total_ltv_eur}", tolerance_pct: 1.0}
     why_flat_fails: "ranking por score (no por LTV) + share dentro del subconjunto en riesgo — doble agregación sobre el join churn×ltv"
+
+  # ── v5: test split NUEVO (re-freeze #3) — q17 compone capacidades probadas
+  # (convergencia × share), q18 generaliza el avg del group-by genérico a
+  # combinación no vista, q20 abre la dimensión categoría (no testeada).
+  - id: q17-peso-convergentes
+    split: test
+    question: >
+      Los clientes mencionados en hallazgos de DOS o más agentes distintos:
+      ¿qué LTV conjunto suman y qué porcentaje de la facturación total
+      representan?
+    seed_entities: ["hallazgos", "agentes", "facturación"]
+    required_facts:
+      - {fact: "clientes convergentes", expected: "{REF:q17.convergent_customers}", kind: labels}
+      - {fact: "LTV conjunto de los convergentes", expected: "{REF:q17.convergent_ltv_eur}", tolerance_pct: 1.0}
+      - {fact: "share de la facturación", expected: "{REF:q17.convergent_share_pct}", tolerance_pct: 2.0}
+    why_flat_fails: "menciones cruzadas entre agentes (grafo MENTIONS) × LTV (otro result set) × share — tres fuentes que ningún query une"
+
+  - id: q18-ltv-promedio-segmento
+    split: test
+    question: >
+      ¿Qué segmento RFM tiene el mayor LTV promedio por cliente? ¿Cuánto es
+      ese promedio y cuántos clientes tiene el segmento?
+    seed_entities: ["segmento", "ltv"]
+    required_facts:
+      - {fact: "segmento con mayor LTV promedio", expected: "{REF:q18.avg_top_segment}", kind: labels}
+      - {fact: "LTV promedio del líder", expected: "{REF:q18.avg_top_segment_avg_ltv_eur}", tolerance_pct: 1.0}
+      - {fact: "clientes del segmento líder", expected: "{REF:q18.avg_top_segment_n}", tolerance_pct: 0.0}
+    why_flat_fails: "promedio por grupo = suma/count del join ltv×segmento — doble agregación que ningún query trae"
+
+  - id: q20-categoria-lider
+    split: test
+    question: >
+      ¿Qué categoría de producto genera más revenue en total, cuánto genera,
+      y qué segmentos RFM la compran?
+    seed_entities: ["categoría", "segmento", "penetración"]
+    required_facts:
+      - {fact: "categoría líder por revenue", expected: "{REF:q20.top_category}", kind: labels}
+      - {fact: "revenue de la categoría líder", expected: "{REF:q20.top_category_revenue_eur}", tolerance_pct: 1.0}
+      - {fact: "segmentos que la compran", expected: "{REF:q20.buying_segments}", kind: labels}
+    granularity_notes: >
+      cross_sell es segmento×categoría: claims cliente→categoría son
+      inferencia 2-hop y el juez los penaliza.
+    why_flat_fails: "agregación de revenue por categoría a través de segmentos (cross_sell) + el set de compradores — group-by sobre la dimensión no analizada"

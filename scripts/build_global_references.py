@@ -365,6 +365,63 @@ def compute_references(state: dict) -> tuple[dict, list[str]]:
     else:
         not_computable.append("q16")
 
+    # ── v5 test split (re-freeze #3): q17 / q18 / q20 ───────────────────────
+
+    # q17 — peso de los convergentes: clientes mencionados por ≥2 agentes × LTV
+    conv_cust = [cust[cid] for cid in convergent if cust[cid]["ltv"]]
+    if convergent and total and conv_cust:
+        conv_ltv = sum(c["ltv"] for c in conv_cust)
+        refs["q17"] = {
+            "convergent_customers": sorted(filter(None, (c["name"] for c in conv_cust))),
+            "convergent_ltv_eur": round(conv_ltv, 2),
+            "convergent_share_pct": round(conv_ltv / total * 100, 2),
+        }
+    else:
+        not_computable.append("q17")
+
+    # q18 — mayor LTV promedio por segmento (avg = suma/count del group-by)
+    seg_groups: dict[str, list] = {}
+    for c in with_ltv.values():
+        if c["segment"]:
+            seg_groups.setdefault(c["segment"], []).append(c)
+    if seg_groups:
+        top_seg = max(seg_groups,
+                      key=lambda s: sum(c["ltv"] for c in seg_groups[s]) / len(seg_groups[s]))
+        grp = seg_groups[top_seg]
+        refs["q18"] = {
+            "avg_top_segment": [top_seg],
+            "avg_top_segment_avg_ltv_eur": round(sum(c["ltv"] for c in grp) / len(grp), 2),
+            "avg_top_segment_n": len(grp),
+        }
+    else:
+        not_computable.append("q18")
+
+    # q20 — categoría líder por revenue + segmentos compradores
+    if xsell:
+        cat_rev2: dict[str, float] = {}
+        cat_buyers: dict[str, set] = {}
+        for r in xsell:
+            cat = _field(r, "category", "categoria")
+            seg = _field(r, "segment", "segmento")
+            rev = _num(_field(r, "category_revenue_eur", "revenue_eur", "revenue"))
+            if cat is None:
+                continue
+            if rev:
+                cat_rev2[cat] = cat_rev2.get(cat, 0) + rev
+            if seg:
+                cat_buyers.setdefault(cat, set()).add(seg)
+        if cat_rev2:
+            top_cat = max(cat_rev2, key=cat_rev2.get)
+            refs["q20"] = {
+                "top_category": [top_cat],
+                "top_category_revenue_eur": round(cat_rev2[top_cat], 2),
+                "buying_segments": sorted(cat_buyers.get(top_cat, set())),
+            }
+        else:
+            not_computable.append("q20")
+    else:
+        not_computable.append("q20")
+
     # q8 — segments with share >10% and zero finding mentions
     if seg_ltv and total:
         seg_mentions = findings_mentions(state, {s: s for s in seg_ltv})
