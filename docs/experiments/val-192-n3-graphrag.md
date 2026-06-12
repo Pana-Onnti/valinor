@@ -246,15 +246,55 @@ mismatches). Código congelado → una pasada, mediana 3 reps.
 3. Progresión de wins por ronda: v1 0 → v2 3 → v3 4 → v4 7 (test virgen:
    0 → — → 1/3 → 1/3).
 
-### v5 (definido, NO ejecutado)
+### v5 — re-freeze #3 ejecutado (2026-06-11/12, swarm + dynamic workflow)
 
-1. **Group-by genérico**: servir en fact sheets/header los agregados
-   segmento × {AT_RISK, DORMANT, UNSCORED} × (suma LTV, n, top-3) de forma
-   SISTEMÁTICA (no por pregunta) — cubre la clase q9/q14/q16 entera, no el
-   síntoma. Ídem ranking por cualquier attr numérico (score) además de LTV.
-2. **Respuestas con mediana**: samplear cada respuesta 3× y juzgar la
-   mediana (o las tres) — eliminar el n=1 answer-side.
-3. q14/q15/q16 se queman a train; par fresco + re-freeze #3 para el gate.
+Build vía workflow (3 agentes sonnet en paralelo): **group-by genérico**
+(agregados por segmento avg/en-riesgo/dormido/sin-score + headers sistemáticos
+GROUP-BY SEGMENTO / TOP-5 POR SCORE / TOP-5 CATEGORÍAS + totales globales por
+edge-type), **protocolo 3-sample** (mediana de 3 trials end-to-end por
+(pregunta, arm) — elimina el n=1 answer-side), **referencias q17/q18/q20
+verificadas adversarialmente** (MATCH, cero mismatches). Iteración train: q14
+0.67→6/6, q16 0.67→5/6 forb 0 en UNA ronda (+2 fixes de instrumento: totales
+globales como denominadores; listas de referencia declaradas conjuntos sin
+orden — el juez penalizaba un ranking CORRECTO leyendo el orden alfabético
+como ranking). Test virgen #3: q17 convergencia×share, q18 avg LTV por
+segmento, q20 dimensión categoría.
+
+**Veredicto OFICIAL (una pasada, 3 samples, juez por sample):**
+
+| Pregunta | Split | flat | community | forb | Win |
+|---|---|---|---|---|---|
+| q1/q2/q5/q9/q10/q13/q14/q15/q16 | train | 0.00–0.33 | **1.00** | 0 | ✅ ×9 |
+| q3/q4 | train | 0.00–0.33 | 0.83 | 1 | ✗ |
+| q7 | train | 0.00 | 0.50 | 0 | ✗ |
+| **q17-peso-convergentes** | **test** | 0.17 | **0.83** | 1 | ✗ |
+| **q18-ltv-promedio-segmento** | **test** | 0.00 | **1.00** | 1 | ✗ |
+| **q20-categoria-lider** | **test** | 0.00 | **1.00** | 0 | ✅ **win virgen** |
+
+**GATE v5 (≥5 ∧ ≥2 test): NOT PASSED — 10 wins (récord), test 1/2.**
+
+**Forense de los 2 forbidden bloqueantes (post-veredicto, preguntas ya
+quemadas):** ambos son **falsos positivos del JUEZ**: q17 flaggeó "11.07%"
+como contradicción de la referencia 11.08% (redondeo de 0.01pp, tolerancia
+del fact ±2pp); q18 sacó 6/6 PERFECTO y el forbidden es una recomendación de
+cross-sell correcta a nivel segmento con agregados servidos. Fix de
+calibración aplicado al juez (contradicción = solo fuera de tolerancia;
+comentario de negocio sobre agregados servidos no es forbidden).
+
+**Análisis de sensibilidad (mismas respuestas, juez calibrado — reportado
+como sensibilidad, NO como gate):** test virgen **3/3 wins, community
+1.00/1.00/1.00, forbidden 0**. El sistema generalizó al test virgen completo;
+lo que falló fue el instrumento de juicio. **La certificación formal requiere
+un par virgen nuevo bajo el juez calibrado (v6)** — regla de no re-gatear
+sobre test visto.
+
+Incidente operativo: un auto-update de Claude Code borró el binario del CLI
+a mitad del juicio (scores 0.00 espurios de q14 en adelante) — detectado por
+el patrón todo-cero + el error en el log, re-juzgado con el binario nuevo.
+Ruta estable: `~/.claude/local/claude`.
+
+**Progresión final de las 5 rondas: v1 0 wins → v2 3 → v3 4 → v4 7 → v5 10**
+(test virgen: 0 → — → 1/3 → 1/3 → 1/3 oficial · 3/3 en sensibilidad).
 
 ## Wiring a producción
 

@@ -151,11 +151,13 @@ presenta; solo importa la pertenencia.
 
 FORBIDDEN: un forbidden es SOLO una frase citable de la respuesta que (a) atribuye
 una categoría de producto a un CLIENTE individual (los datos son segmento×categoría),
-o (b) CONTRADICE un valor de la referencia (mismo concepto, número incompatible).
-NO son forbidden: mencionar clientes por nombre, citar números del contexto que la
-referencia no cubre (la referencia es mínima, no exhaustiva), decir "no derivable
-de los datos disponibles", ni los números correctos. Por cada forbidden citá la
-frase textual.
+o (b) CONTRADICE un valor de la referencia FUERA de la tolerancia del fact — una
+diferencia de redondeo dentro de la tolerancia (p.ej. 11.07% vs 11.08% con ±2pp)
+NO es contradicción. NO son forbidden: mencionar clientes por nombre, citar números
+del contexto que la referencia no cubre (la referencia es mínima, no exhaustiva),
+observaciones o recomendaciones de negocio adicionales basadas en agregados del
+contexto, decir "no derivable de los datos disponibles", ni los números correctos.
+Por cada forbidden citá la frase textual.
 
 Respondé SOLO un objeto JSON:
 {{"facts": [{{"fact": "...", "score": 0|1|2}}], "forbidden_quotes": ["<frase textual>", ...], "rationale": "<máx 30 palabras>"}}
