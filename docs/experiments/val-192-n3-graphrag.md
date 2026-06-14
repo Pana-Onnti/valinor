@@ -293,13 +293,72 @@ a mitad del juicio (scores 0.00 espurios de q14 en adelante) — detectado por
 el patrón todo-cero + el error en el log, re-juzgado con el binario nuevo.
 Ruta estable: `~/.claude/local/claude`.
 
-**Progresión final de las 5 rondas: v1 0 wins → v2 3 → v3 4 → v4 7 → v5 10**
+**Progresión de las 5 rondas: v1 0 wins → v2 3 → v3 4 → v4 7 → v5 10**
 (test virgen: 0 → — → 1/3 → 1/3 → 1/3 oficial · 3/3 en sensibilidad).
+
+## v6 — Certificación del hito (2026-06-14) ✅ GATE PASSED
+
+Par virgen NUEVO (re-freeze #4) bajo el juez calibrado, **sistema y juez
+CONGELADOS desde v5** (commit `d75c68ff` graph / `8210a2fd` juez). Tres
+preguntas que prueban generalización pura — combinaciones no vistas de
+agregados que ya se sirven genéricamente:
+
+- **q22** group-by por segmento sobre el COMPLEMENTO del scoring (LTV sin
+  `deal_risk_score`) — ausencia + join + agregación.
+- **q24** intersección de dos rankings globales (top-5 LTV ∩ top-5 score).
+- **q25** máximo dentro de la unión deduplicada churn∪dormancia + total.
+
+Referencias por joins independientes, verificadas adversarialmente por un
+agente separado (**MATCH al centavo** en ambos estados). Protocolo 3-sample
+(mediana de 3 trials end-to-end por (pregunta, brazo)).
+
+| Pregunta | split | flat | flat_narr | community | forb |
+|---|---|---|---|---|---|
+| q22-segmento-sin-cobertura | test | 0.00 | 0.00 | **1.00** | 0 |
+| q24-doble-top | test | 0.00 | 0.00 | **1.00** | 0 |
+| q25-cliente-mas-expuesto | test | 0.00 | 0.00 | **1.00** | 0 |
+
+**Veredicto oficial (juicio limpio):** **15 wins totales · test virgen 3/3 ·
+forbidden 0 · GATE (≥5 ∧ ≥2 test) PASSED.** Los 9 samples del trío (3 por
+pregunta) dieron 1.00, layer0 1.00 — sin varianza answer-side. El trío calza
+exactamente con las referencias: q22 champions/€1,416,435.54/10 · q24
+ISKAY PET S.LU./1 · q25 KONG DE/€582,015.89/total €2,653,209.27. Confirma la
+predicción de sensibilidad de v5 (3/3): **el sistema generaliza a clases de
+agregados que nunca vio.**
+
+**Auditoría adversarial (workflow, 9 escépticos + crítico de completitud):**
+los 3 wins SOBREVIVIERON; cero refutes válidos; cero forbidden. El único
+`refute` (q24) fue un falso positivo del propio auditor — comparó contra el
+`references_demo.json` (fixture-señuelo, NO usado) en vez de Gloria; el crítico
+lo refutó reproduciendo layer0 (9/9 = 1.00). Riesgo simétrico al de v5 (falso
+*positivo* del juez): acotado — layer0 es determinista y exige los labels/
+números canónicos exactos dentro de tolerancia; no puede "regalar" un win.
+
+**Caveat honesto (no blocker):** el gate certifica el *grounding de los facts
+canónicos* (presencia + ausencia de substitución/contradicción), **NO** la
+corrección de specifics auxiliares (montos por cliente, ranks, %, recencia,
+RFM puntual) — quedan fuera del ground-truth por diseño de referencia mínima.
+Spot-check: la mayoría son trazables a la evidencia del propio brazo; tres no
+se pudieron confirmar ni refutar contra ground-truth independiente
+(q25 "frecuencia 26 órdenes", q25 "RFM 5.0", re-atribución puntual de
+`deal_risk_score` 80.7). El hito certifica **facts-grounded, no
+answer-fully-verified.**
+
+**Incidente operativo (repetido):** el auto-updater de Claude Code reescribió
+el symlink del CLI apuntándolo a `claude.exe` (binario **Windows**) a mitad
+del primer juicio → q18→q25 todos 0.00 espurios (patrón todo-cero). Detectado
+por el log (`exit 127: …/.bin/claude: No such file or directory`) y re-juzgado
+con el binario nativo Linux v2.1.177 copiado a `/tmp/claude-stable-v2` +
+`DISABLE_AUTOUPDATER=1` (inmune a re-update mid-run).
+
+**Progresión final: v1 0 → v2 3 → v3 4 → v4 7 → v5 10 → v6 15 wins**
+(test virgen certificado **3/3**, forbidden 0). **Hito N3 CERTIFICADO.**
 
 ## Wiring a producción
 
 `VALINOR_GRAPHRAG=1` (Stage 3.7 opcional, inerte por defecto) queda para
 DESPUÉS de que el gate pase — eval-first, wire-later (la lección pre-N1).
+**Gate pasado en v6 → el wiring queda habilitado como próximo paso.**
 
 *Refs: VAL-192 (N3). Harness: `core/valinor/graphrag.py` ·
 `core/valinor/agents/graph_global.py` · `core/valinor/quality/global_judge.py` ·

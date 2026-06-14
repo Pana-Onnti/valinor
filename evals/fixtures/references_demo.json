@@ -137,6 +137,27 @@
     "avg_top_segment_avg_ltv_eur": 326666.67,
     "avg_top_segment_n": 3
   },
+  "q22": {
+    "unscored_top_segment": [
+      "Champions"
+    ],
+    "unscored_top_segment_ltv_eur": 980000.0,
+    "unscored_top_segment_n": 3
+  },
+  "q24": {
+    "double_top": [
+      "DISTRIBUIDORA ANDINA SRL",
+      "KIOSCO MAYORISTA SRL"
+    ],
+    "double_top_n": 2
+  },
+  "q25": {
+    "top_exposed_customer": [
+      "DISTRIBUIDORA ANDINA SRL"
+    ],
+    "top_exposed_ltv_eur": 360000.0,
+    "total_exposed_ltv_eur": 945000.0
+  },
   "q20": {
     "top_category": [
       "HERRAMIENTAS"

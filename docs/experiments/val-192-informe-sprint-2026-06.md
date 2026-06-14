@@ -1,6 +1,6 @@
 # Informe — Máquina de Conocimiento Valinor (VAL-192 + VAL-163)
 
-**Período:** 2026-06-09 → 2026-06-12 · **Estado:** VAL-163 Done · VAL-192 In Progress (N1 ✅ · N2 medido-no-wireado · N3 en v5 con sensibilidad 3/3)
+**Período:** 2026-06-09 → 2026-06-14 · **Estado:** VAL-163 Done · VAL-192 In Progress (N1 ✅ · N2 medido-no-wireado · **N3 ✅ GATE CERTIFICADO en v6** — test virgen 3/3, 15 wins, auditoría adversarial superada)
 **Tesis de la épica:** *sin eval, cada cambio es un refactor a ciegas; con eval, cada cambio tiene veredicto.* Este sprint la aplicó literalmente: **9 veredictos medidos, 4 negativos honestos, 8 bugs de instrumento encontrados por los propios experimentos.**
 
 ---
@@ -12,7 +12,7 @@
 | **VAL-163** (A/B Number Registry) | **Done.** Claim de tasa REFUTADO (Δ≈0); registry **keep always-on** por el delta de comportamiento: −40% números no citables, −36% largo, +58% hedging honesto. |
 | **N1** (instrumento + golden + gate) | **Cerrado.** 3 bugs arreglados con evidencia, golden 39 casos verificados adversarialmente, regression gate en CI (`pytest` falla si el instrumento regresiona). |
 | **N2** (grounding 2 etapas) | **Medido → NO se wirea** (gate honesto): enrichment 6→79 entradas no mejora la tasa (0.920 vs 0.936) y baja el hedging. Queda opt-in. |
-| **N3** (GraphRAG, 5 rondas eval-gated) | **Wins: v1 0 → v2 3 → v3 4 → v4 7 → v5 10.** Gate formal pendiente por 2 falsos positivos del juez (forense documentado); **sensibilidad con juez calibrado: test virgen 3/3 perfecto (1.00/1.00/1.00, forbidden 0)**. |
+| **N3** (GraphRAG, 6 rondas eval-gated) | **Wins: v1 0 → v2 3 → v3 4 → v4 7 → v5 10 → v6 15. GATE CERTIFICADO** (v6, juez calibrado, par virgen nuevo): test virgen **3/3** (1.00/1.00/1.00, forbidden 0), auditoría adversarial de 9 escépticos superada sin refutes válidos. |
 
 **Producto medido (claim defendible):** la vista actual del pipeline (flat_narrator) falla estructuralmente las 15 preguntas globales del golden (0.00–0.50); el modo GraphRAG las responde 0.83–1.00 con cero alucinaciones de granularidad en 13/15. El claim "el registry mejora la grounded-rate" queda **prohibido** (refutado n=3); el claim correcto es conciso/honesto/menos-números-no-citables.
 
@@ -74,8 +74,8 @@ Enrichment genérico del registry (el builder legacy solo conocía 5 queries →
 
 ## 8 · Próximos pasos (en orden)
 
-1. **v6 (corto)**: par virgen nuevo bajo el juez calibrado → certificación formal del hito N3. La sensibilidad 3/3 predice que pasa.
-2. **Wirear N3 a narrators** detrás de `VALINOR_GRAPHRAG=1` con su propio A/B (patrón eval-first probado).
+1. ~~**v6**: par virgen nuevo bajo el juez calibrado → certificación formal del hito N3.~~ ✅ **HECHO (2026-06-14): GATE PASSED** — test virgen 3/3, 15 wins, auditoría adversarial superada. Detalle en `val-192-n3-graphrag.md` §v6.
+2. **Wirear N3 a narrators** detrás de `VALINOR_GRAPHRAG=1` con su propio A/B (patrón eval-first probado) — **ahora habilitado** (gate pasado).
 3. **N4 write-path** (memoria con human-in-loop) — el siguiente nivel de la épica.
 4. VAL-193 (higiene de suite) cuando haya un hueco.
 

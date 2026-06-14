@@ -396,6 +396,49 @@ def compute_references(state: dict) -> tuple[dict, list[str]]:
     else:
         not_computable.append("q18")
 
+    # ── v6 test split (re-freeze #4, certificación): q22 / q24 / q25 ────────
+
+    # q22 — segmento con más LTV sin score (group-by × complemento del scoring)
+    unscored_by_seg: dict[str, list] = {}
+    for c in with_ltv.values():
+        if c["risk"] is None and c["segment"]:
+            unscored_by_seg.setdefault(c["segment"], []).append(c)
+    if unscored_by_seg:
+        top_seg = max(unscored_by_seg,
+                      key=lambda s: sum(c["ltv"] for c in unscored_by_seg[s]))
+        refs["q22"] = {
+            "unscored_top_segment": [top_seg],
+            "unscored_top_segment_ltv_eur": round(
+                sum(c["ltv"] for c in unscored_by_seg[top_seg]), 2),
+            "unscored_top_segment_n": len(unscored_by_seg[top_seg]),
+        }
+    else:
+        not_computable.append("q22")
+
+    # q24 — intersección top-5 por LTV ∩ top-5 por deal_risk_score
+    if with_ltv:
+        top5_ltv = {id(c) for c in sorted(with_ltv.values(), key=lambda c: -c["ltv"])[:5]}
+        scored = [c for c in with_ltv.values() if c["risk"] is not None]
+        top5_score = {id(c) for c in sorted(scored, key=lambda c: (-c["risk"], -c["ltv"]))[:5]}
+        both = [c for c in with_ltv.values() if id(c) in top5_ltv and id(c) in top5_score]
+        refs["q24"] = {
+            "double_top": sorted(filter(None, (c["name"] for c in both))),
+            "double_top_n": len(both),
+        }
+    else:
+        not_computable.append("q24")
+
+    # q25 — cliente más expuesto (máximo de la unión churn∪dormancia) + total
+    if exposed:
+        top_exp = max(exposed.values(), key=lambda c: c["ltv"])
+        refs["q25"] = {
+            "top_exposed_customer": [top_exp["name"]] if top_exp["name"] else [],
+            "top_exposed_ltv_eur": round(top_exp["ltv"], 2),
+            "total_exposed_ltv_eur": round(sum(c["ltv"] for c in exposed.values()), 2),
+        }
+    else:
+        not_computable.append("q25")
+
     # q20 — categoría líder por revenue + segmentos compradores
     if xsell:
         cat_rev2: dict[str, float] = {}

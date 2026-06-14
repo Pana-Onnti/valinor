@@ -233,7 +233,8 @@ questions:
   # (convergencia × share), q18 generaliza el avg del group-by genérico a
   # combinación no vista, q20 abre la dimensión categoría (no testeada).
   - id: q17-peso-convergentes
-    split: test
+    # v6: vista en el run congelado v5 → train.
+    split: train
     question: >
       Los clientes mencionados en hallazgos de DOS o más agentes distintos:
       ¿qué LTV conjunto suman y qué porcentaje de la facturación total
@@ -246,7 +247,8 @@ questions:
     why_flat_fails: "menciones cruzadas entre agentes (grafo MENTIONS) × LTV (otro result set) × share — tres fuentes que ningún query une"
 
   - id: q18-ltv-promedio-segmento
-    split: test
+    # v6: vista en el run congelado v5 → train.
+    split: train
     question: >
       ¿Qué segmento RFM tiene el mayor LTV promedio por cliente? ¿Cuánto es
       ese promedio y cuántos clientes tiene el segmento?
@@ -258,7 +260,8 @@ questions:
     why_flat_fails: "promedio por grupo = suma/count del join ltv×segmento — doble agregación que ningún query trae"
 
   - id: q20-categoria-lider
-    split: test
+    # v6: vista en el run congelado v5 → train.
+    split: train
     question: >
       ¿Qué categoría de producto genera más revenue en total, cuánto genera,
       y qué segmentos RFM la compran?
@@ -271,3 +274,43 @@ questions:
       cross_sell es segmento×categoría: claims cliente→categoría son
       inferencia 2-hop y el juez los penaliza.
     why_flat_fails: "agregación de revenue por categoría a través de segmentos (cross_sell) + el set de compradores — group-by sobre la dimensión no analizada"
+
+  # ── v6: test split NUEVO (re-freeze #4 — certificación) — sistema y juez
+  # CONGELADOS desde v5; estas preguntas certifican generalización pura:
+  # combinaciones no vistas de agregados ya servidos genéricamente.
+  - id: q22-segmento-sin-cobertura
+    split: test
+    question: >
+      ¿Qué segmento RFM acumula más LTV SIN score de churn (clientes con LTV
+      conocido pero sin deal_risk_score)? ¿Cuánto LTV sin scorear tiene ese
+      segmento y cuántos clientes son?
+    seed_entities: ["segmento", "scoring", "cobertura"]
+    required_facts:
+      - {fact: "segmento con más LTV sin score", expected: "{REF:q22.unscored_top_segment}", kind: labels}
+      - {fact: "LTV sin score del segmento líder", expected: "{REF:q22.unscored_top_segment_ltv_eur}", tolerance_pct: 1.0}
+      - {fact: "clientes sin score del segmento líder", expected: "{REF:q22.unscored_top_segment_n}", tolerance_pct: 0.0}
+    why_flat_fails: "group-by segmento sobre el COMPLEMENTO del scoring (clientes en rfm/concentration ausentes de churn_risk_scoring) — ausencia + join + agregación"
+
+  - id: q24-doble-top
+    split: test
+    question: >
+      ¿Qué clientes están A LA VEZ en el top-5 por LTV y en el top-5 por
+      deal_risk_score? Nombralos y decí cuántos son.
+    seed_entities: ["ltv", "deal-risk", "riesgo"]
+    required_facts:
+      - {fact: "clientes en ambos top-5", expected: "{REF:q24.double_top}", kind: labels}
+      - {fact: "cantidad en ambos top-5", expected: "{REF:q24.double_top_n}", tolerance_pct: 0.0}
+    why_flat_fails: "intersección de dos rankings globales (LTV de concentration/rfm × score de churn) — ninguno existe completo en un solo query"
+
+  - id: q25-cliente-mas-expuesto
+    split: test
+    question: >
+      Entre los clientes expuestos (riesgo de churn o dormancia >90 días),
+      ¿cuál es el de mayor LTV individual, cuánto LTV tiene, y cuánto suma el
+      LTV expuesto total?
+    seed_entities: ["churn", "dormancia", "ltv"]
+    required_facts:
+      - {fact: "cliente expuesto de mayor LTV", expected: "{REF:q25.top_exposed_customer}", kind: labels}
+      - {fact: "LTV del cliente más expuesto", expected: "{REF:q25.top_exposed_ltv_eur}", tolerance_pct: 1.0}
+      - {fact: "LTV expuesto total", expected: "{REF:q25.total_exposed_ltv_eur}", tolerance_pct: 1.0}
+    why_flat_fails: "máximo dentro de la unión deduplicada churn∪dormancia (tres result sets) + el total de esa unión"
