@@ -64,9 +64,18 @@ Cada decisión de revisión (approve/reject de ambas colas) emite un evento al l
 
 El evento `memory_review` lleva: `action`, `queue` (refinements/escalations), `client_name`, `proposal_id`, `reviewed_by`, `reason` (en reject), + procedencia/decisión (`run_id`, `confidence`, y para escalaciones `finding_id`/`from_severity`/`to_severity`) + `timestamp`. Consultable vía `GET /api/audit?event_type=memory_review`. +6 tests (`tests/test_audit.py`).
 
-## Pendiente (próximas tajadas)
+## Slice 4 — Consumidor frontend ✅ 2026-06-14
 
-- Consumidor frontend (página de revisión reusando DeltaPanel/FindingTimeline) para ambas colas.
+Página de revisión para el operador en `web/app/clients/[clientId]/review/page.tsx` (Next.js app router, brand D4C: void oscuro, teal, mono para todo número, bordes de severidad). Tab "Revisión" agregado al hub del cliente.
+
+- Dos secciones: **Refinamientos** (borde púrpura, resumen del payload: #pesos/hints/focus/suprimidos + chips de pesos) y **Escalaciones de severidad** (borde = color del to-severity, from→to con badges, "por persistir N runs").
+- Cada card muestra **procedencia** (run_id, #findings fuente, generado) + **badge de confianza** (CONFIRMED/PROVISIONAL/UNVERIFIED/BLOCKED con color).
+- Acciones: **Aprobar** (teal, aplica) / **Rechazar** (expande textarea de motivo → confirma). Toast + refetch.
+- Toggle **Pendientes / Historial** (status=pending vs all; el historial muestra status + quién/cuándo revisó).
+- Consume los 6 endpoints (`GET/approve/reject` × 2 colas) vía `fetch` directo (idiom de las páginas recientes). Verificado: `tsc --noEmit` limpio + `next build`.
+
+## Pendiente
+
 - Flip del default a review-on cuando el flujo esté probado en vivo.
 
 *Refs: VAL-192 (N4). Relaciona N1–N3 (mismo método eval-gated, wire-careful).*

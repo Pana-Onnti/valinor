@@ -356,6 +356,7 @@ function TabNav({ clientId, pathname }: { clientId: string; pathname: string }) 
     { label: 'Resumen',       href: `/clients/${clientId}` },
     { label: 'Historial',     href: `/clients/${clientId}/history` },
     { label: 'Hallazgos',     href: `/clients/${clientId}/findings` },
+    { label: 'Revisión',      href: `/clients/${clientId}/review` },
     { label: 'Reportes',      href: `/clients/${clientId}/reports` },
     { label: 'Alertas',       href: `/clients/${clientId}/alerts` },
     { label: 'Costos',        href: `/clients/${clientId}/costs` },
