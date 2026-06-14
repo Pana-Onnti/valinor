@@ -208,6 +208,76 @@ async def reject_pending_refinement(client_name: str, proposal_id: str, body: di
     return {"client_name": client_name, "rejected": record}
 
 
+# ── N4 seam A: pending finding-escalation review (VAL-192) ─────────────────────
+# Auto-escalations (severity bumped purely for persistence) are staged here when
+# VALINOR_MEMORY_REVIEW=1 and only applied to the finding on explicit approval.
+
+
+@router.get("/clients/{client_name}/pending-escalations", tags=["Clients"])
+async def list_pending_escalations(client_name: str, status: Optional[str] = "pending"):
+    """List proposed finding-severity escalations awaiting review."""
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {client_name}")
+
+    filter_status = None if status == "all" else status
+    return {
+        "client_name": client_name,
+        "pending_escalations": profile.get_pending_escalations(status=filter_status),
+    }
+
+
+@router.post("/clients/{client_name}/pending-escalations/{proposal_id}/approve", tags=["Clients"])
+async def approve_pending_escalation(client_name: str, proposal_id: str, body: dict | None = None):
+    """Approve an escalation → APPLY the severity bump to the live finding."""
+    from shared.memory.profile_store import get_profile_store
+    from shared.memory.client_profile import has_provenance
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {client_name}")
+
+    reviewed_by = (body or {}).get("reviewed_by", "operator")
+    target = next((p for p in profile.get_pending_escalations("pending")
+                   if p.get("proposal_id") == proposal_id), None)
+    if target is None:
+        raise HTTPException(status_code=404,
+                            detail=f"No pending escalation {proposal_id} for {client_name}")
+    if not has_provenance(target):
+        raise HTTPException(status_code=400,
+                            detail=f"Escalation {proposal_id} lacks complete provenance — cannot approve")
+
+    record = profile.approve_pending_escalation(proposal_id, reviewed_by=reviewed_by)
+    profile.updated_at = datetime.utcnow().isoformat()
+    await store.save(profile)
+    return {"client_name": client_name, "approved": record}
+
+
+@router.post("/clients/{client_name}/pending-escalations/{proposal_id}/reject", tags=["Clients"])
+async def reject_pending_escalation(client_name: str, proposal_id: str, body: dict | None = None):
+    """Reject a proposed escalation (the finding keeps its current severity)."""
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {client_name}")
+
+    reason = (body or {}).get("reason", "")
+    reviewed_by = (body or {}).get("reviewed_by", "operator")
+    record = profile.reject_pending_escalation(proposal_id, reason=reason, reviewed_by=reviewed_by)
+    if record is None:
+        raise HTTPException(status_code=404,
+                            detail=f"No pending escalation {proposal_id} for {client_name}")
+    profile.updated_at = datetime.utcnow().isoformat()
+    await store.save(profile)
+    return {"client_name": client_name, "rejected": record}
+
+
 @router.get("/clients", tags=["Clients"])
 @limiter.limit("30/minute")
 async def list_clients(request: Request):

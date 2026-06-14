@@ -49,11 +49,19 @@ curl -XPOST localhost:8000/api/clients/Gloria_SA/pending-refinements/<id>/approv
 python scripts/provenance_linter.py   # escanea /tmp/valinor_profiles/*.json
 ```
 
-## Pendiente (próximas tajadas, NO en slice 1)
+## Slice 2 — Seam A (findings) ✅ 2026-06-14
 
-- Seam A (findings auto-write en `profile_extractor.update_from_run`) con el mismo motion + procedencia (hoy solo se cubrió el seam B / refinement, el de mayor leverage).
+El write-directo de findings vive en `profile_extractor.update_from_run`. No todo se gatea: el tracking rutinario (new/resolved/runs_open, weights, KPIs) es **observación** y sigue automático (la UI de deltas lo necesita; no hereda autoridad). Lo que sí se trata con el motion es lo que **gana autoridad sin base**:
+
+1. **Procedencia en findings nuevos (siempre-on):** cada `known_finding` nuevo ahora lleva `run_id`, `source_query` (el `sql` estaba disponible pero el record legacy lo tiraba) y `confidence` run-level. Cierra el gap de procedencia que la síntesis marcó.
+2. **Auto-escalación gateada (`_auto_escalate_persistent`):** un finding que sube de severidad (hasta CRITICAL) solo por persistir ≥5 runs, sin evidencia ni confirmación — el caso más claro de "autoridad sin base". Con `VALINOR_MEMORY_REVIEW=1` + provenance se **estaciona** una `PendingFindingEscalation` (from/to severity, runs_open, procedencia) en `profile.pending_escalations`; el bump se aplica al record **solo** en approve. Default off → auto-escala como antes. Dedup: no re-estaciona la misma escalación mientras espera revisión.
+
+API: `GET pending-escalations`, `POST {id}/approve` (aplica la severidad, guard de procedencia 400), `POST {id}/reject`. El linter de CI cubre **ambas** colas. +15 tests (`tests/test_n4_seam_a.py`).
+
+## Pendiente (próximas tajadas)
+
 - Integrar el log de audit (`/api/audit` Redis FIFO) para el evento approve/reject (hoy el trail vive en el propio record: `reviewed_by/at/reason`).
-- Consumidor frontend (página de revisión reusando DeltaPanel/FindingTimeline).
+- Consumidor frontend (página de revisión reusando DeltaPanel/FindingTimeline) para ambas colas.
 - Flip del default a review-on cuando el flujo esté probado en vivo.
 
 *Refs: VAL-192 (N4). Relaciona N1–N3 (mismo método eval-gated, wire-careful).*

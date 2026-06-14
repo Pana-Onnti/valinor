@@ -79,6 +79,32 @@ class PendingRefinement:
     review_reason: str = ""
 
 
+@dataclass
+class PendingFindingEscalation:
+    """A proposed severity escalation awaiting review (VAL-192 N4, seam A).
+
+    Auto-escalation — a finding bumped a severity level purely for surviving 5+
+    runs — is the seam-A write that "gains authority without basis": no new
+    evidence, no human confirmation, yet it can climb a hallucinated finding to
+    CRITICAL. Under review it is PROPOSED here with provenance and only applied
+    to the live record on approval.
+    """
+    proposal_id: str
+    finding_id: str
+    from_severity: str
+    to_severity: str
+    runs_open: int
+    run_id: str                             # provenance
+    client_tag: str                         # provenance
+    generated_at: str                       # provenance
+    confidence: Optional[float] = None
+    confidence_label: str = ""
+    status: str = "pending"                 # pending | approved | rejected
+    reviewed_at: Optional[str] = None
+    reviewed_by: Optional[str] = None
+    review_reason: str = ""
+
+
 # ── Sub-objects (VAL-80) ──────────────────────────────────────────────────────
 
 
@@ -180,8 +206,9 @@ class ClientProfile:
     # ── Refinement (from last RefinementAgent run) ─────────────────────────────
     refinement: Optional[Dict] = None   # ClientRefinement as dict (ACTIVE, approved)
 
-    # ── Pending refinement proposals awaiting human review (VAL-192 N4) ────────
-    pending_refinements: List[Dict] = field(default_factory=list)
+    # ── Pending proposals awaiting human review (VAL-192 N4) ───────────────────
+    pending_refinements: List[Dict] = field(default_factory=list)   # seam B (refinement)
+    pending_escalations: List[Dict] = field(default_factory=list)   # seam A (severity)
 
     # ── Segmentation history ───────────────────────────────────────────────────
     segmentation_history: List[Dict] = field(default_factory=list)  # last 12 periods
@@ -246,11 +273,13 @@ class ClientProfile:
             '_table_intelligence': (TableIntelligence, {'focus_tables', 'table_weights'}),
             '_alert_config': (AlertConfig, {'alert_thresholds', 'triggered_alerts'}),
         })
-        # N4: guarantee the pending-review queue is never None (a corrupt or
+        # N4: guarantee the pending-review queues are never None (a corrupt or
         # legacy dict could carry an explicit null that would override the
         # default_factory and crash every write-path method).
         if self.pending_refinements is None:
             object.__setattr__(self, 'pending_refinements', [])
+        if self.pending_escalations is None:
+            object.__setattr__(self, 'pending_escalations', [])
 
     def __getattr__(self, name: str):
         # __post_init__ hasn't run yet or _DELEGATED_FIELDS not set
@@ -313,6 +342,45 @@ class ClientProfile:
                 return p
         return None
 
+    # ── N4 seam A: pending finding-severity escalations (VAL-192) ──────────────
+
+    def add_pending_escalation(self, pending: Dict) -> None:
+        """Stage a proposed escalation. Does NOT change the finding's severity."""
+        self.pending_escalations.append(pending)
+
+    def get_pending_escalations(self, status: Optional[str] = "pending") -> List[Dict]:
+        if status is None:
+            return list(self.pending_escalations)
+        return [p for p in self.pending_escalations if p.get("status") == status]
+
+    def approve_pending_escalation(self, proposal_id: str,
+                                   reviewed_by: str = "operator") -> Optional[Dict]:
+        """Approve an escalation → APPLY the severity bump to the live finding
+        record (if still tracked). Returns the record, or None if not found /
+        not pending."""
+        for p in self.pending_escalations:
+            if p.get("proposal_id") == proposal_id and p.get("status") == "pending":
+                p["status"] = "approved"
+                p["reviewed_at"] = datetime.utcnow().isoformat()
+                p["reviewed_by"] = reviewed_by
+                rec = self.known_findings.get(p.get("finding_id"))
+                if rec is not None:
+                    rec["severity"] = p.get("to_severity")
+                    rec["auto_escalated"] = True
+                return p
+        return None
+
+    def reject_pending_escalation(self, proposal_id: str, reason: str = "",
+                                  reviewed_by: str = "operator") -> Optional[Dict]:
+        for p in self.pending_escalations:
+            if p.get("proposal_id") == proposal_id and p.get("status") == "pending":
+                p["status"] = "rejected"
+                p["reviewed_at"] = datetime.utcnow().isoformat()
+                p["reviewed_by"] = reviewed_by
+                p["review_reason"] = reason
+                return p
+        return None
+
     def is_entity_map_fresh(self, max_age_hours: int = 72) -> bool:
         """True if entity_map_cache exists and is less than max_age_hours old."""
         if not self.entity_map_cache or not self.entity_map_updated_at:
@@ -341,6 +409,7 @@ class ClientProfile:
         d['preferred_queries'] = self.preferred_queries
         d['refinement'] = self.refinement
         d['pending_refinements'] = self.pending_refinements
+        d['pending_escalations'] = self.pending_escalations
         d['segmentation_history'] = self.segmentation_history
         d['webhooks'] = self.webhooks
         d['schedule_config'] = self.schedule_config
@@ -359,7 +428,7 @@ class ClientProfile:
         top_level_fields = {
             'client_name', 'created_at', 'updated_at',
             'baseline_history', 'preferred_queries', 'refinement',
-            'pending_refinements',
+            'pending_refinements', 'pending_escalations',
             'segmentation_history', 'webhooks', 'schedule_config', 'metadata',
             'business_context',
         }
@@ -510,6 +579,34 @@ def build_pending_refinement(
         client_tag=client_tag,
         generated_at=generated_at or datetime.utcnow().isoformat(),
         source_findings_ids=list(source_findings_ids or []),
+        confidence=confidence,
+        confidence_label=confidence_label,
+    ))
+
+
+def build_pending_escalation(
+    finding_id: str,
+    from_severity: str,
+    to_severity: str,
+    runs_open: int,
+    run_id: str,
+    client_tag: str,
+    confidence: Optional[float] = None,
+    confidence_label: str = "",
+    proposal_id: Optional[str] = None,
+    generated_at: Optional[str] = None,
+) -> Dict:
+    """Build a ``PendingFindingEscalation`` (as dict) with provenance, ready to
+    stage. proposal_id / generated_at are injectable for deterministic tests."""
+    return asdict(PendingFindingEscalation(
+        proposal_id=proposal_id or f"pe_{uuid.uuid4().hex[:12]}",
+        finding_id=finding_id,
+        from_severity=from_severity,
+        to_severity=to_severity,
+        runs_open=runs_open,
+        run_id=run_id,
+        client_tag=client_tag,
+        generated_at=generated_at or datetime.utcnow().isoformat(),
         confidence=confidence,
         confidence_label=confidence_label,
     ))

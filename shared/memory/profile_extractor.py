@@ -14,7 +14,9 @@ from datetime import datetime
 
 import structlog
 
-from .client_profile import ClientProfile
+from .client_profile import (
+    ClientProfile, memory_review_enabled, build_pending_escalation,
+)
 
 logger = structlog.get_logger()
 
@@ -30,9 +32,19 @@ class ProfileExtractor:
         reports: Dict[str, str],
         period: str,
         run_success: bool = True,
+        run_id: str = "",
+        provenance=None,
     ) -> Dict[str, List[str]]:
         """
         Update profile in-place from a completed run.
+
+        VAL-192 N4 seam A: new findings are stamped with provenance (run_id,
+        source query, run-level confidence), and auto-escalation — the one
+        autonomous write that gains authority without basis — is routed through
+        the propose→review→merge gate when ``VALINOR_MEMORY_REVIEW=1`` instead of
+        mutating the record in place. Routine tracking (new/resolved/runs_open,
+        weights, KPIs) stays automatic: the delta UI depends on it and it carries
+        no authority a hallucination could inherit.
 
         Returns delta dict:
         {
@@ -44,6 +56,13 @@ class ProfileExtractor:
         }
         """
         now = datetime.utcnow().isoformat()
+        # Run-level provenance, reused for both finding stamps and escalations.
+        confidence, confidence_label = (
+            provenance.run_confidence() if provenance is not None else (None, "")
+        )
+        # Stage escalations only when we can provenance them (mirror seam B): if
+        # review is on but provenance is missing, fall back to legacy auto-escalate.
+        stage_escalations = memory_review_enabled() and provenance is not None
         delta: Dict[str, List[str]] = {
             "new": [], "persists": [], "resolved": [], "worsened": [], "improved": []
         }
@@ -81,6 +100,11 @@ class ProfileExtractor:
                     "first_seen": now,
                     "last_seen": now,
                     "runs_open": 1,
+                    # N4 seam A: provenance stamp (the source query was available
+                    # at write time but the legacy record dropped it).
+                    "run_id": run_id,
+                    "source_query": finding_data.get("sql", ""),
+                    "confidence": confidence,
                 }
             else:
                 # Previously known — update
@@ -168,7 +192,10 @@ class ProfileExtractor:
             "resolved": len(delta["resolved"]),
         })
         profile.run_history = profile.run_history[-20:]  # keep last 20
-        self._auto_escalate_persistent(profile)
+        self._auto_escalate_persistent(
+            profile, run_id=run_id, confidence=confidence,
+            confidence_label=confidence_label, stage=stage_escalations,
+        )
 
         logger.info(
             "ProfileExtractor.update_from_run",
@@ -179,10 +206,21 @@ class ProfileExtractor:
         )
         return delta
 
-    def _auto_escalate_persistent(self, profile: "ClientProfile") -> List[str]:
+    def _auto_escalate_persistent(
+        self,
+        profile: "ClientProfile",
+        run_id: str = "",
+        confidence: Optional[float] = None,
+        confidence_label: str = "",
+        stage: bool = False,
+    ) -> List[str]:
         """
         Auto-escalate severity for findings open 5+ consecutive runs.
-        Returns list of escalated finding IDs.
+
+        VAL-192 N4 seam A: when ``stage`` is True (review on + provenance
+        available) the escalation is PROPOSED for human review instead of
+        applied — a finding cannot climb to CRITICAL on persistence alone without
+        a reviewer. Returns the list of finding IDs escalated OR staged.
         """
         escalated = []
         sev_rank = ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
@@ -194,16 +232,40 @@ class ProfileExtractor:
                     idx = sev_rank.index(current_sev)
                     if idx < len(sev_rank) - 1:
                         new_sev = sev_rank[idx + 1]
-                        rec["severity"] = new_sev
-                        rec["auto_escalated"] = True
-                        escalated.append(fid)
-                        logger.info(
-                            "Finding auto-escalated",
-                            finding=fid,
-                            from_sev=current_sev,
-                            to_sev=new_sev,
-                            runs_open=rec.get("runs_open"),
-                        )
+                        if stage:
+                            # Don't re-stage an identical pending escalation every
+                            # run while it sits unreviewed.
+                            already = any(
+                                p.get("finding_id") == fid and p.get("to_severity") == new_sev
+                                for p in profile.get_pending_escalations("pending")
+                            )
+                            if already:
+                                continue
+                            profile.add_pending_escalation(build_pending_escalation(
+                                finding_id=fid,
+                                from_severity=current_sev,
+                                to_severity=new_sev,
+                                runs_open=rec.get("runs_open", 0),
+                                run_id=run_id,
+                                client_tag=profile.client_name,
+                                confidence=confidence,
+                                confidence_label=confidence_label,
+                            ))
+                            escalated.append(fid)
+                            logger.info(
+                                "Finding escalation STAGED for review",
+                                finding=fid, from_sev=current_sev, to_sev=new_sev,
+                                runs_open=rec.get("runs_open"),
+                            )
+                        else:
+                            rec["severity"] = new_sev
+                            rec["auto_escalated"] = True
+                            escalated.append(fid)
+                            logger.info(
+                                "Finding auto-escalated",
+                                finding=fid, from_sev=current_sev, to_sev=new_sev,
+                                runs_open=rec.get("runs_open"),
+                            )
         return escalated
 
     def _extract_kpis_from_report(self, report_text: str) -> List[Dict]:

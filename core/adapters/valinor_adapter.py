@@ -1122,7 +1122,8 @@ RETURN ONLY THE JSON OBJECT."""
 
             # ── Update ClientProfile ──────────────────────────────────────────────
             run_delta = self.profile_extractor.update_from_run(
-                profile, findings, entity_map, reports, period, run_success=True
+                profile, findings, entity_map, reports, period, run_success=True,
+                run_id=job_id, provenance=results.get("_provenance"),
             )
             results["run_delta"] = run_delta
 

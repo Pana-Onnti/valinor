@@ -26,17 +26,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shared.memory.client_profile import has_provenance  # noqa: E402
 
 
+_REVIEW_QUEUES = ("pending_refinements", "pending_escalations")
+
+
 def lint_profile(profile_dict: Dict) -> List[str]:
     """Return a list of violation strings for one profile dict (empty = clean)."""
     violations: List[str] = []
     client = profile_dict.get("client_name", "?")
-    for rec in profile_dict.get("pending_refinements", []) or []:
-        if not has_provenance(rec):
-            pid = rec.get("proposal_id", "?") if isinstance(rec, dict) else "?"
-            violations.append(
-                f"{client}: proposal {pid} missing provenance "
-                f"(need run_id, client_tag, generated_at, confidence)"
-            )
+    for queue in _REVIEW_QUEUES:
+        for rec in profile_dict.get(queue, []) or []:
+            if not has_provenance(rec):
+                pid = rec.get("proposal_id", "?") if isinstance(rec, dict) else "?"
+                violations.append(
+                    f"{client}: {queue} {pid} missing provenance "
+                    f"(need run_id, client_tag, generated_at, confidence)"
+                )
     return violations
 
 
