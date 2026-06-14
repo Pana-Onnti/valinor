@@ -115,7 +115,12 @@ async def build_enriched_vr(state: dict):
 
 
 async def run(args) -> int:
-    from capture_narrator_ab import capture_ab  # noqa: E402  (after bootstrap)
+    # VAL-192 N3: --graphrag swaps in the graph-on/graph-off capture (treatment =
+    # narrators WITH the deterministic graph context). Same live bridge + reps.
+    if args.graphrag:
+        from graphrag_narrator_ab import capture_graphrag_ab as capture_fn  # noqa: E402
+    else:
+        from capture_narrator_ab import capture_ab as capture_fn  # noqa: E402
 
     state = json.loads(Path(args.state).read_text(encoding="utf-8"))
     only = {s.strip() for s in args.only.split(",")} if args.only else None
@@ -134,7 +139,7 @@ async def run(args) -> int:
         t0 = time.time()
         print(f"[rep {rep}/{args.reps}] running control + treatment…", flush=True)
         kwargs = {"build_vr_fn": build_vr_fn} if build_vr_fn else {}
-        control, treatment, dataset = await capture_ab(state, only=only, **kwargs)
+        control, treatment, dataset = await capture_fn(state, only=only, **kwargs)
 
         rep_dir = out_root / f"rep{rep}"
         rep_dir.mkdir(parents=True, exist_ok=True)
@@ -169,6 +174,9 @@ def main(argv=None) -> int:
                     help="claude CLI binary (needs ≥2.x for the output-token override)")
     ap.add_argument("--enriched", action="store_true",
                     help="VAL-192 N2: treatment uses the enriched+reranked VR (treatment2)")
+    ap.add_argument("--graphrag", action="store_true",
+                    help="VAL-192 N3: treatment = narrators WITH the deterministic "
+                         "graph context (vs without); both arms keep the registry")
     args = ap.parse_args(argv)
 
     bootstrap(args.model, args.cli_path)

@@ -29,6 +29,7 @@ from valinor.deliver import deliver_reports, build_memory
 from valinor.gates import gate_cartographer, gate_analysis, gate_sanity, gate_monetary_consistency
 from valinor.config import load_client_config, load_memory, parse_period
 from valinor.quality.data_quality_gate import DataQualityGate
+from valinor.graphrag_context import graphrag_enabled, build_narrator_graph_context_safe
 
 console = Console()
 
@@ -376,12 +377,41 @@ async def main(client: str, period: str, source: str | None = None):
         _ab_out.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
         console.print(f"  [cyan]⦿ VAL-163: captured narrator state → {_ab_out}[/cyan]")
 
+    # ═══ STAGE 3.7: GRAPHRAG GLOBAL CONTEXT (N3 — VAL-192) ═══
+    # Certified N3 entity graph. INERT unless VALINOR_GRAPHRAG=1: builds the
+    # deterministic cross-query aggregate block (exposure / group-by / coverage)
+    # and feeds it to the Stage-4 narrators so their reports can ground GLOBAL
+    # statements that per-query findings structurally can't compute. No LLM,
+    # no DB. Fail-open: an optional enrichment must never break a run.
+    graph_context = None
+    if graphrag_enabled():
+        console.print("\n[bold]▸ Stage 3.7: GraphRAG global context (N3)...[/bold]")
+        t0 = time.time()
+        graph_context = build_narrator_graph_context_safe(
+            entity_map, query_results, baseline, findings,
+            number_registry=verification_report.number_registry,
+            on_error=lambda exc: console.print(
+                f"  [yellow]⚠ GraphRAG context skipped ({exc})[/yellow]"),
+        )
+        run_log["stages"]["graphrag"] = {
+            "duration_s": round(time.time() - t0, 1),
+            "enabled": True,
+            "injected": graph_context is not None,
+            "context_chars": len(graph_context or ""),
+        }
+        console.print(
+            f"  [green]✓[/green] graph context "
+            f"{'injected' if graph_context else 'empty → skipped'} "
+            f"[dim]({len(graph_context or '')} chars)[/dim]"
+        )
+
     # ═══ STAGE 4: NARRATORS ═══
     console.print("\n[bold]▸ Stage 4: Generating reports...[/bold]")
     t0 = time.time()
     reports = await run_narrators(
         findings, entity_map, memory, config, baseline, query_results,
         verification_report=verification_report,
+        graph_context=graph_context,
     )
     stage_time = time.time() - t0
     run_log["stages"]["narrators"] = {

@@ -354,11 +354,40 @@ con el binario nativo Linux v2.1.177 copiado a `/tmp/claude-stable-v2` +
 **Progresión final: v1 0 → v2 3 → v3 4 → v4 7 → v5 10 → v6 15 wins**
 (test virgen certificado **3/3**, forbidden 0). **Hito N3 CERTIFICADO.**
 
-## Wiring a producción
+## Wiring a producción (2026-06-14) — HECHO, opt-in
 
-`VALINOR_GRAPHRAG=1` (Stage 3.7 opcional, inerte por defecto) queda para
-DESPUÉS de que el gate pase — eval-first, wire-later (la lección pre-N1).
-**Gate pasado en v6 → el wiring queda habilitado como próximo paso.**
+`VALINOR_GRAPHRAG=1` (Stage 3.7 opcional, **inerte por defecto**) wireado tras
+el gate v6. Con el flag sin setear el pipeline es byte-idéntico al anterior.
+
+**Cómo (cambio quirúrgico, 6 archivos + 1 módulo nuevo):**
+- `core/valinor/graphrag_context.py` (NUEVO) — el puente: compone la API
+  CONGELADA de `graphrag.py` (`build_entity_graph` + `to_evidence_context`
+  con `ppr={}`, `top_k=0`) para producir SOLO el bloque determinista de
+  agregados (cero LLM, números verbatim). `build_narrator_graph_context_safe`
+  = wrapper **fail-open** (un bug del grafo nunca rompe un run).
+- `core/valinor/run.py` — **Stage 3.7** entre verificación (3.6) y narrators (4):
+  si el flag está, construye el contexto y lo pasa a `run_narrators`.
+- `core/valinor/pipeline_narrator.py` — `run_narrators(..., graph_context=None)`
+  lo enhebra a cada narrator vía `_graph_context` (None → narrators nunca
+  reciben la key: inerte probado).
+- 4 narrators (ceo/controller/sales/executive) — insertan el bloque tras el
+  `number_registry`, calcando el patrón existente.
+- Tests: `tests/test_graphrag_wiring.py` (21 — inertness default-off probada por
+  ausencia de key, inyección en los 4 prompts, fail-open, A/B offline).
+
+**A/B (eval-first del wiring, ver `val-192-n3-narrator-ab.md`):** control
+(grafo off) vs treatment (grafo on), ambos con registry, ground-truth = registry
+∪ agregados del grafo. **Veredicto: grounded-rate PLANA** (Δ −0.011 / −0.002 en
+2 reps, dentro del ruido). Esperable: la tasa mide grounding de reportes
+estándar (ya ~0.91), no la cobertura de preguntas globales — que es donde N3
+está certificado (gate v6). **Decisión (mismo patrón que N2): N3 queda OFF por
+defecto, disponible opt-in.** Una review adversarial multi-dimensión (5 lentes)
+no halló problemas en el código de producción (inertness/correctness/hexagonal/
+A/B-validity limpios); solo reforzó tests.
+
+Revisado adversarialmente: el grafo se construye del estado post-verificación,
+`graphrag.py`/`global_judge.py` SIN tocar (freeze intacto). Próximo: N4
+write-path.
 
 *Refs: VAL-192 (N3). Harness: `core/valinor/graphrag.py` ·
 `core/valinor/agents/graph_global.py` · `core/valinor/quality/global_judge.py` ·

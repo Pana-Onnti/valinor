@@ -179,6 +179,7 @@ async def run_narrators(
     query_results: dict,
     verification_report: Any = None,
     narrator_timeout: int = 60,
+    graph_context: str | None = None,
 ) -> dict[str, str]:
     """
     Run all four narrator agents in parallel to produce audience-specific reports.
@@ -196,6 +197,9 @@ async def run_narrators(
         query_results: raw rows for customer lists / AR tables
         verification_report: optional VerificationReport with Number Registry
         narrator_timeout: max seconds per narrator (default: 60)
+        graph_context: optional deterministic N3 global-aggregate block injected
+            into every narrator prompt (VAL-192, behind VALINOR_GRAPHRAG=1).
+            None → narrators behave exactly as before (feature inert).
 
     Returns:
         Dict mapping report name to markdown string.
@@ -231,6 +235,8 @@ async def run_narrators(
 
             extra_kwargs["_verification_summary"] = narrator_ctx["summary"]
             extra_kwargs["_retracted_findings"] = narrator_ctx["retracted_findings"]
+            if graph_context:
+                extra_kwargs["_graph_context"] = graph_context
 
             result = await asyncio.wait_for(
                 fn(role_findings, entity_map, memory, client_config, baseline, **extra_kwargs),

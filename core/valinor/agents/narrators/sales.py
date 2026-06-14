@@ -240,6 +240,11 @@ NUMBER REGISTRY — USE ONLY THESE VALUES
 {verification_report.to_prompt_context()}
 """
 
+    graph_context_section = ""
+    _graph_context = kwargs.get("_graph_context")
+    if _graph_context:
+        graph_context_section = f"\n{_graph_context}\n"
+
     prompt = f"""
 CLIENT: {client_config.get('display_name', client_config.get('name', 'Unknown'))}
 SECTOR: {client_config.get('sector', 'Unknown')}
@@ -249,7 +254,7 @@ GENERATED_AT: {datetime.now(timezone.utc).isoformat()}
 
 REVENUE BASELINE (measured from database):
 {json.dumps(baseline, indent=2, ensure_ascii=False, default=str)}
-{number_registry_section}
+{number_registry_section}{graph_context_section}
 SALES V2 QUERY RESULTS (5 structured analyses):
 {json.dumps(sales_queries, indent=2, ensure_ascii=False, default=str)
  if sales_queries else "NO SALES V2 QUERIES RETURNED. Emit empty sections + caveats."}

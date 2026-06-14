@@ -98,6 +98,11 @@ async def narrate_controller(
     {verification_report.to_prompt_context()}
     """
 
+    graph_context_section = ""
+    _graph_context = kwargs.get("_graph_context")
+    if _graph_context:
+        graph_context_section = f"\n    {_graph_context}\n"
+
     prompt = f"""
     CLIENT: {client_config.get('display_name', client_config.get('name', 'Unknown'))}
     SECTOR: {client_config.get('sector', 'Unknown')}
@@ -107,7 +112,7 @@ async def narrate_controller(
 
     REVENUE BASELINE (measured from database):
     {json.dumps(baseline, indent=2, ensure_ascii=False, default=str)}
-    {number_registry_section}
+    {number_registry_section}{graph_context_section}
     KEY QUERY RESULTS (actual database rows):
     {json.dumps(key_query_results, indent=2, ensure_ascii=False, default=str)}
 
