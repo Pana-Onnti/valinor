@@ -7,6 +7,8 @@ compatibility: to_dict() produces the same flat dict, from_dict() accepts it,
 and attribute access like `profile.run_count` still works via properties.
 """
 from __future__ import annotations
+import os
+import uuid
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any
 from datetime import datetime
@@ -52,6 +54,29 @@ class ClientRefinement:
         if self.context_block:
             return self.context_block
         return ""
+
+
+@dataclass
+class PendingRefinement:
+    """A RefinementAgent proposal awaiting human review (VAL-192 N4 write-path).
+
+    A learning is PROPOSED here with full provenance and only becomes active
+    (`ClientProfile.refinement`) on EXPLICIT approval — never written direct.
+    This cuts the compounding-garbage loop where a wrong learning survives,
+    auto-escalates, and gets cited with authority on later runs.
+    """
+    proposal_id: str
+    refinement: Dict                        # ClientRefinement payload (the proposal)
+    run_id: str                             # originating run (provenance)
+    client_tag: str                         # which client (provenance)
+    generated_at: str                       # ISO timestamp (provenance)
+    source_findings_ids: List[str] = field(default_factory=list)
+    confidence: Optional[float] = None      # run-level, from ProvenanceRegistry
+    confidence_label: str = ""              # CONFIRMED | PROVISIONAL | UNVERIFIED | BLOCKED
+    status: str = "pending"                 # pending | approved | rejected
+    reviewed_at: Optional[str] = None
+    reviewed_by: Optional[str] = None
+    review_reason: str = ""
 
 
 # ── Sub-objects (VAL-80) ──────────────────────────────────────────────────────
@@ -153,7 +178,10 @@ class ClientProfile:
     preferred_queries: List[Dict] = field(default_factory=list)
 
     # ── Refinement (from last RefinementAgent run) ─────────────────────────────
-    refinement: Optional[Dict] = None   # ClientRefinement as dict
+    refinement: Optional[Dict] = None   # ClientRefinement as dict (ACTIVE, approved)
+
+    # ── Pending refinement proposals awaiting human review (VAL-192 N4) ────────
+    pending_refinements: List[Dict] = field(default_factory=list)
 
     # ── Segmentation history ───────────────────────────────────────────────────
     segmentation_history: List[Dict] = field(default_factory=list)  # last 12 periods
@@ -218,6 +246,11 @@ class ClientProfile:
             '_table_intelligence': (TableIntelligence, {'focus_tables', 'table_weights'}),
             '_alert_config': (AlertConfig, {'alert_thresholds', 'triggered_alerts'}),
         })
+        # N4: guarantee the pending-review queue is never None (a corrupt or
+        # legacy dict could carry an explicit null that would override the
+        # default_factory and crash every write-path method).
+        if self.pending_refinements is None:
+            object.__setattr__(self, 'pending_refinements', [])
 
     def __getattr__(self, name: str):
         # __post_init__ hasn't run yet or _DELEGATED_FIELDS not set
@@ -239,6 +272,46 @@ class ClientProfile:
         if self.refinement:
             return ClientRefinement(**self.refinement)
         return ClientRefinement()
+
+    # ── N4 write-path: pending refinement proposals (VAL-192) ──────────────────
+
+    def add_pending_refinement(self, pending: Dict) -> None:
+        """Stage a proposal. Does NOT activate it (refinement stays untouched)."""
+        self.pending_refinements.append(pending)
+
+    def get_pending_refinements(self, status: Optional[str] = "pending") -> List[Dict]:
+        """Pending proposals filtered by status (None → all)."""
+        if status is None:
+            return list(self.pending_refinements)
+        return [p for p in self.pending_refinements if p.get("status") == status]
+
+    def approve_pending_refinement(self, proposal_id: str,
+                                   reviewed_by: str = "operator") -> Optional[Dict]:
+        """Approve a pending proposal → ACTIVATE it as the refinement (replaces
+        the prior active refinement; the agent proposes a COMPLETE
+        ClientRefinement each run — same supersede semantics as the legacy
+        auto-write). Returns the updated record, or None if not found/not pending."""
+        for p in self.pending_refinements:
+            if p.get("proposal_id") == proposal_id and p.get("status") == "pending":
+                p["status"] = "approved"
+                p["reviewed_at"] = datetime.utcnow().isoformat()
+                p["reviewed_by"] = reviewed_by
+                self.refinement = dict(p.get("refinement") or {})
+                return p
+        return None
+
+    def reject_pending_refinement(self, proposal_id: str, reason: str = "",
+                                  reviewed_by: str = "operator") -> Optional[Dict]:
+        """Reject a pending proposal (archived, never merged). Returns the record
+        or None if not found / not pending."""
+        for p in self.pending_refinements:
+            if p.get("proposal_id") == proposal_id and p.get("status") == "pending":
+                p["status"] = "rejected"
+                p["reviewed_at"] = datetime.utcnow().isoformat()
+                p["reviewed_by"] = reviewed_by
+                p["review_reason"] = reason
+                return p
+        return None
 
     def is_entity_map_fresh(self, max_age_hours: int = 72) -> bool:
         """True if entity_map_cache exists and is less than max_age_hours old."""
@@ -267,6 +340,7 @@ class ClientProfile:
         d['baseline_history'] = self.baseline_history
         d['preferred_queries'] = self.preferred_queries
         d['refinement'] = self.refinement
+        d['pending_refinements'] = self.pending_refinements
         d['segmentation_history'] = self.segmentation_history
         d['webhooks'] = self.webhooks
         d['schedule_config'] = self.schedule_config
@@ -285,6 +359,7 @@ class ClientProfile:
         top_level_fields = {
             'client_name', 'created_at', 'updated_at',
             'baseline_history', 'preferred_queries', 'refinement',
+            'pending_refinements',
             'segmentation_history', 'webhooks', 'schedule_config', 'metadata',
             'business_context',
         }
@@ -301,9 +376,11 @@ class ClientProfile:
 
         kwargs = {}
 
-        # Extract top-level fields
+        # Extract top-level fields. Skip explicit None so the field's
+        # default_factory wins — a corrupt/legacy dict carrying e.g.
+        # "pending_refinements": null must not leave a collection field None.
         for k in top_level_fields:
-            if k in d:
+            if k in d and d[k] is not None:
                 kwargs[k] = d[k]
 
         # Build sub-objects: prefer nested format, fall back to flat keys
@@ -382,3 +459,68 @@ def _compat_init(self, *args, **kwargs):
 
 
 ClientProfile.__init__ = _compat_init
+
+
+# ── N4 write-path helpers (VAL-192) ───────────────────────────────────────────
+
+# Provenance fields every staged/merged learning must carry (CI linter enforces).
+PROVENANCE_REQUIRED = ("run_id", "client_tag", "generated_at")
+
+
+def memory_review_enabled() -> bool:
+    """True iff ``VALINOR_MEMORY_REVIEW=1`` — gates the N4 propose→review→merge
+    path. Default (unset) keeps the legacy auto-write so prod is unchanged."""
+    return os.environ.get("VALINOR_MEMORY_REVIEW") == "1"
+
+
+def extract_finding_ids(findings: Dict) -> List[str]:
+    """Collect finding ids from a swarm-output dict (best-effort, type-guarded).
+    These are the source learnings a refinement proposal derives from."""
+    ids: List[str] = []
+    if not isinstance(findings, dict):
+        return ids
+    for agent_name, agent_data in findings.items():
+        if agent_name.startswith("_") or not isinstance(agent_data, dict):
+            continue
+        for f in agent_data.get("findings", []) or []:
+            if isinstance(f, dict) and f.get("id"):
+                ids.append(str(f["id"]))
+    return ids
+
+
+def build_pending_refinement(
+    refinement: Dict,
+    run_id: str,
+    client_tag: str,
+    source_findings_ids: Optional[List[str]] = None,
+    confidence: Optional[float] = None,
+    confidence_label: str = "",
+    proposal_id: Optional[str] = None,
+    generated_at: Optional[str] = None,
+) -> Dict:
+    """Build a ``PendingRefinement`` (as dict) with provenance, ready to stage.
+
+    proposal_id / generated_at are injectable for deterministic tests; they
+    default to a uuid and utcnow respectively.
+    """
+    return asdict(PendingRefinement(
+        proposal_id=proposal_id or f"pr_{uuid.uuid4().hex[:12]}",
+        refinement=dict(refinement or {}),
+        run_id=run_id,
+        client_tag=client_tag,
+        generated_at=generated_at or datetime.utcnow().isoformat(),
+        source_findings_ids=list(source_findings_ids or []),
+        confidence=confidence,
+        confidence_label=confidence_label,
+    ))
+
+
+def has_provenance(record: Dict) -> bool:
+    """True iff a pending/merged refinement record carries the required
+    provenance (used by the CI provenance linter). Requires the source/date/
+    client-tag trio present and a non-None confidence."""
+    if not isinstance(record, dict):
+        return False
+    if any(not record.get(k) for k in PROVENANCE_REQUIRED):
+        return False
+    return record.get("confidence") is not None

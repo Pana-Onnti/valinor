@@ -1174,7 +1174,8 @@ RETURN ONLY THE JSON OBJECT."""
             # mutates and saves profile independently from the main pipeline.
             profile_snapshot = copy.deepcopy(profile)
             asyncio.create_task(self._run_refinement_background(
-                profile_snapshot, findings, entity_map, reports, period, run_delta
+                profile_snapshot, findings, entity_map, reports, period, run_delta,
+                job_id=job_id, provenance=results.get("_provenance"),
             ))
 
             # Update legacy memory for backward compatibility
@@ -1253,14 +1254,25 @@ RETURN ONLY THE JSON OBJECT."""
         reports: Dict,
         period: str,
         run_delta: Dict,
+        job_id: str = "",
+        provenance=None,
     ):
-        """Background task: run RefinementAgent and update profile with results."""
+        """Background task: run RefinementAgent and update profile with results.
+
+        VAL-192 N4: when ``VALINOR_MEMORY_REVIEW=1``, the learning is STAGED as a
+        pending proposal with provenance (run, client, source findings,
+        confidence) and requires explicit human approval to become active —
+        instead of being written direct. Default (flag unset) = legacy auto-write.
+        """
+        from shared.memory.client_profile import (
+            memory_review_enabled, build_pending_refinement, extract_finding_ids,
+        )
         try:
             refinement_agent = RefinementAgent()
             refinement = await refinement_agent.analyze_run(
                 profile, findings, entity_map, reports, period, run_delta
             )
-            profile.refinement = {
+            refinement_dict = {
                 "table_weights": refinement.table_weights,
                 "query_hints": refinement.query_hints,
                 "focus_areas": refinement.focus_areas,
@@ -1268,8 +1280,33 @@ RETURN ONLY THE JSON OBJECT."""
                 "context_block": refinement.context_block,
                 "generated_at": refinement.generated_at,
             }
-            await self.profile_store.save(profile)
-            logger.info("RefinementAgent completed", client=profile.client_name)
+            if memory_review_enabled() and provenance is not None:
+                confidence, confidence_label = provenance.run_confidence()
+                pending = build_pending_refinement(
+                    refinement_dict,
+                    run_id=job_id,
+                    client_tag=profile.client_name,
+                    source_findings_ids=extract_finding_ids(findings),
+                    confidence=confidence,
+                    confidence_label=confidence_label,
+                )
+                profile.add_pending_refinement(pending)
+                await self.profile_store.save(profile)
+                logger.info("RefinementAgent proposal STAGED for review",
+                            client=profile.client_name,
+                            proposal_id=pending["proposal_id"],
+                            confidence=confidence)
+            else:
+                if memory_review_enabled():
+                    # Review is on but provenance is unavailable — staging a
+                    # proposal without provenance would fail the CI linter, so
+                    # fall back to legacy auto-write rather than stage garbage.
+                    logger.warning("Memory review ON but no provenance — auto-write fallback",
+                                   client=profile.client_name)
+                profile.refinement = refinement_dict
+                await self.profile_store.save(profile)
+                logger.info("RefinementAgent completed (auto-write)",
+                            client=profile.client_name)
         except Exception as e:
             logger.error("RefinementAgent background task failed", error=str(e))
 

@@ -85,6 +85,25 @@ class ProvenanceRegistry:
         self.findings[finding_id] = prov
         return prov
 
+    def run_confidence(self) -> tuple[float, str]:
+        """Run-level confidence for a PROPOSED learning (VAL-192 N4 provenance):
+        the mean per-finding confidence, falling back to the DQ-derived score
+        when no findings were registered. Returns (score 0..1, label)."""
+        if self.findings:
+            score = sum(f.confidence_score for f in self.findings.values()) / len(self.findings)
+        else:
+            score = max(0.0, self.dq_report_score / 100.0)
+        score = round(score, 3)
+        if score >= 0.85:
+            label = "CONFIRMED"
+        elif score >= 0.65:
+            label = "PROVISIONAL"
+        elif score >= 0.45:
+            label = "UNVERIFIED"
+        else:
+            label = "BLOCKED"
+        return score, label
+
     def summary_for_report(self) -> str:
         """Build provenance summary block for executive report footer."""
         lines = [

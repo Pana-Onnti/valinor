@@ -131,6 +131,83 @@ async def patch_client_refinement(client_name: str, body: dict):
     }
 
 
+# ── N4 write-path: pending refinement review (VAL-192) ─────────────────────────
+# Propose→review→merge. Proposals are staged by the pipeline when
+# VALINOR_MEMORY_REVIEW=1 and only become active on explicit approval here.
+
+
+@router.get("/clients/{client_name}/pending-refinements", tags=["Clients"])
+async def list_pending_refinements(client_name: str, status: Optional[str] = "pending"):
+    """List refinement proposals awaiting review (status=pending|approved|rejected,
+    or status=all for the full audit trail)."""
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {client_name}")
+
+    filter_status = None if status == "all" else status
+    return {
+        "client_name": client_name,
+        "pending_refinements": profile.get_pending_refinements(status=filter_status),
+    }
+
+
+@router.post("/clients/{client_name}/pending-refinements/{proposal_id}/approve", tags=["Clients"])
+async def approve_pending_refinement(client_name: str, proposal_id: str, body: dict | None = None):
+    """Approve a pending proposal → MERGE it into the active refinement."""
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {client_name}")
+
+    reviewed_by = (body or {}).get("reviewed_by", "operator")
+
+    # Defense in depth: never activate a proposal that lacks provenance (the CI
+    # linter enforces this, but a manually-injected proposal could slip through).
+    from shared.memory.client_profile import has_provenance
+    target = next((p for p in profile.get_pending_refinements("pending")
+                   if p.get("proposal_id") == proposal_id), None)
+    if target is None:
+        raise HTTPException(status_code=404,
+                            detail=f"No pending proposal {proposal_id} for {client_name}")
+    if not has_provenance(target):
+        raise HTTPException(status_code=400,
+                            detail=f"Proposal {proposal_id} lacks complete provenance — cannot approve")
+
+    record = profile.approve_pending_refinement(proposal_id, reviewed_by=reviewed_by)
+    if record is None:
+        raise HTTPException(status_code=404,
+                            detail=f"No pending proposal {proposal_id} for {client_name}")
+    profile.updated_at = datetime.utcnow().isoformat()
+    await store.save(profile)
+    return {"client_name": client_name, "approved": record, "refinement": profile.refinement}
+
+
+@router.post("/clients/{client_name}/pending-refinements/{proposal_id}/reject", tags=["Clients"])
+async def reject_pending_refinement(client_name: str, proposal_id: str, body: dict | None = None):
+    """Reject a pending proposal (archived with reason, never merged)."""
+    from shared.memory.profile_store import get_profile_store
+
+    store = get_profile_store()
+    profile = await store.load(client_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"No profile found for client: {client_name}")
+
+    reason = (body or {}).get("reason", "")
+    reviewed_by = (body or {}).get("reviewed_by", "operator")
+    record = profile.reject_pending_refinement(proposal_id, reason=reason, reviewed_by=reviewed_by)
+    if record is None:
+        raise HTTPException(status_code=404,
+                            detail=f"No pending proposal {proposal_id} for {client_name}")
+    profile.updated_at = datetime.utcnow().isoformat()
+    await store.save(profile)
+    return {"client_name": client_name, "rejected": record}
+
+
 @router.get("/clients", tags=["Clients"])
 @limiter.limit("30/minute")
 async def list_clients(request: Request):

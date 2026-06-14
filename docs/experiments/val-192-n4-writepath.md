@@ -1,0 +1,59 @@
+# VAL-192 N4 — Write-path con revisión humana + procedencia (slice 1)
+
+**Fecha:** 2026-06-14 · **Estado:** primera tajada end-to-end shippeada, **gated por `VALINOR_MEMORY_REVIEW=1`** (default off = comportamiento legacy intacto).
+
+## El problema que resuelve
+
+Hoy el aprendizaje entre runs es **write-directo**: `RefinementAgent` corre en background y escribe `profile.refinement` sin revisión (`valinor_adapter.py:_run_refinement_background`). El riesgo que nombra la épica: *el conocimiento compone, pero la basura también*. Una alucinación del run 1 sobrevive a run 5, **auto-escala a CRITICAL** y se cita con autoridad en run 6. N4 corta ese loop: ningún learning entra a la memoria sin **procedencia** y **aprobación humana explícita**.
+
+## El motion (capturar → proponer → revisar → merge)
+
+```
+run → RefinementAgent propone → [VALINOR_MEMORY_REVIEW=1] →
+  PendingRefinement (con procedencia) en profile.pending_refinements (NO activo)
+  → operador revisa (GET) → approve (merge a profile.refinement) | reject (archiva)
+```
+
+- **Sin el flag** (default): el comportamiento legacy de write-directo se mantiene — prod byte-idéntico.
+- **Con el flag**: la propuesta se **estaciona** con procedencia; `profile.refinement` (lo que consumen los agentes en el próximo run) **solo** cambia por un approve explícito.
+
+## Procedencia (obligatoria, linteada en CI)
+
+Cada `PendingRefinement` lleva: `run_id`, `client_tag`, `generated_at`, `source_findings_ids`, `confidence` + `confidence_label`. La confianza se reusa de `ProvenanceRegistry.run_confidence()` (media de confianza por finding, ya existente — no se reinventó). El linter `scripts/provenance_linter.py` falla el build si cualquier propuesta carece de la procedencia requerida.
+
+## Cambios (cambio quirúrgico)
+
+| Archivo | Qué |
+|---|---|
+| `shared/memory/client_profile.py` | `PendingRefinement` dataclass + campo `pending_refinements` (round-trip en to_dict/from_dict, backward-compat) + métodos `add_/get_/approve_/reject_pending_refinement` + helpers `memory_review_enabled`, `build_pending_refinement`, `extract_finding_ids`, `has_provenance` |
+| `core/valinor/quality/provenance.py` | `ProvenanceRegistry.run_confidence()` (reusable) |
+| `core/adapters/valinor_adapter.py` | intercepta el seam B (`_run_refinement_background`): si el flag → estaciona con procedencia; si no → auto-write legacy |
+| `api/routers/clients.py` | 3 endpoints: `GET .../pending-refinements`, `POST .../{id}/approve`, `POST .../{id}/reject` |
+| `scripts/provenance_linter.py` | gate de CI |
+| `tests/test_n4_writepath.py` | 18 tests: stage-no-activa, approve-merge, reject-archiva, doble-review bloqueado, procedencia obligatoria, flag gating, round-trip, linter, intercepción del adapter (flag on/off) |
+
+## Revisión
+
+API/CLI primero (decisión del usuario): el frontend/Linear quedan como consumidores aditivos de la misma cola + endpoints.
+
+**Review adversarial multi-dimensión (4 lentes, 24 hallazgos confirmados → triados):** encontró un **blocker real** — `from_dict` dejaba que `"pending_refinements": null` (corrupción/migración) sobrescribiera el `default_factory` → `None` → crash de todos los métodos. **Arreglado** con guard en `from_dict` (skip de None) + normalización en `__post_init__`. Otros fixes: el adapter solo estaciona **con** procedencia (si falta → fallback a auto-write, no estaciona basura que el linter rechazaría); approve documentado como *replace* (misma semántica que el auto-write legacy, no merge); guard de procedencia en el endpoint approve (400). 25 tests (todos verdes, order-independent — se corrigió pollution de loop asyncio y de mock de `ValinorAdapter`).
+
+## Reproducir
+
+```bash
+# estacionar (en un run con el flag):  VALINOR_MEMORY_REVIEW=1 python -m valinor.run ...
+# revisar:
+curl localhost:8000/api/clients/Gloria_SA/pending-refinements
+curl -XPOST localhost:8000/api/clients/Gloria_SA/pending-refinements/<id>/approve
+# lint CI:
+python scripts/provenance_linter.py   # escanea /tmp/valinor_profiles/*.json
+```
+
+## Pendiente (próximas tajadas, NO en slice 1)
+
+- Seam A (findings auto-write en `profile_extractor.update_from_run`) con el mismo motion + procedencia (hoy solo se cubrió el seam B / refinement, el de mayor leverage).
+- Integrar el log de audit (`/api/audit` Redis FIFO) para el evento approve/reject (hoy el trail vive en el propio record: `reviewed_by/at/reason`).
+- Consumidor frontend (página de revisión reusando DeltaPanel/FindingTimeline).
+- Flip del default a review-on cuando el flujo esté probado en vivo.
+
+*Refs: VAL-192 (N4). Relaciona N1–N3 (mismo método eval-gated, wire-careful).*
