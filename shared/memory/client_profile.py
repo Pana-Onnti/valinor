@@ -537,9 +537,11 @@ PROVENANCE_REQUIRED = ("run_id", "client_tag", "generated_at")
 
 
 def memory_review_enabled() -> bool:
-    """True iff ``VALINOR_MEMORY_REVIEW=1`` — gates the N4 propose→review→merge
-    path. Default (unset) keeps the legacy auto-write so prod is unchanged."""
-    return os.environ.get("VALINOR_MEMORY_REVIEW") == "1"
+    """True unless ``VALINOR_MEMORY_REVIEW=0`` — the N4 propose→review→merge path
+    is now the DEFAULT (flipped 2026-06-14 after the end-to-end flow was proven
+    live): learnings stage for human review instead of auto-applying. Set
+    ``VALINOR_MEMORY_REVIEW=0`` to restore the legacy auto-write."""
+    return os.environ.get("VALINOR_MEMORY_REVIEW", "1") != "0"
 
 
 def extract_finding_ids(findings: Dict) -> List[str]:

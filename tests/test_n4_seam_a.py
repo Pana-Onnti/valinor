@@ -133,7 +133,7 @@ def test_update_from_run_stages_escalation_when_flag_on(monkeypatch):
 
 
 def test_update_from_run_autoescalates_when_flag_off(monkeypatch):
-    monkeypatch.delenv("VALINOR_MEMORY_REVIEW", raising=False)
+    monkeypatch.setenv("VALINOR_MEMORY_REVIEW", "0")   # explicit legacy auto-escalate
     p = _profile_with_finding(runs_open=5, severity="MEDIUM")
     findings = {"analyst": {"findings": [{"id": "f1", "title": "t", "severity": "MEDIUM"}]}}
     _EXT.update_from_run(p, findings, {"entities": {}}, {}, "Q2",

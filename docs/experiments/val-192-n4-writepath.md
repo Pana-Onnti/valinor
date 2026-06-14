@@ -1,6 +1,6 @@
-# VAL-192 N4 — Write-path con revisión humana + procedencia (slice 1)
+# VAL-192 N4 — Write-path con revisión humana + procedencia
 
-**Fecha:** 2026-06-14 · **Estado:** primera tajada end-to-end shippeada, **gated por `VALINOR_MEMORY_REVIEW=1`** (default off = comportamiento legacy intacto).
+**Fecha:** 2026-06-14 · **Estado:** ✅ **CERRADO** (5 slices: seam B + seam A + audit + frontend + flip del default). Review-on es ahora el **default** (`VALINOR_MEMORY_REVIEW=0` restaura el auto-write legacy). Validado end-to-end en vivo.
 
 ## El problema que resuelve
 
@@ -74,8 +74,19 @@ Página de revisión para el operador en `web/app/clients/[clientId]/review/page
 - Toggle **Pendientes / Historial** (status=pending vs all; el historial muestra status + quién/cuándo revisó).
 - Consume los 6 endpoints (`GET/approve/reject` × 2 colas) vía `fetch` directo (idiom de las páginas recientes). Verificado: `tsc --noEmit` limpio + `next build`.
 
-## Pendiente
+## Slice 5 — Flip del default + prueba en vivo ✅ 2026-06-14
 
-- Flip del default a review-on cuando el flujo esté probado en vivo.
+`memory_review_enabled()` ahora devuelve True **por defecto** (review-on): los learnings se estacionan para revisión humana en vez de auto-aplicarse. Para restaurar el auto-write legacy: `VALINOR_MEMORY_REVIEW=0`. (El gate de procedencia sigue: los callers sin provenance —tests legacy, paths viejos— caen a auto-write igual, así que el flip solo afecta el path real del adapter que sí pasa provenance.)
+
+**Prueba en vivo (stack real: uvicorn + ProfileStore + Redis 6380):**
+1. `update_from_run` con el default (flag sin setear) → `memory_review_enabled()=True`, la escalación MEDIUM→HIGH **se estaciona** (no se auto-aplica), severidad queda MEDIUM. Persistido al store real.
+2. `GET /api/clients/.../pending-escalations` (API HTTP) → devuelve la propuesta con procedencia completa.
+3. `POST .../{id}/approve` → status `approved`, `reviewed_by`/`reviewed_at` sellados.
+4. Severidad **aplicada y persistida**: el finding re-leído por la API es `HIGH`. Pendientes → 0.
+5. `GET /api/audit?event_type=memory_review` → el evento aterrizó en **Redis real** con action/queue/proposal_id/reviewed_by + procedencia (run_id, confidence) + from/to_severity + timestamp.
+
+El ciclo completo del write-path queda validado end-to-end en el stack corriendo. Suite: 3513 passed (las 61 son la pollution de orden de VAL-193).
+
+**N4 CERRADO** — los 5 slices shippeados; el aprendizaje entre runs ya no compone con autoridad sin pasar por revisión humana con procedencia.
 
 *Refs: VAL-192 (N4). Relaciona N1–N3 (mismo método eval-gated, wire-careful).*

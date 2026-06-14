@@ -129,8 +129,9 @@ def test_extract_finding_ids_from_swarm_output():
 # ── 5. flag gating + round-trip ───────────────────────────────────────────────
 
 def test_memory_review_flag(monkeypatch):
+    # Flipped 2026-06-14: review is the DEFAULT; only "0" disables it.
     monkeypatch.delenv("VALINOR_MEMORY_REVIEW", raising=False)
-    assert memory_review_enabled() is False
+    assert memory_review_enabled() is True
     monkeypatch.setenv("VALINOR_MEMORY_REVIEW", "1")
     assert memory_review_enabled() is True
     monkeypatch.setenv("VALINOR_MEMORY_REVIEW", "0")
@@ -230,7 +231,7 @@ async def test_adapter_stages_pending_when_flag_on(monkeypatch):
 
 
 async def test_adapter_auto_writes_when_flag_off(monkeypatch):
-    monkeypatch.delenv("VALINOR_MEMORY_REVIEW", raising=False)
+    monkeypatch.setenv("VALINOR_MEMORY_REVIEW", "0")   # explicit legacy auto-write
     adapter, saved = _make_adapter()
     _patch_refinement_agent(monkeypatch)
     profile = ClientProfile.new("Gloria_SA")
