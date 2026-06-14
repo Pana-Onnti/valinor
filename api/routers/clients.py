@@ -136,6 +136,28 @@ async def patch_client_refinement(client_name: str, body: dict):
 # VALINOR_MEMORY_REVIEW=1 and only become active on explicit approval here.
 
 
+async def _emit_review_audit(action: str, queue: str, client_name: str,
+                             record: Optional[dict], reviewed_by: str,
+                             reason: str = "") -> None:
+    """Best-effort audit trail for a memory-review decision (who/when/what)."""
+    from api.audit import emit_audit_event
+    evt = {
+        "event_type": "memory_review",
+        "action": action,
+        "queue": queue,
+        "client_name": client_name,
+        "proposal_id": record.get("proposal_id") if record else None,
+        "reviewed_by": reviewed_by,
+    }
+    if reason:
+        evt["reason"] = reason
+    # Carry provenance + decision context for an auditable record.
+    for k in ("run_id", "confidence", "finding_id", "from_severity", "to_severity"):
+        if record and record.get(k) is not None:
+            evt[k] = record.get(k)
+    await emit_audit_event(evt)
+
+
 @router.get("/clients/{client_name}/pending-refinements", tags=["Clients"])
 async def list_pending_refinements(client_name: str, status: Optional[str] = "pending"):
     """List refinement proposals awaiting review (status=pending|approved|rejected,
@@ -184,6 +206,7 @@ async def approve_pending_refinement(client_name: str, proposal_id: str, body: d
                             detail=f"No pending proposal {proposal_id} for {client_name}")
     profile.updated_at = datetime.utcnow().isoformat()
     await store.save(profile)
+    await _emit_review_audit("approve", "pending_refinements", client_name, record, reviewed_by)
     return {"client_name": client_name, "approved": record, "refinement": profile.refinement}
 
 
@@ -205,6 +228,7 @@ async def reject_pending_refinement(client_name: str, proposal_id: str, body: di
                             detail=f"No pending proposal {proposal_id} for {client_name}")
     profile.updated_at = datetime.utcnow().isoformat()
     await store.save(profile)
+    await _emit_review_audit("reject", "pending_refinements", client_name, record, reviewed_by, reason)
     return {"client_name": client_name, "rejected": record}
 
 
@@ -254,6 +278,7 @@ async def approve_pending_escalation(client_name: str, proposal_id: str, body: d
     record = profile.approve_pending_escalation(proposal_id, reviewed_by=reviewed_by)
     profile.updated_at = datetime.utcnow().isoformat()
     await store.save(profile)
+    await _emit_review_audit("approve", "pending_escalations", client_name, record, reviewed_by)
     return {"client_name": client_name, "approved": record}
 
 
@@ -275,6 +300,7 @@ async def reject_pending_escalation(client_name: str, proposal_id: str, body: di
                             detail=f"No pending escalation {proposal_id} for {client_name}")
     profile.updated_at = datetime.utcnow().isoformat()
     await store.save(profile)
+    await _emit_review_audit("reject", "pending_escalations", client_name, record, reviewed_by, reason)
     return {"client_name": client_name, "rejected": record}
 
 

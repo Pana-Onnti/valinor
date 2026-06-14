@@ -58,9 +58,14 @@ El write-directo de findings vive en `profile_extractor.update_from_run`. No tod
 
 API: `GET pending-escalations`, `POST {id}/approve` (aplica la severidad, guard de procedencia 400), `POST {id}/reject`. El linter de CI cubre **ambas** colas. +15 tests (`tests/test_n4_seam_a.py`).
 
+## Slice 3 — Audit trail ✅ 2026-06-14
+
+Cada decisión de revisión (approve/reject de ambas colas) emite un evento al log de audit (`audit_log`, lista FIFO de Redis, cap 1000). Se extrajo `api/audit.py::emit_audit_event` como **única fuente** del append (el endpoint `/api/audit` ahora lo reusa — DRY) y es **best-effort**: un problema de Redis nunca rompe el approve/reject (devuelve False y loguea, no levanta).
+
+El evento `memory_review` lleva: `action`, `queue` (refinements/escalations), `client_name`, `proposal_id`, `reviewed_by`, `reason` (en reject), + procedencia/decisión (`run_id`, `confidence`, y para escalaciones `finding_id`/`from_severity`/`to_severity`) + `timestamp`. Consultable vía `GET /api/audit?event_type=memory_review`. +6 tests (`tests/test_audit.py`).
+
 ## Pendiente (próximas tajadas)
 
-- Integrar el log de audit (`/api/audit` Redis FIFO) para el evento approve/reject (hoy el trail vive en el propio record: `reviewed_by/at/reason`).
 - Consumidor frontend (página de revisión reusando DeltaPanel/FindingTimeline) para ambas colas.
 - Flip del default a review-on cuando el flujo esté probado en vivo.
 

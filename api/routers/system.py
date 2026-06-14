@@ -98,8 +98,8 @@ async def log_audit_event(
     redis_client: redis.Redis = Depends(get_redis)
 ):
     """Internal endpoint to log audit events."""
-    await redis_client.lpush("audit_log", json.dumps({**event, "timestamp": datetime.utcnow().isoformat()}))
-    await redis_client.ltrim("audit_log", 0, 999)
+    from api.audit import emit_audit_event
+    await emit_audit_event(event, redis_client=redis_client)
     return {"logged": True}
 
 
