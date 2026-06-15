@@ -1,6 +1,6 @@
 # VAL-192 N5 — El KG dentro del harness (toda afirmación con cita)
 
-**Fecha:** 2026-06-14 · **Estado:** slice 1 (instrumento + baseline) + slice 2 (value_confidence + golden gate CI). Eval-first, sin enforcement de cobertura todavía.
+**Fecha:** 2026-06-14 · **Estado:** slice 1 (instrumento + baseline) + slice 2 (value_confidence + golden gate CI) + slice 3 (enforcement A/B prompt-side → **inconcluso**, lever determinista pendiente).
 
 ## El hito y el método
 
@@ -63,9 +63,28 @@ La tasa es similar (54%→53%) pero el **denominador ahora es correcto**: 40/70 
 
 **Gobernanza (mirror N1):** `evals/agent_grounding/golden.yaml` (14 casos sintéticos, 10 train / 4 test, cubren las 5 categorías + value_confidence) + `scripts/eval.py agent-grounding [--gate]` + `baseline.json` (`case_accuracy/test = 1.0`) + gate de CI en `tests/test_eval_gate.py` (pytest falla si el instrumento regresiona en el split de test). Train/test respetado.
 
+## Slice 3 — Enforcement A/B (directiva de citación) → INCONCLUSO 2026-06-14
+
+**El lever:** `_extract_query_ref` solo resuelve la cita si el `query_id` exacto aparece verbatim en el `evidence`. Los agentes citan en prosa ("the concentration query"), no la key → no resuelve → uncited. El **treatment**: una directiva que exige citar el `query_id` EXACTO (o marcar `value_confidence: inferred` si no rastrea). Enabler: `run_analyst(citation_directive=, model=)` (inerte por defecto).
+
+**El A/B** (`scripts/agent_citation_ab.py`, mirror VAL-163): analyst 2× sobre el MISMO state de Gloria, control (sin directiva) vs treatment (con), **mismo Haiku** ambos brazos (Sonnet cuelga en el CLI local — documentado), 3 reps.
+
+| | control | treatment | Δ |
+|---|---|---|---|
+| rep1 | 0.571 | 0.200 | **−0.371** |
+| rep2 | 0.471 | 0.591 | **+0.120** (peor) |
+| rep3 | 0.467 | 0.400 | −0.067 |
+| **mediana** | **0.471** | **0.400** | **−0.067** |
+
+**Veredicto: INCONCLUSO — no se puede claimar que la directiva baja la tasa.** El −37pp de la rep1 era **ruido de muestreo del LLM**: sobre 3 reps la mejora mediana es chica (−6.7pp), una rep dio *peor*, y el rango cruza el cero. La varianza del LLM (cuántos claims produce + cuántos cita) domina el efecto. **El método atrapó un falso-win de 1 rep** — la misma disciplina que refutó el overclaim de VAL-162 y el claim de tasa de VAL-163.
+
+Datos: el treatment SÍ tiende a citar más (cited 16/15 vs 9/8 en reps 1/3) y a marcar más inferencias honestas, pero también produce más claims totales que diluyen, y a veces (rep2) no cita más. No es un lever robusto a este n con prompt-side + Haiku.
+
 ## Próximas tajadas
 
-- **Baseline full-pipeline**: un run capturado con DB → uncited_rate con active re-query (el `results[]` ya persiste).
-- **Enforcement**: bajar el 53% de los claims MEASURED sin cita — subir la cobertura de citación de los agentes (que `source_query` se popule en el origen), midiendo el delta contra este baseline con A/B.
+- **Lever determinista (resolución-side)**: mejorar `_extract_query_ref` con fuzzy-match (tabla/concepto → query_id) — **cero varianza de LLM**, delta limpio y reproducible (A/B post-hoc sobre los findings capturados). Probablemente el lever real.
+- **Enforcement más fuerte**: rechazar/degradar findings MEASURED sin cita resoluble (no solo pedirlo en el prompt).
+- **Baseline full-pipeline**: run con DB → uncited_rate con active re-query (el `results[]` ya persiste).
+- Multi-rep + Sonnet + 3 agentes si se persigue el lever prompt-side.
 
 *Refs: VAL-192 (N5). Mismo método eval-gated que N1–N4.*

@@ -19,6 +19,8 @@ SKILL_PATH = Path(__file__).parent.parent.parent / ".claude" / "skills" / "finan
 async def run_analyst(
     query_results: dict, entity_map: dict, memory: dict | None, baseline: dict,
     kg=None,
+    model: str = "sonnet",
+    citation_directive: str = "",
 ) -> dict:
     """
     Run the Analyst agent for financial pattern discovery.
@@ -53,10 +55,13 @@ async def run_analyst(
     kg_context = kg.to_prompt_context() if kg else ""
 
     options = ClaudeAgentOptions(
-        model="sonnet",
+        model=model,
         system_prompt=skill_content,
         max_turns=20,
     )
+
+    # VAL-192 N5 enforcement: an optional citation directive (inert by default).
+    citation_section = f"\n    {citation_directive}\n" if citation_directive else ""
 
     prompt = f"""
     REVENUE BASELINE (measured from actual data — use these for all EUR estimates):
@@ -82,7 +87,7 @@ async def run_analyst(
        Never invent customer names.
     4. If data is stale (baseline.data_freshness_days > 14), flag this in each
        finding that depends on current data.
-
+    {citation_section}
     OUTPUT: JSON array of findings. Each finding MUST have:
     - id (e.g., "FIN-001")
     - severity (critical/warning/opportunity)
