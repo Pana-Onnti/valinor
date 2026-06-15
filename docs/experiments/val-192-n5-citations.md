@@ -1,6 +1,6 @@
 # VAL-192 N5 — El KG dentro del harness (toda afirmación con cita)
 
-**Fecha:** 2026-06-14 · **Estado:** slice 1 (instrumento + baseline) + slice 2 (value_confidence + golden gate CI) + slice 3 (enforcement A/B prompt-side → **inconcluso**, lever determinista pendiente).
+**Fecha:** 2026-06-14/15 · **Estado:** instrumento gobernado (slices 1-2) + dos veredictos honestos de enforcement (slice 3 prompt-side **inconcluso**, slice 4 resolución-side **inexistente, diagnosticado**). El instrumento mide bien; los levers baratos no funcionan — el camino real es active re-query (DB) o wirear los agregados de N3.
 
 ## El hito y el método
 
@@ -80,11 +80,34 @@ La tasa es similar (54%→53%) pero el **denominador ahora es correcto**: 40/70 
 
 Datos: el treatment SÍ tiende a citar más (cited 16/15 vs 9/8 en reps 1/3) y a marcar más inferencias honestas, pero también produce más claims totales que diluyen, y a veces (rep2) no cita más. No es un lever robusto a este n con prompt-side + Haiku.
 
+## Slice 4 — Lever determinista: DIAGNOSTICADO COMO INEXISTENTE 2026-06-14
+
+Antes de construir el lever de resolución (fuzzy `_extract_query_ref`), lo diagnostiqué — y **no existe como win barato**. Dos hallazgos:
+
+**1. `claim.source_query` es código MUERTO en `_verify_claim`.** `_extract_query_ref` lo popula, pero ninguna estrategia de verificación lo consulta — el `verification_query` (lo que define "cited") lo setea la estrategia que matchea el VALOR (registry / derivación / raw-search), no la query que el agente citó. Así que mejorar el resolver de citas NO movería la tasa. La premisa del slice 3 estaba equivocada.
+
+**2. Los uncited MEASURED son valores computados ausentes de los datos.** El diagnóstico (`scripts/uncited_claims_diagnose.py`, categoriza cada uncited measured) sobre Gloria:
+
+| categoría | n | qué |
+|---|---|---|
+| `value_zero` (~0) | 5 | espurio (matchea cualquier celda 0) |
+| `in_raw_missed` | **0** | el raw-search NO pierde ningún valor → no hay bug-lever |
+| `column_aggregate` | **0** | ninguno matchea suma/count/max de columna |
+| `computed_absent` | **10** | agregados multi-paso (sumas filtradas, shares) ausentes de TODO query_results |
+
+`in_raw_missed=0` y `column_aggregate=0` cierran el caso: el verifier offline ya extrae todo lo extraíble. Los 10 reales son derivaciones del agente (ej. "LTV de champions" = Σ LTV WHERE segment=champions) que **no son celdas raw** y que offline no se pueden citar sin re-query a DB **o** la biblioteca de agregados deterministas de N3.
+
+**Veredicto: no hay lever de resolución determinista.** Diagnosticado con evidencia (raw search, deep search, agregados de columna), no asumido. Dos slices honestos seguidos (prompt-side ruidoso, resolución-side inexistente) **narrowearon el espacio de solución de N5**.
+
+## El camino real (los levers que SÍ existen, más grandes)
+
+1. **Active re-query (DB)**: la estrategia 4 (`_active_requery`) ya existe pero necesita `connection_string` — un run full-pipeline con DB citaría los agregados re-computándolos. Es el baseline full-pipeline pendiente.
+2. **Wirear la biblioteca de agregados de N3 como fuente de citación**: N3 ya computa exactamente estos agregados (group-by, exposición, shares) deterministamente. Conectarlos a la verificación citaría los `computed_absent`. Integración grande, no un fuzzy-match.
+3. **Disciplina de confidence labeling**: muchos `computed_absent` deberían ser `value_confidence: inferred/computed` (son derivados, no medidos directos) → caerían al bucket declared correctamente. Lever de prompt (con el problema de varianza del slice 3).
+
 ## Próximas tajadas
 
-- **Lever determinista (resolución-side)**: mejorar `_extract_query_ref` con fuzzy-match (tabla/concepto → query_id) — **cero varianza de LLM**, delta limpio y reproducible (A/B post-hoc sobre los findings capturados). Probablemente el lever real.
-- **Enforcement más fuerte**: rechazar/degradar findings MEASURED sin cita resoluble (no solo pedirlo en el prompt).
-- **Baseline full-pipeline**: run con DB → uncited_rate con active re-query (el `results[]` ya persiste).
-- Multi-rep + Sonnet + 3 agentes si se persigue el lever prompt-side.
+- Baseline full-pipeline (run con DB → active re-query, el `results[]` ya persiste) para separar `computed_absent` citables-por-requery de los genuinamente sin fuente.
+- Si se persigue citar agregados: wirear N3 → verificación (integración).
 
 *Refs: VAL-192 (N5). Mismo método eval-gated que N1–N4.*
