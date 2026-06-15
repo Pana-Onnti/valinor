@@ -1,6 +1,6 @@
 # VAL-192 N5 — El KG dentro del harness (toda afirmación con cita)
 
-**Fecha:** 2026-06-14/15 · **Estado:** instrumento gobernado (slices 1-2) + dos veredictos honestos de enforcement (slice 3 prompt-side **inconcluso**, slice 4 resolución-side **inexistente, diagnosticado**). El instrumento mide bien; los levers baratos no funcionan — el camino real es active re-query (DB) o wirear los agregados de N3.
+**Fecha:** 2026-06-14/15 · **Estado:** instrumento gobernado (slices 1-2) + enforcement diagnosticado a fondo (3 prompt-side inconcluso, 4 resolución-de-cita inexistente, **5 active re-query = EL lever real, probado deterministamente pero SIN wirear en el pipeline**). El número real con-DB necesita la conexión del operador (recipe abajo); offline = 53% (cota superior).
 
 ## El hito y el método
 
@@ -105,9 +105,34 @@ Antes de construir el lever de resolución (fuzzy `_extract_query_ref`), lo diag
 2. **Wirear la biblioteca de agregados de N3 como fuente de citación**: N3 ya computa exactamente estos agregados (group-by, exposición, shares) deterministamente. Conectarlos a la verificación citaría los `computed_absent`. Integración grande, no un fuzzy-match.
 3. **Disciplina de confidence labeling**: muchos `computed_absent` deberían ser `value_confidence: inferred/computed` (son derivados, no medidos directos) → caerían al bucket declared correctamente. Lever de prompt (con el problema de varianza del slice 3).
 
-## Próximas tajadas
+## Slice 5 — Active re-query: EL lever real, probado + el gap de wiring 2026-06-15
 
-- Baseline full-pipeline (run con DB → active re-query, el `results[]` ya persiste) para separar `computed_absent` citables-por-requery de los genuinamente sin fuente.
-- Si se persigue citar agregados: wirear N3 → verificación (integración).
+Los `computed_absent` (slice 4) son agregados que el agente computó. La **estrategia 4 del VerificationEngine (`_active_requery`)** los re-computa contra la DB vía SQL generado del entity_map — exactamente lo que offline no se puede. Es el lever determinista (cero varianza de LLM) que el slice 3 buscaba en el lugar equivocado.
+
+**Probado deterministamente** (`tests/test_active_requery_lever.py`, SQLite autocontenido, sin data de cliente):
+
+| | status | cited? |
+|---|---|---|
+| count claim, **offline** (sin conn) | UNVERIFIABLE | uncited |
+| mismo claim, **con-DB** (active re-query recomputa `COUNT`=12) | VERIFIED | **cited** (el SQL es la cita) |
+| valor errado (999) con-DB | FAILED | no (no fabrica citas) |
+
+**El gap (hallazgo clave):** la estrategia 4 ya existe pero **NUNCA se wirea** — `run.py:334` y `valinor_adapter.py:1054` construyen `VerificationEngine(query_results, baseline, kg)` **sin `connection_string` ni `entity_map`**, aunque la conexión está en scope (`run.py:62`). Así que active re-query **nunca dispara en prod hoy** — el mismo patrón de "código vivo sin conectar" que `claim.source_query`. Por eso el baseline offline (53%) ES el número de prod actual.
+
+## El baseline full-pipeline con-DB (recipe)
+
+El número real necesita la **DB de Gloria del operador** (no está en el repo/state/env por seguridad de cliente — no es autónomamente accesible). Con Gloria PG levantada, un comando:
+
+```bash
+venv/bin/python scripts/agent_grounding_baseline.py \
+    --state docs/experiments/val-163/state.json \
+    --connection-string "postgresql://…gloria…"
+```
+
+`agent_grounding_baseline.py` ahora pasa `connection_string` + `entity_map` al engine → la estrategia 4 dispara → los `computed_absent` re-computables quedan citados → el uncited_rate real (esperado << 53%, porque ~10 de los 16 son agregados re-computables). El offline (53%) es la cota superior conservadora.
+
+## Estado / próximo
+
+N5 = **instrumento gobernado** (slices 1-2) + **diagnóstico completo del enforcement**: prompt-side ruidoso (3), resolución-de-cita inexistente (4), **active re-query es EL lever** (5, probado) pero **sin wirear en el pipeline**. La tajada de cierre de N5 sería **wirear `connection_string`+`entity_map` a los 2 callers de VerificationEngine** (gated/opt-in por latencia: un round-trip de DB por claim no verificado, timeout 5s) + el baseline real del operador. Decisión arquitectural (latencia vs cobertura de citación) → del usuario.
 
 *Refs: VAL-192 (N5). Mismo método eval-gated que N1–N4.*

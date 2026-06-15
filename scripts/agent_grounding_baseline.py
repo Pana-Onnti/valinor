@@ -46,13 +46,20 @@ def _claims_from_state(eng, findings: dict) -> list:
     return claims
 
 
-def from_state(state_path: Path) -> dict:
+def from_state(state_path: Path, connection_string: str = "") -> dict:
     from valinor.knowledge_graph import build_knowledge_graph
     from valinor.verification import VerificationEngine
 
     state = json.loads(state_path.read_text(encoding="utf-8"))
     kg = build_knowledge_graph(state["entity_map"])
-    eng = VerificationEngine(state["query_results"], state["baseline"], kg)
+    # With a connection_string, verification strategy 4 (active re-query) fires —
+    # computed aggregates absent from the raw rows get re-computed against the DB
+    # and cited. Without it, this is the conservative offline baseline.
+    eng = VerificationEngine(
+        state["query_results"], state["baseline"], kg,
+        connection_string=connection_string or None,
+        entity_map=state["entity_map"],
+    )
     report = eng.verify_findings(state["findings"])
     claims = _claims_from_state(eng, state["findings"])
     audit = score_agent_claims(report.results, claims, findings=state["findings"])
@@ -74,12 +81,16 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="VAL-192 N5 agent-grounding baseline")
     ap.add_argument("--state", help="captured pipeline state.json (runs verification offline)")
     ap.add_argument("--report", help="saved verification_report.json with results[]")
+    ap.add_argument("--connection-string", default="",
+                    help="DB connection (with --state) → enables active re-query "
+                         "strategy 4: the full-pipeline-with-DB baseline")
     args = ap.parse_args(argv)
 
     if not args.state and not args.report:
         ap.error("pass --state or --report")
 
-    audit = from_state(Path(args.state)) if args.state else from_report(Path(args.report))
+    audit = (from_state(Path(args.state), args.connection_string)
+             if args.state else from_report(Path(args.report)))
     print(json.dumps(audit, indent=2))
     return 0
 
