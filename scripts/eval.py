@@ -60,6 +60,8 @@ from valinor.quality.narrator_metrics import (  # noqa: E402
 
 GOLDEN_PATH = ROOT / "evals" / "narrator_grounding" / "golden.yaml"
 BASELINE_PATH = ROOT / "evals" / "narrator_grounding" / "baseline.json"
+AG_GOLDEN_PATH = ROOT / "evals" / "agent_grounding" / "golden.yaml"
+AG_BASELINE_PATH = ROOT / "evals" / "agent_grounding" / "baseline.json"
 
 CONFIGS = ("default", "derived")
 
@@ -170,6 +172,68 @@ def golden_main(args) -> int:
             return 2
         baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
         floor = baseline["value"]
+        if gate_value < floor:
+            print(f"\nGATE FAILED: test accuracy {gate_value:.4f} < baseline {floor:.4f}", file=sys.stderr)
+            return 1
+        print(f"\nGATE OK: test accuracy {gate_value:.4f} ≥ baseline {floor:.4f}")
+    return 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AGENT-GROUNDING MODE — N5 uncited-claims instrument meta-eval (VAL-192 N5)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_AG_BUCKETS = ("cited", "uncited", "unresolvable", "failed", "declared_inference")
+
+
+def _score_ag_case(case: dict) -> tuple[bool, str]:
+    """Run one N5 golden case. The instrument's bucket counts must match expect."""
+    from valinor.quality.agent_grounding_metrics import score_agent_claims
+
+    audit = score_agent_claims(case.get("results", []), case.get("claims"), case.get("findings"))
+    expect = case.get("expect", {})
+    problems = []
+    for bucket in _AG_BUCKETS:
+        if bucket in expect and getattr(audit, bucket) != expect[bucket]:
+            problems.append(f"{bucket}: got {getattr(audit, bucket)} want {expect[bucket]}")
+    return (not problems, "; ".join(problems))
+
+
+def run_ag_golden(golden_path: Path = AG_GOLDEN_PATH) -> dict:
+    """Score the N5 golden set. Returns {'default': {split: {passed, total, failures}}}."""
+    cases = yaml.safe_load(golden_path.read_text(encoding="utf-8"))["cases"]
+    per_split: dict = {}
+    for case in cases:
+        split = case.get("split", "train")
+        slot = per_split.setdefault(split, {"passed": 0, "total": 0, "failures": []})
+        ok, detail = _score_ag_case(case)
+        slot["total"] += 1
+        if ok:
+            slot["passed"] += 1
+        else:
+            slot["failures"].append(f"{case['id']} [{detail}]")
+    return {"default": per_split}
+
+
+def agent_grounding_main(args) -> int:
+    results = run_ag_golden(Path(args.golden))
+    print_golden_table(results)
+    gate_value = _accuracy(results["default"].get("test", {"passed": 0, "total": 0}))
+
+    if args.update_baseline:
+        AG_BASELINE_PATH.write_text(json.dumps({
+            "gate_metric": "case_accuracy/test/default",
+            "value": round(gate_value, 4),
+            "note": "updated deliberately via eval.py agent-grounding --update-baseline",
+        }, indent=2) + "\n", encoding="utf-8")
+        print(f"\nbaseline updated → {AG_BASELINE_PATH} (value={gate_value:.4f})")
+        return 0
+
+    if args.gate:
+        if not AG_BASELINE_PATH.exists():
+            print("\nGATE: no baseline committed — run --update-baseline first", file=sys.stderr)
+            return 2
+        floor = json.loads(AG_BASELINE_PATH.read_text(encoding="utf-8"))["value"]
         if gate_value < floor:
             print(f"\nGATE FAILED: test accuracy {gate_value:.4f} < baseline {floor:.4f}", file=sys.stderr)
             return 1
@@ -434,6 +498,11 @@ def main(argv=None) -> int:
     g.add_argument("--gate", action="store_true")
     g.add_argument("--update-baseline", action="store_true")
 
+    ag = sub.add_parser("agent-grounding", help="N5 uncited-claims instrument meta-eval (VAL-192)")
+    ag.add_argument("--golden", default=str(AG_GOLDEN_PATH))
+    ag.add_argument("--gate", action="store_true")
+    ag.add_argument("--update-baseline", action="store_true")
+
     a = sub.add_parser("ab", help="aggregate captured Number Registry A/B reps")
     a.add_argument("--dir", required=True)
     a.add_argument("--report", default=None)
@@ -458,6 +527,8 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.mode == "golden":
         return golden_main(args)
+    if args.mode == "agent-grounding":
+        return agent_grounding_main(args)
     if args.mode == "ab":
         return ab_main(args)
     return graphrag_main(args)

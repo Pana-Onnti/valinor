@@ -1,6 +1,6 @@
 # VAL-192 N5 — El KG dentro del harness (toda afirmación con cita)
 
-**Fecha:** 2026-06-14 · **Estado:** slice 1 (instrumento + baseline, eval-first, sin enforcement).
+**Fecha:** 2026-06-14 · **Estado:** slice 1 (instrumento + baseline) + slice 2 (value_confidence + golden gate CI). Eval-first, sin enforcement de cobertura todavía.
 
 ## El hito y el método
 
@@ -48,10 +48,24 @@ uncited_rate: 0.5429   (cited_rate: 0.4571)
 | `scripts/agent_grounding_baseline.py` | runner reproducible (--state corre verificación offline · --report puntúa el artefacto) |
 | `tests/test_agent_grounding_metrics.py` | 12 tests: las 5 categorías, rate sobre denom verifiable, declared excluido, compat dict/objeto |
 
+## Slice 2 — `value_confidence` typed + golden gate CI ✅ 2026-06-14
+
+**El 54% estaba inflado.** La detección de inferencia del slice 1 era solo regex sobre el claim_text — pero los agentes YA marcan su incertidumbre vía el campo typed `value_confidence` (MEASURED/ESTIMATED/INFERRED, `schemas/agent_outputs.py`). En el state de Gloria: **18 de 30 findings (60%) son estimated/inferred**. El instrumento los contaba como uncited.
+
+Wireé `value_confidence` a la detección de inferencia (un claim cuyo finding es `estimated`/`inferred` es inferencia declarada → fuera del denominador, la mitad "o marcada inferencia" de la regla N5, vía el campo del agente y no regex). Join: `AtomicClaim.finding_id → finding["id"] → value_confidence`.
+
+**Baseline corregido (Gloria):**
+```
+total_claims: 70 · declared_inference: 40 · verifiable: 30 · cited: 14 · uncited: 16
+uncited_rate: 0.5333
+```
+La tasa es similar (54%→53%) pero el **denominador ahora es correcto**: 40/70 claims son inferencias que el agente declaró honestamente; de los **30 claims MEASURED** (los que sí deben citarse), **16 (53%) no tienen cita**. Esa es la falla de autoría real que el enforcement debe bajar, sin contaminar con inferencias honestas.
+
+**Gobernanza (mirror N1):** `evals/agent_grounding/golden.yaml` (14 casos sintéticos, 10 train / 4 test, cubren las 5 categorías + value_confidence) + `scripts/eval.py agent-grounding [--gate]` + `baseline.json` (`case_accuracy/test = 1.0`) + gate de CI en `tests/test_eval_gate.py` (pytest falla si el instrumento regresiona en el split de test). Train/test respetado.
+
 ## Próximas tajadas
 
-- **Golden + gate CI**: `evals/agent_grounding/golden.yaml` + `scripts/eval.py agent-grounding` + baseline.json con gate de regresión (como N1), una vez fijado el umbral.
-- **Baseline full-pipeline**: un run capturado con DB → uncited_rate con active re-query.
-- **Enforcement**: bajar la tasa — wirear `value_confidence` typed a los claims (cita-o-marca-inferencia en el origen, no regex), y subir la cobertura de citación de los agentes. Medir el delta contra este baseline.
+- **Baseline full-pipeline**: un run capturado con DB → uncited_rate con active re-query (el `results[]` ya persiste).
+- **Enforcement**: bajar el 53% de los claims MEASURED sin cita — subir la cobertura de citación de los agentes (que `source_query` se popule en el origen), midiendo el delta contra este baseline con A/B.
 
 *Refs: VAL-192 (N5). Mismo método eval-gated que N1–N4.*

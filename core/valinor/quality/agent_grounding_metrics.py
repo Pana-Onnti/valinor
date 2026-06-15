@@ -8,9 +8,11 @@ narrator-grounding instrument (which measures NUMBERS in narrator text).
 
 Operational buckets over a ``VerificationReport``'s per-claim ``results``:
 
-  - declared     — the claim text marks itself ``[ESTIMADO]/[INFERIDO]/~`` — out
-                   of the denominator (the pipeline's honesty protocol, the same
-                   marker N1 uses).
+  - declared     — the agent marked the claim as NOT measured: via the typed
+                   ``value_confidence`` of its finding (``estimated``/``inferred``,
+                   higher fidelity) OR the ``[ESTIMADO]/[INFERIDO]/~`` text marker
+                   N1 uses. Out of the denominator — this is the "or marked as
+                   inference" half of the N5 rule.
   - cited        — status VERIFIED/APPROXIMATE with a non-null
                    ``verification_query`` (resolved lineage to a query/registry).
   - failed       — status FAILED (had lineage but the value was contradicted).
@@ -37,6 +39,22 @@ from typing import Any
 from valinor.quality.narrator_metrics import _DECLARED_AFTER_RE
 
 _CITED_STATUSES = ("VERIFIED", "APPROXIMATE")
+# The agent's own typed "not measured" markers (schemas.agent_outputs.ValueConfidence).
+_INFERENCE_CONFIDENCE = ("estimated", "inferred")
+
+
+def _value_confidence_by_finding(findings) -> dict:
+    """Map finding_id → value_confidence from the swarm findings dict."""
+    out: dict = {}
+    if not isinstance(findings, dict):
+        return out
+    for agent, data in findings.items():
+        if str(agent).startswith("_") or not isinstance(data, dict):
+            continue
+        for f in data.get("findings", []) or []:
+            if isinstance(f, dict) and f.get("id") and f.get("value_confidence") is not None:
+                out[str(f["id"])] = str(f["value_confidence"]).lower()
+    return out
 
 
 def _get(obj: Any, key: str, default=None):
@@ -93,20 +111,26 @@ class AgentClaimsAudit:
         }
 
 
-def score_agent_claims(results, claims=None) -> AgentClaimsAudit:
+def score_agent_claims(results, claims=None, findings=None) -> AgentClaimsAudit:
     """Compute the uncited-claims audit from a VerificationReport's per-claim results.
 
-    results: list of VerificationResult (objects or dicts) — needs ``status``,
-             ``verification_query`` and ``claim_id``.
-    claims:  optional list of AtomicClaim (objects or dicts) — needs ``claim_id``
-             and ``claim_text``, used to detect declared inferences. When omitted,
-             declared detection is skipped (``declared_inference == 0``).
+    results:  list of VerificationResult (objects or dicts) — needs ``status``,
+              ``verification_query`` and ``claim_id``.
+    claims:   optional list of AtomicClaim (objects or dicts) — needs ``claim_id``,
+              ``claim_text`` and ``finding_id`` — used to detect declared inferences
+              and to join claims to their finding's ``value_confidence``.
+    findings: optional swarm findings dict ({agent: {findings: [{id,
+              value_confidence}]}}) — a claim whose finding is ``estimated``/
+              ``inferred`` is a declared inference (the higher-fidelity marker).
     """
     text_by_id: dict = {}
+    fid_by_id: dict = {}
     for c in (claims or []):
         cid = _get(c, "claim_id")
         if cid is not None:
             text_by_id[cid] = _get(c, "claim_text", "") or ""
+            fid_by_id[cid] = _get(c, "finding_id")
+    vc_by_fid = _value_confidence_by_finding(findings)
 
     audit = AgentClaimsAudit()
     for r in results or []:
@@ -115,7 +139,10 @@ def score_agent_claims(results, claims=None) -> AgentClaimsAudit:
         vquery = _get(r, "verification_query")
         cid = _get(r, "claim_id")
 
-        if _claim_is_declared(text_by_id.get(cid, "")):
+        # Declared inference: the agent flagged it as not-measured, via the typed
+        # value_confidence of its finding OR the [ESTIMADO]/~ text marker.
+        vc = vc_by_fid.get(fid_by_id.get(cid))
+        if vc in _INFERENCE_CONFIDENCE or _claim_is_declared(text_by_id.get(cid, "")):
             audit.declared_inference += 1
             continue
 

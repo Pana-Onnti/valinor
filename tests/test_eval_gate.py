@@ -36,3 +36,24 @@ def test_baseline_is_committed_and_sane():
     )
     assert baseline["gate_metric"] == "case_accuracy/test/default"
     assert 0.9 <= baseline["value"] <= 1.0
+
+
+# ── N5 agent-claims grounding instrument (VAL-192) ────────────────────────────
+
+def test_agent_grounding_gate_passes():
+    """eval.py agent-grounding --gate must exit 0 against the committed baseline."""
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "eval.py"), "agent-grounding", "--gate"],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert proc.returncode == 0, (
+        f"N5 instrument regression — eval gate failed:\n{proc.stdout}\n{proc.stderr}"
+    )
+
+
+def test_agent_grounding_baseline_committed():
+    baseline = json.loads(
+        (ROOT / "evals" / "agent_grounding" / "baseline.json").read_text()
+    )
+    assert baseline["gate_metric"] == "case_accuracy/test/default"
+    assert baseline["value"] == 1.0

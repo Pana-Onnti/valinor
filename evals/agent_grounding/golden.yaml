@@ -1,0 +1,107 @@
+# VAL-192 N5 — golden set for the agent-claims grounding instrument.
+#
+# Each case is a synthetic VerificationReport slice (results + optional claims +
+# optional swarm findings) with the EXPECTED bucket counts. The instrument must
+# classify every claim into cited / failed / unresolvable / uncited / declared.
+# Train iterates the instrument; the TEST split is the frozen regression gate.
+#
+# Pure offline — no LLM, no DB. Mirrors evals/narrator_grounding/golden.yaml.
+
+cases:
+  # ── cited ──────────────────────────────────────────────────────────────────
+  - id: cited_verified
+    split: train
+    results: [{claim_id: a, status: VERIFIED, verification_query: total_revenue_summary}]
+    expect: {cited: 1, uncited: 0, unresolvable: 0, failed: 0, declared_inference: 0}
+
+  - id: cited_approximate
+    split: train
+    results: [{claim_id: a, status: APPROXIMATE, verification_query: ar_outstanding_actual}]
+    expect: {cited: 1, uncited: 0}
+
+  # ── failed (had lineage, value contradicted) ────────────────────────────────
+  - id: failed_contradicted
+    split: train
+    results: [{claim_id: a, status: FAILED, verification_query: aging_analysis}]
+    expect: {failed: 1, cited: 0, uncited: 0}
+
+  # ── unresolvable vs uncited (the verification_query discriminator) ──────────
+  - id: unresolvable_query_no_match
+    split: train
+    results: [{claim_id: a, status: UNVERIFIABLE, verification_query: attempted_requery}]
+    expect: {unresolvable: 1, uncited: 0}
+
+  - id: uncited_no_query
+    split: train
+    results: [{claim_id: a, status: UNVERIFIABLE, verification_query: null}]
+    expect: {uncited: 1, unresolvable: 0, declared_inference: 0}
+
+  # ── declared via text marker (N1 protocol) ─────────────────────────────────
+  - id: declared_bracket_marker
+    split: train
+    results: [{claim_id: a, status: UNVERIFIABLE, verification_query: null}]
+    claims: [{claim_id: a, finding_id: F1, claim_text: "proyección [ESTIMADO] de caja"}]
+    expect: {declared_inference: 1, uncited: 0}
+
+  - id: declared_tilde_marker
+    split: train
+    results: [{claim_id: a, status: UNVERIFIABLE, verification_query: null}]
+    claims: [{claim_id: a, finding_id: F1, claim_text: "ingresos ~450000"}]
+    expect: {declared_inference: 1, uncited: 0}
+
+  # ── declared via typed value_confidence (the higher-fidelity marker) ───────
+  - id: declared_inferred_finding
+    split: train
+    results: [{claim_id: a, status: UNVERIFIABLE, verification_query: null}]
+    claims: [{claim_id: a, finding_id: FIN-1, claim_text: "tendencia futura"}]
+    findings: {analyst: {findings: [{id: FIN-1, value_confidence: inferred}]}}
+    expect: {declared_inference: 1, uncited: 0}
+
+  - id: declared_estimated_finding
+    split: train
+    results: [{claim_id: a, status: UNVERIFIABLE, verification_query: null}]
+    claims: [{claim_id: a, finding_id: FIN-2, claim_text: "proyección Q3"}]
+    findings: {analyst: {findings: [{id: FIN-2, value_confidence: estimated}]}}
+    expect: {declared_inference: 1, uncited: 0}
+
+  - id: measured_finding_uncited
+    split: train
+    results: [{claim_id: a, status: UNVERIFIABLE, verification_query: null}]
+    claims: [{claim_id: a, finding_id: FIN-3, claim_text: "facturación total"}]
+    findings: {analyst: {findings: [{id: FIN-3, value_confidence: measured}]}}
+    expect: {uncited: 1, declared_inference: 0}
+
+  # ── TEST split (frozen gate) ────────────────────────────────────────────────
+  - id: verified_without_query_is_uncited
+    split: test
+    results: [{claim_id: a, status: VERIFIED, verification_query: null}]
+    expect: {uncited: 1, cited: 0}
+
+  - id: value_confidence_precedence_over_cited
+    split: test
+    results: [{claim_id: a, status: VERIFIED, verification_query: q1}]
+    claims: [{claim_id: a, finding_id: FIN-9, claim_text: "valor"}]
+    findings: {analyst: {findings: [{id: FIN-9, value_confidence: inferred}]}}
+    expect: {declared_inference: 1, cited: 0}
+
+  - id: measured_finding_cited
+    split: test
+    results: [{claim_id: a, status: VERIFIED, verification_query: total_revenue_summary}]
+    claims: [{claim_id: a, finding_id: FIN-10, claim_text: "facturación"}]
+    findings: {analyst: {findings: [{id: FIN-10, value_confidence: measured}]}}
+    expect: {cited: 1, declared_inference: 0, uncited: 0}
+
+  - id: mixed_run
+    split: test
+    results:
+      - {claim_id: a, status: VERIFIED, verification_query: q1}
+      - {claim_id: b, status: UNVERIFIABLE, verification_query: null}
+      - {claim_id: c, status: UNVERIFIABLE, verification_query: null}
+      - {claim_id: d, status: UNVERIFIABLE, verification_query: requery}
+    claims:
+      - {claim_id: a, finding_id: M1, claim_text: "x"}
+      - {claim_id: b, finding_id: M1, claim_text: "y"}
+      - {claim_id: c, finding_id: I1, claim_text: "z"}
+      - {claim_id: d, finding_id: M1, claim_text: "w"}
+    findings: {analyst: {findings: [{id: M1, value_confidence: measured}, {id: I1, value_confidence: inferred}]}}
+    expect: {cited: 1, uncited: 1, unresolvable: 1, declared_inference: 1}

@@ -55,7 +55,7 @@ def from_state(state_path: Path) -> dict:
     eng = VerificationEngine(state["query_results"], state["baseline"], kg)
     report = eng.verify_findings(state["findings"])
     claims = _claims_from_state(eng, state["findings"])
-    audit = score_agent_claims(report.results, claims)
+    audit = score_agent_claims(report.results, claims, findings=state["findings"])
     return audit.to_dict()
 
 

@@ -88,6 +88,62 @@ def test_hedging_word_is_not_a_declared_marker():
     assert _claim_is_declared("13.5M [ESTIMADO]") is True
 
 
+# ── value_confidence (typed inference marker) ─────────────────────────────────
+
+def _c_fid(cid, fid, text=""):
+    return AtomicClaim(claim_id=cid, finding_id=fid, claim_text=text, claim_type="numeric")
+
+
+def _findings(*pairs):
+    return {"analyst": {"findings": [{"id": fid, "value_confidence": vc} for fid, vc in pairs]}}
+
+
+def test_inferred_finding_makes_claim_declared():
+    res = [_r("c1", "UNVERIFIABLE", None)]
+    claims = [_c_fid("c1", "FIN-1")]
+    audit = score_agent_claims(res, claims, _findings(("FIN-1", "inferred")))
+    assert audit.declared_inference == 1 and audit.uncited == 0
+
+
+def test_estimated_finding_makes_claim_declared():
+    res = [_r("c1", "UNVERIFIABLE", None)]
+    claims = [_c_fid("c1", "FIN-1")]
+    audit = score_agent_claims(res, claims, _findings(("FIN-1", "estimated")))
+    assert audit.declared_inference == 1 and audit.uncited == 0
+
+
+def test_measured_finding_claim_must_be_cited():
+    # A "measured" claim with no citation is a genuine uncited authoring failure.
+    res = [_r("c1", "UNVERIFIABLE", None)]
+    claims = [_c_fid("c1", "FIN-1")]
+    audit = score_agent_claims(res, claims, _findings(("FIN-1", "measured")))
+    assert audit.declared_inference == 0 and audit.uncited == 1
+
+
+def test_value_confidence_precedence_over_cited_status():
+    # An inferred finding's claim leaves the denominator even if it would be cited.
+    res = [_r("c1", "VERIFIED", "q")]
+    claims = [_c_fid("c1", "FIN-1")]
+    audit = score_agent_claims(res, claims, _findings(("FIN-1", "inferred")))
+    assert audit.declared_inference == 1 and audit.cited == 0
+
+
+def test_value_confidence_mixed_run():
+    res = [
+        _r("c1", "VERIFIED", "q1"),       # measured → cited
+        _r("c2", "UNVERIFIABLE", None),   # measured → uncited
+        _r("c3", "UNVERIFIABLE", None),   # inferred → declared
+        _r("c4", "FAILED", "q2"),         # estimated → declared
+    ]
+    claims = [_c_fid("c1", "M1"), _c_fid("c2", "M1"), _c_fid("c3", "I1"), _c_fid("c4", "E1")]
+    findings = _findings(("M1", "measured"), ("I1", "inferred"), ("E1", "estimated"))
+    audit = score_agent_claims(res, claims, findings)
+    assert audit.declared_inference == 2     # c3, c4
+    assert audit.verifiable == 2             # c1, c2
+    assert audit.cited == 1 and audit.uncited == 1
+    assert round(audit.uncited_rate, 4) == 0.5
+
+
 # ── rate computation ──────────────────────────────────────────────────────────
 
 def test_uncited_rate_over_verifiable_denominator():
