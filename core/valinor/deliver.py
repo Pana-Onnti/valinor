@@ -94,6 +94,17 @@ async def deliver_reports(
                 k: {"value": v.value, "source": v.source_query, "confidence": v.confidence}
                 for k, v in verification_report.number_registry.items()
             },
+            # VAL-192 N5: persist the per-claim results so the uncited-claims
+            # instrument can measure citation coverage from the saved artifact.
+            "results": [
+                {
+                    "claim_id": r.claim_id,
+                    "status": r.status,
+                    "verification_query": r.verification_query,
+                    "confidence_score": r.confidence_score,
+                }
+                for r in verification_report.results
+            ],
         }
         vr_path.write_text(
             json.dumps(vr_data, indent=2, ensure_ascii=False, default=str),
