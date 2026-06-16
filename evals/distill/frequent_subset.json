@@ -1,0 +1,25 @@
+{
+  "definition": "questions whose seed_entities ⊆ top-8 most recurrent entities",
+  "top_entities": {
+    "segmento": 9,
+    "churn": 7,
+    "riesgo": 5,
+    "cobertura": 4,
+    "ltv": 4,
+    "dormancia": 3,
+    "facturación": 3,
+    "concentración": 3
+  },
+  "n_active": 20,
+  "n_frequent": 7,
+  "frequent_question_ids": [
+    "q1-exposicion-compuesta",
+    "q10-doble-exposicion",
+    "q14-dormancia-por-segmento",
+    "q16-concentracion-del-riesgo",
+    "q18-ltv-promedio-segmento",
+    "q25-cliente-mas-expuesto",
+    "q9-riesgo-por-segmento"
+  ],
+  "note": "The bar the future LoRA must match: current-system accuracy on these (N3 community arm, gloria-v6 — mostly 1.00 on served-aggregate classes). Measure with: scripts/eval.py graphrag --split test --csv …, then filter to these ids."
+}

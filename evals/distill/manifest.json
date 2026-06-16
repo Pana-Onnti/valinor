@@ -1,0 +1,12 @@
+{
+  "n_pairs": 72,
+  "n_train": 57,
+  "n_test": 15,
+  "generated": 72,
+  "dropped_inconsistent": 0,
+  "pack_hashes": {
+    "argentina_gestion": "a7a62585272c0fc5",
+    "retail_pos": "d06f9da857f0cb65"
+  },
+  "note": "Synthetic QA from ERP hint-packs (schema/ontology facts only \u2014 NOT client numbers). Training data for a future LoRA; cache, not grounding."
+}
