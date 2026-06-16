@@ -1,0 +1,39 @@
+{
+  "eval_corpus": {
+    "narrator_grounding": 39,
+    "agent_grounding": 14,
+    "global_questions": 20,
+    "distill_qa": 72,
+    "total": 145
+  },
+  "ci_gates": {
+    "gated_suites": 4,
+    "suites": {
+      "narrator_grounding (N1)": true,
+      "agent_grounding (N5)": true,
+      "global_questions (N3, eval.py graphrag --gate)": true,
+      "distill_qa (N6, test_distill_qa.py)": true
+    }
+  },
+  "knowledge_assets": {
+    "hint_packs": 2,
+    "hint_pack_families": [
+      "argentina_gestion",
+      "retail_pos"
+    ],
+    "distill_qa_pairs": 72
+  },
+  "cost_mechanisms": {
+    "entity_map_cache_ttl_h": 72,
+    "cartographer_skip_on_fresh_cache": true,
+    "ref": "shared/memory/client_profile.is_entity_map_fresh"
+  },
+  "governor_coverage": [
+    "N1 narrator grounding instrument + CI gate",
+    "N3 global-question gate (community arm certified v6)",
+    "N4 write-path: review + provenance + audit before memory entry",
+    "N5 agent-claims uncited gate + active re-query lever",
+    "N6 distill QA: provenance + staleness gate"
+  ],
+  "note": "Snapshot of flywheel accumulation + governance. The longitudinal marginal-cost↓ trend needs multi-client production data over time (operator). The committed eval_corpus.total is a CI RATCHET: it must never shrink (tests/test_flywheel_scorecard.py)."
+}
