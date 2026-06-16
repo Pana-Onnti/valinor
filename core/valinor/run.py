@@ -20,7 +20,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from valinor.agents.cartographer import run_cartographer
 from valinor.agents.query_builder import build_queries
 from valinor.knowledge_graph import build_knowledge_graph
-from valinor.verification import VerificationEngine
+from valinor.verification import VerificationEngine, active_requery_enabled
 from valinor.pipeline import (
     run_analysis_agents, execute_queries, run_narrators,
     compute_baseline, gate_calibration, reconcile_swarm,
@@ -331,7 +331,15 @@ async def main(client: str, period: str, source: str | None = None):
     # in Stage 4 to ground monetary values. VAL-161.
     console.print("\n[bold]▸ Stage 3.6: Verification...[/bold]")
     t0 = time.time()
-    verifier = VerificationEngine(query_results, baseline, kg)
+    # VAL-192 N5: with VALINOR_ACTIVE_REQUERY=1, give the verifier the DB +
+    # entity_map so strategy 4 (active re-query) can cite computed aggregates.
+    # OFF by default → connection_string None → strategy 4 skipped (prod intact).
+    _requery_conn = conn_string if active_requery_enabled() else None
+    verifier = VerificationEngine(
+        query_results, baseline, kg,
+        connection_string=_requery_conn,
+        entity_map=entity_map if _requery_conn else None,
+    )
     verification_report = verifier.verify_findings(findings)
     run_log["stages"]["verification"] = {
         "duration_s": round(time.time() - t0, 1),

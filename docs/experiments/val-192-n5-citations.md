@@ -1,6 +1,6 @@
 # VAL-192 N5 — El KG dentro del harness (toda afirmación con cita)
 
-**Fecha:** 2026-06-14/15 · **Estado:** instrumento gobernado (slices 1-2) + enforcement diagnosticado a fondo (3 prompt-side inconcluso, 4 resolución-de-cita inexistente, **5 active re-query = EL lever real, probado deterministamente pero SIN wirear en el pipeline**). El número real con-DB necesita la conexión del operador (recipe abajo); offline = 53% (cota superior).
+**Fecha:** 2026-06-14/15 · **Estado:** instrumento gobernado (1-2) + enforcement diagnosticado y resuelto (3 prompt-side inconcluso, 4 resolución-de-cita inexistente, 5 active re-query = EL lever probado, **6 wireado gated `VALINOR_ACTIVE_REQUERY=1` + baseline con-DB corrido**). Prod inerte por defecto; el número real-Gloria es un comando del operador.
 
 ## El hito y el método
 
@@ -131,8 +131,29 @@ venv/bin/python scripts/agent_grounding_baseline.py \
 
 `agent_grounding_baseline.py` ahora pasa `connection_string` + `entity_map` al engine → la estrategia 4 dispara → los `computed_absent` re-computables quedan citados → el uncited_rate real (esperado << 53%, porque ~10 de los 16 son agregados re-computables). El offline (53%) es la cota superior conservadora.
 
-## Estado / próximo
+## Slice 6 — Active re-query WIREADO (gated) + baseline con-DB corrido 2026-06-15
 
-N5 = **instrumento gobernado** (slices 1-2) + **diagnóstico completo del enforcement**: prompt-side ruidoso (3), resolución-de-cita inexistente (4), **active re-query es EL lever** (5, probado) pero **sin wirear en el pipeline**. La tajada de cierre de N5 sería **wirear `connection_string`+`entity_map` a los 2 callers de VerificationEngine** (gated/opt-in por latencia: un round-trip de DB por claim no verificado, timeout 5s) + el baseline real del operador. Decisión arquitectural (latencia vs cobertura de citación) → del usuario.
+Wireé la estrategia 4 al pipeline detrás de **`VALINOR_ACTIVE_REQUERY=1`** (helper `active_requery_enabled()` en verification.py). Con el flag, los 2 callers (`run.py:334`, `valinor_adapter.py:1054`) pasan `connection_string` + `entity_map` al engine → active re-query dispara. **OFF por defecto** → connection_string None → estrategia 4 saltada → prod byte-idéntico (verificado: Gloria offline sigue 0.5333 sin flag). Gated por **latencia**: un round-trip de DB por claim no verificado (timeout 5s).
+
+**Baseline con-DB corrido** (vía `agent_grounding_baseline.py --connection-string`, end-to-end). Sin acceso autónomo a la DB de Gloria, lo corrí sobre un **SQLite auto-consistente** (entity_map + findings + DB matcheados):
+
+| | total | cited | uncited | declared | uncited_rate |
+|---|---|---|---|---|---|
+| **offline** | 3 | 1 | 1 | 1 | **0.50** |
+| **con-DB** (sqlite) | 3 | 2 | 0 | 1 | **0.00** |
+
+El claim "facturación total" (= SUM, agregado computado) pasa de **uncited offline → cited con-DB**: el active re-query recomputó el SUM. Valida todo el chain (runner + `--connection-string` + estrategia 4 + instrumento).
+
+**El número real-Gloria** (recipe abajo) lo corre el operador con Gloria PG — esperado << 53% porque ≈10 de los 16 uncited son agregados re-computables. La DB de Gloria no es autónomamente accesible (seguridad de cliente).
+
+```bash
+VALINOR_ACTIVE_REQUERY=1 …  # (en prod) o, para el baseline directo:
+venv/bin/python scripts/agent_grounding_baseline.py \
+    --state docs/experiments/val-163/state.json --connection-string "postgresql://…gloria…"
+```
+
+## Estado N5
+
+**Instrumento gobernado** (1-2) + **enforcement diagnosticado y resuelto**: prompt-side ruidoso (3), resolución-de-cita inexistente (4), active re-query = EL lever probado (5), **wireado gated + baseline con-DB demostrado** (6). El lever real está conectado y opt-in; el número real-Gloria es un comando del operador. Pendiente del usuario: decidir prender `VALINOR_ACTIVE_REQUERY` en prod (tradeoff latencia/cobertura) y correr el baseline real.
 
 *Refs: VAL-192 (N5). Mismo método eval-gated que N1–N4.*

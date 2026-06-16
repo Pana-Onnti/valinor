@@ -16,6 +16,7 @@ Architecture references:
 from __future__ import annotations
 
 import json
+import os
 import re
 import signal
 import threading
@@ -23,6 +24,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any
+
+
+def active_requery_enabled() -> bool:
+    """True iff ``VALINOR_ACTIVE_REQUERY=1`` (VAL-192 N5). Gates verification
+    strategy 4 (active re-query) in the pipeline: when on, the callers pass
+    ``connection_string`` + ``entity_map`` so computed aggregates absent from the
+    raw query rows get re-computed against the DB and cited. OFF by default —
+    a DB round-trip per unverified claim (5s timeout) is opt-in due to latency."""
+    return os.environ.get("VALINOR_ACTIVE_REQUERY") == "1"
 
 import structlog
 

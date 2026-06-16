@@ -16,8 +16,17 @@ from __future__ import annotations
 
 import sqlite3
 
-from valinor.verification import VerificationEngine, AtomicClaim
+from valinor.verification import VerificationEngine, AtomicClaim, active_requery_enabled
 from valinor.quality.agent_grounding_metrics import score_agent_claims
+
+
+def test_active_requery_flag(monkeypatch):
+    monkeypatch.delenv("VALINOR_ACTIVE_REQUERY", raising=False)
+    assert active_requery_enabled() is False           # OFF by default → prod intact
+    monkeypatch.setenv("VALINOR_ACTIVE_REQUERY", "1")
+    assert active_requery_enabled() is True
+    monkeypatch.setenv("VALINOR_ACTIVE_REQUERY", "0")
+    assert active_requery_enabled() is False
 
 
 def _make_db(path: str, n_rows: int) -> None:

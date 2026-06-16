@@ -36,7 +36,7 @@ from valinor.config import load_client_config, parse_period  # noqa: E402, F401
 from valinor.agents.cartographer import run_cartographer  # noqa: E402, F401
 from valinor.agents.query_builder import build_queries  # noqa: E402
 from valinor.knowledge_graph import build_knowledge_graph  # noqa: E402
-from valinor.verification import VerificationEngine  # noqa: E402
+from valinor.verification import VerificationEngine, active_requery_enabled  # noqa: E402
 from valinor.pipeline import run_analysis_agents, execute_queries, compute_baseline  # noqa: E402
 from valinor.agents.narrators.executive import narrate_executive  # noqa: E402
 from valinor.deliver import deliver_reports  # noqa: E402
@@ -1051,7 +1051,14 @@ RETURN ONLY THE JSON OBJECT."""
             # + baseline + KG. Builds the number registry that narrators will
             # read in Stage 4 to ground monetary values. VAL-161.
             with tracer.stage("verification") as _ver_span:
-                verifier = VerificationEngine(query_results, baseline, kg)
+                # VAL-192 N5: VALINOR_ACTIVE_REQUERY=1 → pass DB + entity_map so
+                # strategy 4 cites computed aggregates. OFF by default (prod intact).
+                _requery_conn = config.get("connection_string") if active_requery_enabled() else None
+                verifier = VerificationEngine(
+                    query_results, baseline, kg,
+                    connection_string=_requery_conn,
+                    entity_map=entity_map if _requery_conn else None,
+                )
                 verification_report = verifier.verify_findings(findings)
                 _ver_span.set_attribute("total_claims", verification_report.total_claims)
                 _ver_span.set_attribute("verified_claims", verification_report.verified_claims)
