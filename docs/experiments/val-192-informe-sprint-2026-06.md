@@ -1,5 +1,7 @@
 # Informe — Máquina de Conocimiento Valinor (VAL-192 + VAL-163)
 
+> **Nota:** este es el informe INTERMEDIO del sprint (cubre N1–N3 hasta v5). El informe FINAL consolidado de la épica (N1→N7) está en **`val-192-informe-final.md`**.
+
 **Período:** 2026-06-09 → 2026-06-14 · **Estado:** VAL-163 Done · VAL-192 In Progress (N1 ✅ · N2 medido-no-wireado · **N3 ✅ GATE CERTIFICADO en v6** — test virgen 3/3, 15 wins, auditoría adversarial superada)
 **Tesis de la épica:** *sin eval, cada cambio es un refactor a ciegas; con eval, cada cambio tiene veredicto.* Este sprint la aplicó literalmente: **9 veredictos medidos, 4 negativos honestos, 8 bugs de instrumento encontrados por los propios experimentos.**
 
