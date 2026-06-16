@@ -317,6 +317,24 @@ def mock_profile():
 
 # ── Async helper ──────────────────────────────────────────────────────────────
 
+@pytest.fixture(autouse=True)
+def _ensure_event_loop():
+    """VAL-193 test hygiene: some tests run coroutines via ``asyncio.run()``,
+    which sets the current event loop to ``None`` on exit (Python 3.10). Any test
+    collected afterwards that uses the sync ``asyncio.get_event_loop()`` path then
+    crashes with ``RuntimeError: no current event loop`` — a pure ordering artifact.
+    Guaranteeing a valid current loop at the START of every test removes the
+    cascade. We only act at setup (no teardown side-effects), so pytest-asyncio's
+    own per-test loop management for ``async def`` tests is untouched."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            asyncio.set_event_loop(asyncio.new_event_loop())
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+    yield
+
+
 def run_async(coro):
     """Run a coroutine synchronously. Convenience for non-asyncio test classes."""
     return asyncio.get_event_loop().run_until_complete(coro)

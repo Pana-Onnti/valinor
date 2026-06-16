@@ -113,8 +113,11 @@ def test_cli_run_wires_kg_and_verification():
         "CLI run.py must import VerificationEngine"
     assert "build_knowledge_graph(entity_map)" in src, \
         "CLI run.py must call build_knowledge_graph(entity_map) after Cartographer"
-    assert "VerificationEngine(query_results, baseline, kg)" in src, \
-        "CLI run.py must instantiate VerificationEngine(query_results, baseline, kg)"
+    # VerificationEngine is instantiated with (query_results, baseline, kg) positionally;
+    # N5 (VAL-192) added optional connection_string/entity_map kwargs and wrapped the call
+    # across lines, so assert the invariant (constructor + positional args) not the one-liner.
+    assert "VerificationEngine(" in src and "query_results, baseline, kg" in src, \
+        "CLI run.py must instantiate VerificationEngine(query_results, baseline, kg, ...)"
     assert "verifier.verify_findings(findings)" in src, \
         "CLI run.py must call verify_findings(findings)"
     assert "verification_report=verification_report" in src, \
@@ -132,8 +135,9 @@ def test_saas_adapter_wires_kg_and_verification():
         "SaaS adapter must import VerificationEngine"
     assert "build_knowledge_graph(entity_map)" in src, \
         "SaaS adapter must call build_knowledge_graph(entity_map) after Cartographer"
-    assert "VerificationEngine(query_results, baseline, kg)" in src, \
-        "SaaS adapter must instantiate VerificationEngine(query_results, baseline, kg)"
+    # See note in test_cli_run_wires_kg_and_verification: N5 wrapped the call + added kwargs.
+    assert "VerificationEngine(" in src and "query_results, baseline, kg" in src, \
+        "SaaS adapter must instantiate VerificationEngine(query_results, baseline, kg, ...)"
     assert "verifier.verify_findings(findings)" in src, \
         "SaaS adapter must call verify_findings(findings)"
     assert "verification_report=verification_report" in src, \
