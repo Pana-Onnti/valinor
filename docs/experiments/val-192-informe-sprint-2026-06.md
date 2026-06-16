@@ -76,6 +76,8 @@ Enrichment genérico del registry (el builder legacy solo conocía 5 queries →
 
 ## 8 · Próximos pasos (en orden)
 
+> **Nota (superado):** estos "próximos pasos" ya se completaron — N3 wireado opt-in, N4–N7 cerrados, VAL-193 (higiene de suite) resuelto. Ver el informe FINAL `val-192-informe-final.md`. Se dejan abajo como registro del estado al cierre del sprint intermedio.
+
 1. ~~**v6**: par virgen nuevo bajo el juez calibrado → certificación formal del hito N3.~~ ✅ **HECHO (2026-06-14): GATE PASSED** — test virgen 3/3, 15 wins, auditoría adversarial superada. Detalle en `val-192-n3-graphrag.md` §v6.
 2. **Wirear N3 a narrators** detrás de `VALINOR_GRAPHRAG=1` con su propio A/B (patrón eval-first probado) — **ahora habilitado** (gate pasado).
 3. **N4 write-path** (memoria con human-in-loop) — el siguiente nivel de la épica.

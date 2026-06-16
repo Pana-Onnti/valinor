@@ -1,6 +1,6 @@
 # Informe Final — Máquina de Conocimiento Valinor (VAL-192, N1→N7)
 
-**Período:** 2026-06-09 → 2026-06-15 · **Estado:** arco N1→N7 completo en todo lo accionable sin infra del operador.
+**Período:** 2026-06-09 → 2026-06-16 · **Estado:** arco N1→N7 completo en todo lo accionable sin infra del operador · **verificado con tests reales el 2026-06-16** (pipeline E2E 3/3 períodos PASSED, suite higienizada 188→1, gates 8/8 — ver §4).
 **Tesis de la épica:** *sin eval, cada cambio es un refactor a ciegas; con eval, cada cambio tiene veredicto.* Aplicada literalmente en los 7 niveles.
 
 ---
@@ -41,7 +41,7 @@
 
 **N1 — el instrumento.** `narrator_metrics.py` v2: parsea numéricos string e intervalos, enmascara fechas/Q/rank-labels, bucket de estimados declarados, frontera por evidencia. Golden 39 casos (26/13, verificados adversarialmente, 0 flags), gate en CI. Re-emitió VAL-163: **claim de tasa refutado** (Δ≈0); registry keep always-on por comportamiento (−40% números no citables, −36% largo, +58% hedging honesto).
 
-**N2 — grounding 2 etapas.** Enrichment genérico del registry (5 queries legacy → 79 entradas) + rerank LLM-propone/código-confirma. A/B: grounded 0.920 vs 0.936 (peor) + hedging baja (confianza sin grounding) → **gate falla, prod intacto, queda opt-in**. Lección de prompt: pedir derivación semántica, el código hace la aritmética.
+**N2 — grounding 2 etapas.** Enrichment genérico del registry (5 queries legacy → 79 entradas) + rerank LLM-propone/código-confirma. A/B: grounded 0.920 (enriquecido) vs 0.936 (registry chico de VAL-163) vs 0.932 (control) — el enriquecido es **peor** + hedging baja (confianza sin grounding) → **gate falla, prod intacto, queda opt-in**. Lección de prompt: pedir derivación semántica, el código hace la aritmética.
 
 **N3 — GraphRAG.** Grafo de entidades determinista a nivel instancia (resolución cross-query, hub-detach + CNM + refinement "Leiden-equivalente a n<500", PPR numpy) + **biblioteca de agregados servidos** + LLM que narra y nunca calcula + juez de 2 capas con referencias por joins independientes verificadas adversarialmente. **6 rondas eval-gated** (v1 0 → v6 15 wins). **v6 CERTIFICADO**: par virgen q22/q24/q25, community 1.00/1.00/1.00, forbidden 0, gate (≥5 ∧ ≥2 test) passed, auditoría adversarial de 9 escépticos superada. Conclusión arquitectural (4 rondas): el techo de capacidad ES la biblioteca de agregados. **Wireado** detrás de `VALINOR_GRAPHRAG=1` (A/B del wiring: grounded-rate plana → opt-in, el valor está en cobertura de preguntas globales).
 
@@ -55,7 +55,20 @@
 
 ---
 
-## 4 · Shippeado vs deferido (todo lo deferido es del operador, turnkey)
+## 4 · Antes vs ahora — verificación con tests reales (2026-06-16)
+
+El cierre se cerró midiendo, no afirmando. Cada fila es *"el supuesto/claim era X → el test real dio Y"*. Recetas: E2E real `tests/test_pipeline_periods.py --run-slow` vía bridge `console_cli` + CLI estable v2.1.177 + `VALINOR_NARRATOR_MODEL=haiku` (SQLite sintético, sin proxy ni Gloria-PG); suite con `pytest -q`.
+
+| Dimensión | Supuesto / claim ANTES | Medido AHORA (test real) | Veredicto |
+|---|---|---|---|
+| **Pipeline E2E real** | Los tests reales necesitan Gloria-PG + `claude_proxy` → deferidos al operador, no corribles localmente | Corrió de verdad vía `console_cli` + CLI estable + haiku: **3/3 períodos PASSED en 503s** — 1-month (18 facturas/€749k, 22 findings), 1-quarter (59/€2.29M, 20), 1-year (227/€9.07M, 23); **3/3 agentes, 0 conflicts, reconciliación ran=True** en los tres | Supuesto **corregido**: el path SQLite+`console_cli` SÍ corre local con el binario estable; solo el path Gloria-PG (`test_pipeline_production`) queda al operador |
+| **Salud de la suite (higiene)** | ~51–61 fallos pre-existentes de order-pollution (VAL-193), magnitud asumida, "se convive" | Causa raíz aislada: **187 de 188** fallos eran **un solo mecanismo** (`asyncio.run()` deja el current loop en `None`, py3.10 → los tests sync posteriores con `get_event_loop()` crashean por orden). Fixture autouse en conftest → **188 → 1 fallo** | Supuesto **subestimaba**: era 187 (no ~51) y arreglable con 1 cambio central; el 1 restante es un test de Benford de **marzo, pre-épica** (no relacionado) |
+| **Inertness del wiring (N3/N4/N5)** | Prod byte-idéntico con flags off (afirmado) | El E2E corrió **sin** `VALINOR_GRAPHRAG`/`VALINOR_ACTIVE_REQUERY` (off) y dio 3/3 verde → el default de prod quedó intacto bajo carga real | **Confirmado en vivo** |
+| **Gates de eval (regresión)** | "4 suites con gate, verdes" (afirmado) | `test_eval_gate.py` (4) + `test_flywheel_scorecard.py` (4) = **8 passed** | Claim **confirmado empíricamente** |
+
+**Lo que esto agrega al track record del método:** el cierre mismo produjo 2 correcciones de supuesto (el E2E real era corrible local; la pollution era 187 no ~51) y 1 fix de regresión que el sprint había introducido sin notar (N5 slice 6 rompió 2 asserts literales de `test_anti_hallucination_wiring` al envolver la llamada `VerificationEngine(...)` — arreglado asertando el invariante, no el one-liner). Misma disciplina que los 7 niveles: medir antes de afirmar.
+
+## 5 · Shippeado vs deferido (todo lo deferido es del operador, turnkey)
 
 **Shippeado y verde en CI:** los 7 instrumentos/gates, el GraphRAG certificado + wireado, el write-path completo (incl. frontend) validado en vivo, el lever de citación wireado gated, los datasets sintéticos de destilación, el scorecard del flywheel. Prod **inerte por defecto** en todo lo gateado (N3/N4/N5 opt-in por flag).
 
@@ -66,7 +79,7 @@
 
 ---
 
-## 5 · Inventario de artefactos
+## 6 · Inventario de artefactos
 
 - **Docs por nivel:** `val-192-n2-grounding.md` · `val-192-n3-graphrag.md` (6 rondas) · `val-192-n3-narrator-ab.md` · `val-192-n4-writepath.md` · `val-192-n5-citations.md` · `val-192-n6-distillation.md` · `val-192-n7-flywheel.md` · este informe.
 - **Instrumentos:** `narrator_metrics.py` (N1) · `graphrag.py` + `global_judge.py` (N3, congelados v6) · `agent_grounding_metrics.py` (N5) · `flywheel_scorecard.py` (N7).
@@ -76,7 +89,7 @@
 
 ---
 
-## 6 · Cierre
+## 7 · Cierre
 
 La Máquina de Conocimiento no es un modelo más grande: es **el eval como gobernador de toda entrada** (índice/grafo/prompts/pesos), con cada nivel cerrado por su hito medible. El moat — hint-packs de ERP + labels confirmados + distribución LatAm-SME — está ahora **instrumentado** para componer: el eval crece, el grounding se sostiene, y el costo marginal tiene su reductor wireado. Lo que falta para *probar* que el flywheel gira es escala de producción, no más código.
 

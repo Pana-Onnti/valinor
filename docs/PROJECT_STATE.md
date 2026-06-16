@@ -8,6 +8,15 @@
 > - Plan táctico de la sesión en curso → `.claude/plans/active-plan.md`.
 > - Historia por fases → `docs/ROADMAP.md`.
 
+> **Actualización 2026-06-16 — Épica VAL-192 (Máquina de Conocimiento) CERRADA.**
+> El cuerpo de abajo es el snapshot de cimientos del 2026-06-01; desde entonces se
+> completó el arco N1→N7 (eval-gated). Capstone: **`docs/experiments/val-192-informe-final.md`**.
+> Resumen: N1 instrumento+gate ✅ · N2 medido NO-wireado ⚖️ · N3 GraphRAG certificado+wireado opt-in ✅ ·
+> N4 write-path con revisión humana cerrado+validado-en-vivo ✅ · N5 instrumento de citación + active
+> re-query wireado (gated) ✅ · N6 precursores de destilación ✅ · N7 flywheel instrumentado+ratchet ✅.
+> Higiene de suite (VAL-193): order-pollution de event-loop resuelta (188→1 fallo, el restante es un
+> test de Benford pre-épica de marzo). Pasos restantes = del operador (turnkey, no blockers).
+
 ---
 
 ## 1. Qué es el sistema (realidad verificada)

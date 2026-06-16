@@ -30,7 +30,7 @@ Cada `PendingRefinement` lleva: `run_id`, `client_tag`, `generated_at`, `source_
 | `core/adapters/valinor_adapter.py` | intercepta el seam B (`_run_refinement_background`): si el flag → estaciona con procedencia; si no → auto-write legacy |
 | `api/routers/clients.py` | 3 endpoints: `GET .../pending-refinements`, `POST .../{id}/approve`, `POST .../{id}/reject` |
 | `scripts/provenance_linter.py` | gate de CI |
-| `tests/test_n4_writepath.py` | 18 tests: stage-no-activa, approve-merge, reject-archiva, doble-review bloqueado, procedencia obligatoria, flag gating, round-trip, linter, intercepción del adapter (flag on/off) |
+| `tests/test_n4_writepath.py` | 25 tests (18 al primer write, +7 tras la revisión adversarial): stage-no-activa, approve-merge, reject-archiva, doble-review bloqueado, procedencia obligatoria, flag gating, round-trip, linter, intercepción del adapter (flag on/off) |
 
 ## Revisión
 
